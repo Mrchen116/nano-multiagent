@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isIP } from "node:net";
 import type { ImContext } from "./context.js";
 import { body, params, query } from "./context.js";
+import { broadcastUserProfileUpdated } from "./human-avatar-projection.js";
 import { IdentityError, bearer, browserSessionCookieName, requireCompanyAdmin, type User } from "./identity.js";
 
 type Row = Record<string, any>;
@@ -12,7 +13,8 @@ function string(input: Row, key: string, minimum = 0, maximum = Infinity): strin
   return value;
 }
 const browser = (request: FastifyRequest) => request.headers["x-im-session"] === "browser";
-function account(user: User) {
+/** Format an authenticated human user's `/im/v1/me` account payload. */
+export function formatAccountProfile(user: User) {
   return Object.fromEntries(
     [
       "id",
@@ -23,8 +25,9 @@ function account(user: User) {
       "default_entry_node_id",
       "locale",
       "created_at",
+      "avatar_version",
     ]
-      .map((key) => [key, user[key]])
+      .map((key) => [key, key === "avatar_version" ? (user[key] ?? null) : user[key]])
       .concat([["user_id", user.id]]),
   );
 }
@@ -156,7 +159,7 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
     identity.rateLimit("ws-ticket:" + session.sid, 10, 60);
     return { ticket: identity.issueTicket(session.sid), expires_in: 30 };
   });
-  app.get("/im/v1/me", async (request) => account(identity.authenticateRequest(request)));
+  app.get("/im/v1/me", async (request) => formatAccountProfile(identity.authenticateRequest(request)));
   app.patch("/im/v1/me/timezone", async request => {
     const user = identity.authenticateRequest(request);
     return { timezone: ctx.messaging.updateUserTimezone(user.id, body(request).timezone) };
@@ -181,7 +184,9 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
       locale,
       user.id,
     );
-    return account(identity.user(user.id)!);
+    const updated = identity.user(user.id)!;
+    if (displayName !== user.display_name) broadcastUserProfileUpdated(ctx, updated);
+    return formatAccountProfile(updated);
   });
   app.post("/im/v1/bind", async (request) => {
     identity.authenticateRequest(request);
@@ -211,13 +216,14 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
     if (typeof cursor !== "string" || cursor.length > 128)
       throw new IdentityError(422, "invalid cursor");
     const rows = identity.all(
-      "SELECT u.id,u.username,u.display_name,u.membership_status,u.is_company_admin,(SELECT count(*) FROM nodes n WHERE n.owner_id=u.id AND (u.personal_space_enabled=0 OR EXISTS(SELECT 1 FROM agent_profiles p WHERE p.node_id=n.node_id AND p.space_id='company:default'))) AS node_count,(SELECT count(*) FROM agent_profiles a WHERE a.owner_id=u.id AND a.space_id='company:default' AND a.is_stale=0) AS agent_count FROM users u WHERE u.password_hash IS NOT NULL AND u.password_hash!='' AND u.membership_status!='none' AND u.id>? ORDER BY u.id LIMIT 51",
+      "SELECT u.id,u.username,u.display_name,u.membership_status,u.is_company_admin,u.avatar_version,(SELECT count(*) FROM nodes n WHERE n.owner_id=u.id AND (u.personal_space_enabled=0 OR EXISTS(SELECT 1 FROM agent_profiles p WHERE p.node_id=n.node_id AND p.space_id='company:default'))) AS node_count,(SELECT count(*) FROM agent_profiles a WHERE a.owner_id=u.id AND a.space_id='company:default' AND a.is_stale=0) AS agent_count FROM users u WHERE u.password_hash IS NOT NULL AND u.password_hash!='' AND u.membership_status!='none' AND u.id>? ORDER BY u.id LIMIT 51",
       cursor,
     );
     return {
       members: rows.slice(0, 50).map((row) => ({
         ...row,
         is_company_admin: Boolean(row.is_company_admin),
+        avatar_version: row.avatar_version ?? null,
       })),
       next_cursor: rows.length > 50 ? rows[49]!.id : null,
     };

@@ -116,6 +116,7 @@ function toIdentityActor(assignee: TaskActor, name: string): Actor {
     ...(assignee.user_id ? { user_id: assignee.user_id } : {}),
     display_name: name,
     ...(isPersonal ? { role: "personal" as const } : {}),
+    ...(assignee.avatar_version !== undefined ? { avatar_version: assignee.avatar_version } : {}),
   };
 }
 
@@ -214,6 +215,7 @@ export function TaskAssigneePill({
                     id: assignee.id,
                     userId: assignee.user_id,
                     name,
+                    avatarVersion: assignee.avatar_version,
                     isSelf: Boolean(selfUserId && assignee.id === selfUserId),
                     element,
                   },

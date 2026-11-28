@@ -14,6 +14,7 @@ export function PersonalAgentBlockedContacts({bindingId, agentId, readOnly = fal
   const unblock = useMutation({mutationFn:(actorId: string)=>{if(blocked) throw new Error(t('agents.settings.refreshing')); return unblockPersonalContact(actorId);},onSettled:async()=>{await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:key})]);}});
   const actors = (contacts.data?.items ?? []).map(person => ({
     type: "user" as const, id:person.avatar_id ?? person.actor_id, display_name:person.actor_name,
+    ...(person.avatar_version !== undefined ? { avatar_version: person.avatar_version } : {}),
   }));
   return <AvatarIdentities actors={actors} source="names"><section className="im-agent-card pa-blocked-contacts" aria-label={t('pa.blocked.title')}>
     <div><h3 className="im-agent-card-title">{t('pa.blocked.title')}{contacts.data && <span className="pa-blocked-count">{contacts.data.items.length}</span>}</h3>

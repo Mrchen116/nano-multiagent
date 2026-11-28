@@ -195,6 +195,25 @@
         "displayNameHint": "显示在聊天、任务和成员列表中。",
         "details": "账号详情"
       },
+      "avatar": {
+        "upload": "上传头像",
+        "change": "更换头像",
+        "remove": "移除",
+        "changeTrigger": "更换个人头像",
+        "cropTitle": "调整头像",
+        "cropDescription": "拖拽平移并缩放图片以设置圆形个人头像。",
+        "zoomLabel": "缩放比例",
+        "reselect": "重新选择",
+        "cancel": "取消",
+        "close": "关闭",
+        "invalidFileError": "仅支持 5 MB 以内的静态 PNG、JPEG 或 WebP 图片，当前已生效头像保持不变。",
+        "emptyError": "所选图片文件为空，请选择有效的静态图片。",
+        "decodeError": "图片无法解码，请选择其他静态图片。",
+        "rateLimitedError": "头像操作过于频繁，请稍后再试。",
+        "saveError": "头像更新失败，当前已生效头像保持不变。",
+        "updatedStatus": "个人头像已更新。",
+        "removedStatus": "已移除自定义头像，恢复默认圆章。"
+      },
       "defaults": {
         "heading": "设备",
         "subtitle": "你拥有的设备及连接状态。",

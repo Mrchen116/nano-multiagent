@@ -1,26 +1,22 @@
-use crate::autostart::{get_desktop_login_autostart, set_desktop_login_autostart};
-use crate::config::DesktopPaths;
-use crate::host_server::HostSharedState;
+use crate::autostart::get_desktop_login_autostart;
+use crate::config::{show_error_dialog, DesktopPaths};
+use crate::host_server::{register_login, set_managed_login, HostSharedState};
 use crate::local_node::{open_external_url, resolve_active_bundle, run_local_admin_sync};
-use crate::notifications::{DesktopNotificationRecord, DesktopUiBridge, WindowAttentionState};
+use crate::notifications::{DesktopUiBridge, WindowAttentionState};
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::NewWindowResponse;
 use tauri::{
-    AppHandle, LogicalPosition, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    AppHandle, Manager, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
-const POPUP_WINDOW_LABEL: &str = "notification-popup";
-const POPUP_WIDTH: f64 = 388.0;
-const POPUP_HEIGHT: f64 = 124.0;
 const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 #[derive(Clone)]
@@ -46,8 +42,6 @@ pub struct TauriUiCoordinator {
     status_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     autostart_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     menu_items: Mutex<Option<TrayMenuItems>>,
-    popup_seq: AtomicU64,
-    popup_shown_count: AtomicU64,
 }
 
 impl Default for TauriUiCoordinator {
@@ -67,8 +61,6 @@ impl Default for TauriUiCoordinator {
             status_item: Mutex::new(None),
             autostart_item: Mutex::new(None),
             menu_items: Mutex::new(None),
-            popup_seq: AtomicU64::new(0),
-            popup_shown_count: AtomicU64::new(0),
         }
     }
 }
@@ -284,6 +276,15 @@ impl DesktopUiBridge for TauriUiCoordinator {
         });
     }
 
+    fn login_autostart_changed(&self, enabled: bool) {
+        if let Some(item) = self.autostart_item.lock().unwrap().clone() {
+            let _ = item.set_checked(enabled);
+        }
+        if let Some(win) = self.app_handle.lock().unwrap().as_ref().and_then(|app| app.get_webview_window(MAIN_WINDOW_LABEL)) {
+            let _ = win.eval("window.dispatchEvent(new Event('crewden:login-autostart-changed'))");
+        }
+    }
+
     fn set_locale(&self, locale: &str) {
         let normalized = if locale.trim().to_ascii_lowercase().starts_with("en") {
             "en".to_string()
@@ -319,7 +320,6 @@ impl DesktopUiBridge for TauriUiCoordinator {
     }
 
     fn activate_route(&self, target_route: &str) {
-        self.dismiss_notification_popup();
         if target_route.starts_with('/') {
             *self.pending_route.lock().unwrap() = Some(target_route.to_string());
             self.set_current_route(target_route.to_string());
@@ -327,16 +327,20 @@ impl DesktopUiBridge for TauriUiCoordinator {
         let Some(app) = self.app_handle.lock().unwrap().clone() else {
             return;
         };
-        let route = target_route.to_string();
+
         let coord = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
         let app_clone = app.clone();
         let _ = app.run_on_main_thread(move || {
-            let _ = coord.ensure_main_window(&app_clone, Some(&route));
+            let _ = coord.ensure_main_window(&app_clone, None);
         });
     }
 
+    fn clear_session_navigation(&self) {
+        self.pending_route.lock().unwrap().take();
+        self.attention.write().unwrap().current_route.clear();
+    }
+
     fn focus_window(&self) {
-        self.dismiss_notification_popup();
         let Some(app) = self.app_handle.lock().unwrap().clone() else {
             return;
         };
@@ -359,153 +363,6 @@ impl DesktopUiBridge for TauriUiCoordinator {
                 );
             }
         });
-    }
-
-    fn present_notification_popup(&self, item: &DesktopNotificationRecord) {
-        let seq = self.popup_seq.fetch_add(1, Ordering::SeqCst) + 1;
-        self.popup_shown_count.fetch_add(1, Ordering::SeqCst);
-        let Some(app) = self.app_handle.lock().unwrap().clone() else {
-            return;
-        };
-        let Some((port, nonce)) = (*self.bootstrap_base.lock().unwrap()).clone() else {
-            return;
-        };
-        let record = item.clone();
-        let locale = self.locale.lock().unwrap().clone();
-        let app_for_show = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            let mut popup_url =
-                match url::Url::parse(&format!("http://127.0.0.1:{}/desktop/internal/popup-banner", port)) {
-                    Ok(u) => u,
-                    Err(_) => return,
-                };
-            popup_url
-                .query_pairs_mut()
-                .append_pair("nonce", &nonce)
-                .append_pair("title", &record.title)
-                .append_pair("body", &record.body)
-                .append_pair("kind", &record.kind)
-                .append_pair("route", &record.target_route)
-                .append_pair("locale", &locale);
-
-            let win = if let Some(existing) = app_for_show.get_webview_window(POPUP_WINDOW_LABEL) {
-                let payload = json!({
-                    "title": record.title,
-                    "body": record.body,
-                    "kind": record.kind,
-                    "route": record.target_route,
-                    "locale": locale,
-                });
-                let payload_json_str =
-                    serde_json::to_string(&payload.to_string()).unwrap_or_else(|_| "\"{}\"".to_string());
-                let _ = existing.eval(&format!(
-                    "if (window.__updateCrewdenPopup) {{ window.__updateCrewdenPopup(JSON.parse({})); }} else {{ window.location.replace({}); }}",
-                    payload_json_str,
-                    serde_json::to_string(popup_url.as_str()).unwrap_or_default()
-                ));
-                existing
-            } else {
-                let Ok(created) = WebviewWindowBuilder::new(
-                    &app_for_show,
-                    POPUP_WINDOW_LABEL,
-                    WebviewUrl::External(popup_url),
-                )
-                .title("Crewden Notification")
-                .inner_size(POPUP_WIDTH, POPUP_HEIGHT)
-                .decorations(false)
-                .transparent(true)
-                .shadow(false)
-                .background_color(tauri::window::Color(0, 0, 0, 0))
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .resizable(false)
-                .focused(false)
-                .visible(false)
-                .build() else {
-                    return;
-                };
-                created
-            };
-
-            // Position at top-right on macOS or bottom-right above taskbar on Windows!
-            // Note: body has 8px top, 14px horizontal, and 20px bottom transparent shadow gutter.
-            if let Ok(Some(mon)) = app_for_show.primary_monitor() {
-                let scale = mon.scale_factor();
-                let area = mon.work_area();
-                let w_phys = (POPUP_WIDTH * scale).round() as i32;
-                let h_phys = (POPUP_HEIGHT * scale).round() as i32;
-                let margin_x = (4.0 * scale).round() as i32;
-                let margin_y = (6.0 * scale).round() as i32;
-                let x = area.position.x + area.size.width as i32 - w_phys - margin_x;
-                let y = if cfg!(target_os = "windows") {
-                    area.position.y + area.size.height as i32 - h_phys - margin_y
-                } else {
-                    area.position.y + margin_y
-                };
-                let _ = win.set_position(PhysicalPosition::new(x, y));
-            } else {
-                let _ = win.set_position(LogicalPosition::new(960.0, 24.0));
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                if let Ok(ns_win_ptr) = win.ns_window() {
-                    unsafe {
-                        let ns_win = ns_win_ptr as *mut objc2::runtime::AnyObject;
-                        if !ns_win.is_null() {
-                            if let Some(ns_color_cls) = objc2::runtime::AnyClass::get(c"NSColor") {
-                                let clear: *mut objc2::runtime::AnyObject =
-                                    objc2::msg_send![ns_color_cls, clearColor];
-                                let _: () = objc2::msg_send![ns_win, setBackgroundColor: clear];
-                            }
-                            let _: () = objc2::msg_send![ns_win, setOpaque: false];
-                            let _: () = objc2::msg_send![ns_win, setHasShadow: false];
-                            // NSStatusWindowLevel = 25; CanJoinAllSpaces | IgnoresCycle | FullScreenAuxiliary
-                            let level: isize = 25;
-                            let behavior: usize = (1 << 0) | (1 << 6) | (1 << 8);
-                            let _: () = objc2::msg_send![ns_win, setLevel: level];
-                            let _: () = objc2::msg_send![ns_win, setCollectionBehavior: behavior];
-                            let _: () = objc2::msg_send![ns_win, setHidesOnDeactivate: false];
-                            let _: () = objc2::msg_send![ns_win, orderFrontRegardless];
-                        }
-                    }
-                } else {
-                    let _ = win.show();
-                }
-            }
-
-            #[cfg(not(target_os = "macos"))]
-            {
-                let _ = win.show();
-            }
-        });
-
-        let app_for_timer = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(5500));
-            let Some(coord) = app_for_timer.try_state::<Arc<TauriUiCoordinator>>() else {
-                return;
-            };
-            if coord.popup_seq.load(Ordering::SeqCst) == seq {
-                coord.dismiss_notification_popup();
-            }
-        });
-    }
-
-    fn dismiss_notification_popup(&self) {
-        let Some(app) = self.app_handle.lock().unwrap().clone() else {
-            return;
-        };
-        let app_clone = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            if let Some(win) = app_clone.get_webview_window(POPUP_WINDOW_LABEL) {
-                let _ = win.hide();
-            }
-        });
-    }
-
-    fn popup_count(&self) -> u64 {
-        self.popup_shown_count.load(Ordering::SeqCst)
     }
 
     fn reload_webview(&self, target_route: Option<&str>) {
@@ -637,35 +494,11 @@ pub fn install_system_tray(
                             .get(&state_for_menu.host_config.read().unwrap().im_origin)
                             .map(|s| s.owner_id.clone()),
                         action,
+                        state_for_menu.node_lifecycle.clone(),
                     );
                 }
                 "toggle_autostart" => {
-                    let next_enabled = !get_desktop_login_autostart(&state_for_menu.paths);
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = set_desktop_login_autostart(&state_for_menu.paths, &exe, next_enabled);
-                    }
-                    if let Some(ref item) = *coord_for_menu.autostart_item.lock().unwrap() {
-                        let _ = item.set_checked(next_enabled);
-                    }
-                    let origin = state_for_menu.host_config.read().unwrap().im_origin.clone();
-                    let owner = state_for_menu
-                        .sessions
-                        .read()
-                        .unwrap()
-                        .by_origin
-                        .get(&origin)
-                        .map(|s| s.owner_id.clone());
-                    spawn_tray_lifecycle_action(
-                        state_for_menu.paths.clone(),
-                        state_for_menu.dev_repo_root.clone(),
-                        origin,
-                        owner,
-                        if next_enabled {
-                            "autostart-on"
-                        } else {
-                            "autostart-off"
-                        },
-                    );
+                    spawn_tray_login_toggle(state_for_menu.clone());
                 }
                 "quit" => {
                     coord_for_menu.explicit_quit.store(true, Ordering::SeqCst);
@@ -688,11 +521,13 @@ fn spawn_tray_lifecycle_action(
     im_origin: String,
     owner_id: Option<String>,
     action: &'static str,
+    lock: Arc<Mutex<()>>,
 ) {
     let Some(owner) = owner_id else {
         return;
     };
     std::thread::spawn(move || {
+        let _guard = lock.lock().unwrap();
         if let Ok(bundle) = resolve_active_bundle(&paths, &im_origin, dev_repo_root.as_deref()) {
             let _ = run_local_admin_sync(
                 &paths,
@@ -703,6 +538,48 @@ fn spawn_tray_lifecycle_action(
                 None,
                 Some(&json!({ "action": action })),
             );
+        }
+    });
+}
+
+fn spawn_tray_login_toggle(state: Arc<HostSharedState>) {
+    let origin = state.host_config.read().unwrap().im_origin.clone();
+    let owner = state
+        .sessions
+        .read()
+        .unwrap()
+        .by_origin
+        .get(&origin)
+        .map(|s| s.owner_id.clone());
+    std::thread::spawn(move || {
+        let result = {
+            let _guard = state.node_lifecycle.lock().unwrap();
+            let enabled = !get_desktop_login_autostart(&state.paths);
+            (|| {
+                if !state.paths.desktop_active_path(&origin)?.is_file() {
+                    let result = register_login(&state, enabled);
+                    state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&state.paths));
+                    return result;
+                }
+                let Some(owner) = owner.as_deref() else {
+                    state.ui_bridge.login_autostart_changed(!enabled);
+                    return Err("请先登录本机节点所属账号".into());
+                };
+                let bundle =
+                    resolve_active_bundle(&state.paths, &origin, state.dev_repo_root.as_deref())?;
+                let out = set_managed_login(&state, &bundle, &origin, owner, None)?;
+                if out.ok {
+                    Ok(())
+                } else {
+                    Err(out.body["detail"]
+                        .as_str()
+                        .unwrap_or("本机设置失败")
+                        .to_owned())
+                }
+            })()
+        };
+        if let Err(error) = result {
+            show_error_dialog(&error);
         }
     });
 }

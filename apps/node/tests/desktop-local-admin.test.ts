@@ -1,6 +1,7 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { expect, it } from 'vitest';
 import {
   LocalAdminHttpError,
@@ -12,6 +13,35 @@ import {
 } from '../src/local-admin.js';
 import { LocalNodeBridge } from '../src/local-bridge.js';
 import { gatewayPlist, processBirth } from '../src/lifecycle.js';
+
+// The Windows candidate supplies a loopback SMB path in addition to its local drive.
+const workspaceParents = [tmpdir(), ...(process.env.CREWDEN_TEST_UNC_PARENT ? [process.env.CREWDEN_TEST_UNC_PARENT] : [])];
+it.each(workspaceParents)('resolves workspace file URLs against real files under %s', async parent => {
+  const root = await mkdtemp(join(parent, 'crewden-file-url-'));
+  try {
+    const workspace = join(root, 'work');
+    const configPath = join(root, 'config.yaml');
+    await mkdir(workspace);
+    await writeFile(configPath, JSON.stringify({
+      node: { node_id: 'local', user_id: 'owner' },
+      agents: [{ agent_id: 'agent', workspace_root: workspace }],
+    }));
+    const file = join(workspace, 'total #1 %20.pdf');
+    await writeFile(file, 'report');
+    const open = (targetPath: string) => resolveLocalWorkspaceTarget({
+      origin: 'https://im.example', ownerId: 'owner', agentId: 'agent', mode: 'open', targetPath, configPath,
+    });
+    const url = pathToFileURL(file);
+    await expect(open(url.href)).resolves.toMatchObject({ resolved_path: await realpath(file) });
+    await expect(open(pathToFileURL(configPath).href)).rejects.toMatchObject({ status: 403, errorCode: 'outside_workspace' });
+
+    // A different authority must never select the same pathname on the current host.
+    url.hostname = 'other-server.invalid';
+    await expect(open(url.href)).rejects.toMatchObject({ status: process.platform === 'win32' ? 403 : 400 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 it('enforces owner_id isolation, probes workers with candidate PATH, validates empty-node approval models, toggles autostart in isolation, and blocks workspace escapes & executables', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nano-desktop-admin-'));
@@ -95,6 +125,9 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
       { key: 'SEARXNG_URL', value: 'http://127.0.0.1:8888' },
       { key: 'PATH', value: customBin },
     ]);
+
+    const supervision = await inspectLocalNode({ origin: 'https://im.example.com', ownerId: 'owner-alice', configPath, supervisionOnly: true });
+    expect(supervision).toEqual({ ownership: 'takeover_available', node_name: 'Air-Studio', version: 'source', autostart: true, scheduled_at_login: false });
 
     const probed = await probeDesktopWorkers(customBin);
     expect(probed.find(w => w.runtime === 'claude')?.resolved_path).toBe(join(customBin, 'claude'));
@@ -223,6 +256,16 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
     await controlLocalNodeLifecycle({ origin: 'https://im.example.com', ownerId: 'owner-alice', action: 'autostart-off', configPath });
     await expect(readFile(gatewayPlist(configPath), 'utf8')).rejects.toThrow();
 
+    // A failed native registration must restore the last saved preference.
+    const brokenRegistration = gatewayPlist(configPath);
+    await mkdir(brokenRegistration, { recursive: true });
+    await expect(controlLocalNodeLifecycle({
+      origin: 'https://im.example.com', ownerId: 'owner-alice', action: 'autostart-on', configPath,
+    })).rejects.toThrow();
+    expect((await inspectLocalNode({
+      origin: 'https://im.example.com', ownerId: 'owner-alice', configPath, supervisionOnly: true,
+    })).autostart).toBe(false);
+
     // 6. Workspace open allows regular files, blocks symlink escape, and blocks direct open on .sh while allowing reveal.
     const openedDoc = await resolveLocalWorkspaceTarget({
       origin: 'https://im.example.com',
@@ -239,7 +282,7 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
         origin: 'https://im.example.com',
         ownerId: 'owner-alice',
         agentId: 'e1',
-        targetPath: 'reports/escape-link.txt',
+        targetPath: pathToFileURL(join(workspace, 'reports', 'escape-link.txt')).href,
         mode: 'open',
         configPath,
       }),

@@ -1,4 +1,4 @@
-use crate::autostart::set_desktop_login_autostart;
+use crate::autostart::{get_desktop_login_autostart, set_desktop_login_autostart};
 use crate::config::{
     append_host_log, classify_deep_link_connect, current_desktop_platform_id,
     local_node_bridge_endpoint, normalize_im_origin, random_hex_token, resolve_default_im_origin,
@@ -8,10 +8,10 @@ use crate::config::{
 use crate::local_node::{
     ensure_seed_bundle_installed, has_pending_seed_bundle, open_external_url,
     open_or_reveal_workspace_path, reconcile_ready_seed_bundle, resolve_active_bundle,
-    run_local_admin_sync, stop_all_managed_local_nodes, sync_seed_desktop_defaults,
+    ActiveBundlePaths, LocalAdminResult, run_local_admin_sync, stop_all_managed_local_nodes, sync_seed_desktop_defaults,
 };
 use crate::notifications::{
-    spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
+    clear_stale_notifications, spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
 };
 use axum::body::Body;
 use axum::extract::ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade};
@@ -84,10 +84,36 @@ pub struct HostSharedState {
     pub notification_center: Arc<NotificationCenterState>,
     pub ui_bridge: Arc<dyn DesktopUiBridge>,
     pub shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
+    pub node_lifecycle: Arc<Mutex<()>>,
     pub refresh_lock: tokio::sync::Mutex<()>,
 }
 
 impl HostSharedState {
+    /// Hold the session read lock through a notification side effect so a switch cannot overtake it.
+    pub(crate) fn with_notification_session(&self, expected: &ActiveDaemonSession, action: impl FnOnce()) {
+        let current = self.session_tx.borrow();
+        if current.as_ref().is_some_and(|s| s.same_principal(expected)) {
+            action();
+        }
+    }
+
+    fn set_notification_session(&self, next: Option<ActiveDaemonSession>) {
+        self.session_tx.send_modify(|current| {
+            let changed = match (current.as_ref(), next.as_ref()) {
+                (Some(old), Some(new)) => !old.same_principal(new),
+                (None, None) => false,
+                _ => true,
+            };
+            if changed {
+                clear_stale_notifications(&self.paths, None);
+                self.ui_bridge.clear_session_navigation();
+                self.notification_center.clear_conversations(self.ui_bridge.as_ref());
+                self.notification_center.set_ws_connected(false);
+            }
+            *current = next;
+        });
+    }
+
     pub fn is_seed_ready(&self) -> bool {
         matches!(*self.seed_status.read().unwrap(), SeedPreparationState::Ready)
     }
@@ -260,8 +286,11 @@ pub fn handle_deep_link_url(state: &HostSharedState, raw_url: &str) {
             state.ui_bridge.notify_host_context_updated();
         }
         DeepLinkConnectOutcome::NotConnectUrl => {
-            if let Ok(Some(route)) = crate::config::parse_deep_link_route(raw_url) {
-                state.ui_bridge.activate_route(&route);
+            if let Ok(Some((scope, route))) = crate::config::parse_notification_link(raw_url) {
+                let active = state.session_tx.borrow();
+                if active.as_ref().is_some_and(|session| session.notification_scope() == scope) {
+                    state.ui_bridge.activate_route(&route);
+                }
             } else {
                 state.ui_bridge.focus_window();
             }
@@ -316,6 +345,12 @@ pub async fn start_host_server_full(
     host_cfg.persisted_port = port;
     write_private_json(&paths.host_config_path(), &host_cfg)?;
 
+    // The retired diagnostic log contains private previews and has no product reader.
+    match fs::remove_file(paths.notifications_log_path()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("Cannot remove legacy desktop notification previews: {e}")),
+    }
     let sessions = load_sessions(&paths);
     let initial_daemon_session = sessions
         .by_origin
@@ -326,6 +361,7 @@ pub async fn start_host_server_full(
             session: s,
         });
 
+    clear_stale_notifications(&paths, initial_daemon_session.as_ref());
     let (session_tx, session_rx) = watch::channel(initial_daemon_session);
     let (session_epoch_tx, _) = watch::channel(host_cfg.context_epoch);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -375,8 +411,12 @@ pub async fn start_host_server_full(
         notification_center: notification_center.clone(),
         ui_bridge: ui_bridge.clone(),
         shutdown_tx: Mutex::new(Some(shutdown_tx)),
+        node_lifecycle: Arc::new(Mutex::new(())),
         refresh_lock: tokio::sync::Mutex::new(()),
     });
+
+    #[cfg(target_os = "macos")]
+    crate::notifications::macos_notify::install_click_handler(Arc::downgrade(&state));
 
     if let Some(dl) = initial_deep_link {
         handle_deep_link_url(&state, dl);
@@ -412,14 +452,7 @@ fn build_router(state: Arc<HostSharedState>) -> Router {
         .route("/desktop/bootstrap", get(handle_bootstrap))
         .route("/desktop/internal/status", get(handle_internal_status))
         .route("/desktop/internal/reload-assets", post(handle_internal_reload))
-        .route("/desktop/internal/notifications", get(handle_internal_notifications))
-        .route(
-            "/desktop/internal/activate-notification",
-            post(handle_internal_activate_notification),
-        )
         .route("/desktop/internal/deep-link", post(handle_internal_deep_link))
-        .route("/desktop/internal/popup-banner", get(handle_internal_popup_banner))
-        .route("/desktop/internal/popup-action", post(handle_internal_popup_action))
         .route("/desktop/internal/window-attention", post(handle_internal_attention))
         .route("/desktop/internal/shutdown", post(handle_internal_shutdown))
         .route("/desktop/v1/context", get(handle_get_context))
@@ -631,7 +664,6 @@ async fn handle_internal_status(
         "deep_link_error": state.deep_link_error.lock().unwrap().clone(),
         "ws_connected": state.notification_center.is_ws_connected(),
         "unread_total": state.notification_center.unread(),
-        "popup_count": state.ui_bridge.popup_count(),
         "window_focused": attn.visible_and_focused,
         "current_route": attn.current_route,
         "active_ui_version": bundle.as_ref().map(|b| &b.version),
@@ -649,44 +681,6 @@ async fn handle_internal_reload(
     }
     state.ui_bridge.reload_webview(None);
     Json(json!({ "ok": true })).into_response()
-}
-
-async fn handle_internal_notifications(
-    State(state): State<Arc<HostSharedState>>,
-    headers: HeaderMap,
-) -> Response {
-    if let Err(err) = verify_reload_token(&state, &headers) {
-        return err;
-    }
-    Json(json!({
-        "unread_total": state.notification_center.unread(),
-        "items": state.notification_center.list(),
-    }))
-    .into_response()
-}
-
-#[derive(Deserialize)]
-struct ActivateNotifBody {
-    id: Option<String>,
-    route: Option<String>,
-}
-
-async fn handle_internal_activate_notification(
-    State(state): State<Arc<HostSharedState>>,
-    headers: HeaderMap,
-    Json(body): Json<ActivateNotifBody>,
-) -> Response {
-    if let Err(err) = verify_reload_token(&state, &headers) {
-        return err;
-    }
-    let route = body
-        .route
-        .or_else(|| body.id.as_deref().and_then(|id| state.notification_center.find_route(id)));
-    let Some(target) = route else {
-        return json_error(StatusCode::NOT_FOUND, "Notification target not found");
-    };
-    state.ui_bridge.activate_route(&target);
-    Json(json!({ "ok": true, "activated_route": target })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -720,184 +714,6 @@ async fn handle_internal_deep_link(
         }
     }
     state.ui_bridge.focus_window();
-    Json(json!({ "ok": true })).into_response()
-}
-
-#[derive(Deserialize)]
-struct PopupBannerQuery {
-    nonce: Option<String>,
-}
-
-const POPUP_BANNER_CSP: &str =
-    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'";
-
-const POPUP_BANNER_HTML: &str = r##"<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8" />
-<style>
-  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
-  html, body {
-    margin: 0; width: 100%; height: 100%; overflow: hidden;
-    background: transparent !important;
-    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
-    color: #231836;
-  }
-  body {
-    padding: 8px 14px 20px 14px;
-  }
-  @keyframes popupEnter {
-    from { opacity: 0; transform: translateY(-5px) scale(0.985); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-  }
-  .card {
-    width: 100%; height: 100%; padding: 12px 15px;
-    display: flex; align-items: center; gap: 12px;
-    background: rgba(255, 255, 255, 0.97);
-    border: 1px solid rgba(48, 32, 73, 0.07);
-    border-radius: 22px;
-    box-shadow: 0 10px 24px -6px rgba(35, 24, 54, 0.16), 0 2px 6px rgba(35, 24, 54, 0.05);
-    cursor: pointer;
-    position: relative;
-    animation: popupEnter 180ms cubic-bezier(0.22, 1, 0.36, 1);
-    transition: background 140ms ease, transform 140ms ease;
-  }
-  .card:hover { background: #FFFFFF; }
-  .card:active { transform: scale(0.992); }
-  .avatar {
-    width: 42px; height: 42px; flex-shrink: 0; border-radius: 13px;
-    background: #FFF0B5;
-    color: #6B43D8;
-    display: grid; place-items: center;
-  }
-  .avatar svg { width: 24px; height: 24px; }
-  .main { flex: 1; min-width: 0; padding-right: 18px; }
-  .meta { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
-  .brand { font-size: 11px; font-weight: 700; color: #6B43D8; letter-spacing: -0.15px; }
-  .sep, .time { font-size: 11px; color: #968FA6; font-weight: 500; }
-  .title {
-    font-size: 13.5px; font-weight: 650; line-height: 1.28; color: #231836;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;
-  }
-  .body {
-    font-size: 12px; line-height: 1.36; color: #665E78;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  }
-  .close {
-    position: absolute; top: 10px; right: 11px; width: 22px; height: 22px;
-    border: 0; border-radius: 999px; background: transparent; color: #968FA6;
-    font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
-    opacity: 0.65; transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
-  }
-  .card:hover .close { opacity: 1; }
-  .close:hover { background: #F1EEF8; color: #231836; }
-</style>
-</head>
-<body>
-  <div class="card" id="card" role="button" tabindex="0">
-    <div class="avatar" aria-hidden="true">
-      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-        <g transform="translate(51 49) rotate(-9) translate(-50 -50)">
-          <path fill="#6B43D8" d="M 33,12 H 67 C 82.5,12 91,20.5 91,36 V 52 C 91,67.5 82.5,76 67,76 H 44 L 23.5,90.5 C 20.6,92.5 17,90.4 17,86.9 V 73.2 C 11.2,68.8 9,61.5 9,52 V 36 C 9,20.5 17.5,12 33,12 Z"/>
-          <rect x="32.5" y="33" width="12" height="19" rx="6" fill="#FFF0B5"/>
-          <path d="M 55.5,44.5 Q 63,34.5 70.5,44.5" fill="none" stroke="#FFF0B5" stroke-width="8.5" stroke-linecap="round"/>
-        </g>
-      </svg>
-    </div>
-    <div class="main">
-      <div class="meta">
-        <span class="brand">crewden</span>
-        <span class="sep" aria-hidden="true">·</span>
-        <span class="time" id="time">现在</span>
-      </div>
-      <div class="title" id="title"></div>
-      <div class="body" id="body"></div>
-    </div>
-    <button type="button" class="close" id="close" aria-label="关闭通知">×</button>
-  </div>
-<script>
-  const params = new URLSearchParams(window.location.search);
-  const state = {
-    nonce: params.get("nonce") || "",
-    title: params.get("title") || "",
-    body: params.get("body") || "",
-    kind: params.get("kind") || "human_message",
-    route: params.get("route") || "/chat",
-    locale: params.get("locale") || "zh",
-  };
-  function cleanPreviewText(raw) {
-    return String(raw || "").replace(/`([^`]+)`/g, "$1").trim();
-  }
-  function render(next) {
-    Object.assign(state, next);
-    const isEn = String(state.locale || "").toLowerCase().startsWith("en");
-    document.documentElement.lang = isEn ? "en" : "zh-CN";
-    document.getElementById("time").textContent = isEn ? "Now" : "现在";
-    document.getElementById("close").setAttribute("aria-label", isEn ? "Dismiss" : "关闭通知");
-    document.getElementById("title").textContent = cleanPreviewText(state.title) || "Crewden";
-    document.getElementById("body").textContent = cleanPreviewText(state.body);
-  }
-  window.__updateCrewdenPopup = render;
-  render(state);
-
-  document.getElementById("close").addEventListener("click", (e) => {
-    e.stopPropagation();
-    fetch("/desktop/internal/popup-action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nonce: state.nonce, action: "dismiss" }),
-    });
-  });
-  document.getElementById("card").addEventListener("click", () => {
-    fetch("/desktop/internal/popup-action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nonce: state.nonce, action: "open", route: state.route }),
-    });
-  });
-</script>
-</body>
-</html>"##;
-
-async fn handle_internal_popup_banner(
-    State(state): State<Arc<HostSharedState>>,
-    Query(query): Query<PopupBannerQuery>,
-) -> Response {
-    if query.nonce.as_deref() != Some(state.boot_nonce.as_str()) {
-        return json_error(StatusCode::FORBIDDEN, "Invalid popup nonce");
-    }
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "text/html; charset=utf-8")
-        .header("content-security-policy", POPUP_BANNER_CSP)
-        .header("cache-control", "no-store")
-        .body(Body::from(POPUP_BANNER_HTML))
-        .unwrap()
-}
-
-#[derive(Deserialize)]
-struct PopupActionBody {
-    nonce: String,
-    action: String,
-    route: Option<String>,
-}
-
-async fn handle_internal_popup_action(
-    State(state): State<Arc<HostSharedState>>,
-    Json(body): Json<PopupActionBody>,
-) -> Response {
-    if body.nonce != state.boot_nonce {
-        return json_error(StatusCode::FORBIDDEN, "Invalid popup nonce");
-    }
-    state.ui_bridge.dismiss_notification_popup();
-    if body.action == "open" {
-        let target = body
-            .route
-            .as_deref()
-            .filter(|r| r.starts_with('/') && !r.starts_with("//"))
-            .unwrap_or("/chat");
-        state.ui_bridge.activate_route(target);
-    }
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -938,16 +754,17 @@ async fn handle_internal_shutdown(
     if let Err(err) = verify_reload_token(&state, &headers) {
         return err;
     }
+    let shutdown = state.shutdown_tx.lock().unwrap().take();
     let paths = state.paths.clone();
     let dev = state.dev_repo_root.clone();
+    let lock = state.node_lifecycle.clone();
     let _ = tokio::task::spawn_blocking(move || {
+        let _guard = lock.lock().unwrap();
         stop_all_managed_local_nodes(&paths, dev.as_deref());
     })
     .await;
     let _ = fs::remove_file(state.paths.host_state_path());
-    if let Some(tx) = state.shutdown_tx.lock().unwrap().take() {
-        let _ = tx.send(());
-    }
+    if let Some(tx) = shutdown { let _ = tx.send(()); }
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -985,18 +802,16 @@ pub fn apply_server_switch(
     raw_origin: &str,
 ) -> Result<PersistedHostConfig, String> {
     let normalized = normalize_im_origin(raw_origin)?;
-    let next_cfg = {
-        let mut guard = state.host_config.write().unwrap();
-        if guard.im_origin != normalized {
-            guard.im_origin = normalized.clone();
-            guard.context_epoch += 1;
-        }
-        guard.clone()
-    };
+    let mut config = state.host_config.write().unwrap();
+    let mut next_cfg = config.clone();
+    if next_cfg.im_origin != normalized {
+        next_cfg.im_origin = normalized;
+        next_cfg.context_epoch += 1;
+    }
     *state.pending_server_switch.lock().unwrap() = None;
     *state.deep_link_error.lock().unwrap() = None;
     write_private_json(&state.paths.host_config_path(), &next_cfg)?;
-    let _ = write_host_state_snapshot(state);
+    *config = next_cfg.clone();
     state.auth_cache.lock().unwrap().clear();
     state.trajectory_tickets.lock().unwrap().clear();
     let _ = state.session_epoch_tx.send(next_cfg.context_epoch);
@@ -1012,7 +827,9 @@ pub fn apply_server_switch(
             im_origin: next_cfg.im_origin.clone(),
             session,
         });
-    let _ = state.session_tx.send(daemon_session);
+    state.set_notification_session(daemon_session);
+    drop(config);
+    let _ = write_host_state_snapshot(state);
     Ok(next_cfg)
 }
 
@@ -1100,6 +917,73 @@ fn require_seed_ready(state: &HostSharedState) -> Result<(), Response> {
             .into_response());
     }
     Ok(())
+}
+
+pub(crate) fn register_login(state: &HostSharedState, enabled: bool) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    set_desktop_login_autostart(&state.paths, &exe, enabled)
+        .map_err(|e| format!("系统登录自启设置失败，请检查系统登录项后重试 ({e})"))
+}
+
+// Serialize this pair of writes with node lifecycle operations. Authorize the
+// owner before touching the per-user login item, including on rollback.
+pub(crate) fn set_managed_login(
+    state: &HostSharedState,
+    bundle: &ActiveBundlePaths,
+    origin: &str,
+    owner: &str,
+    requested: Option<bool>,
+) -> Result<LocalAdminResult, String> {
+    let paths = &state.paths;
+    let inspect =
+        run_local_admin_sync(paths, bundle, origin, "supervise", Some(owner), None, None)?;
+    if !inspect.ok {
+        return Ok(inspect);
+    }
+    match inspect.body["ownership"].as_str() {
+        Some("managed_online" | "managed_stopped") => {}
+        ownership => {
+            state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(paths));
+            let (status, code, detail) = if ownership == Some("foreign_owner") {
+                (403, "foreign_owner", "请使用本机节点所属账号更新登录自启")
+            } else {
+                (409, "not_managed", "请先连接这台电脑")
+            };
+            return Ok(LocalAdminResult {
+                status,
+                ok: false,
+                body: json!({ "code": code, "detail": detail }),
+            });
+        }
+    }
+    let effective = inspect.body["autostart"] == true;
+    let enabled = requested.unwrap_or(!effective);
+    let previous = get_desktop_login_autostart(paths);
+    if let Err(error) = register_login(state, enabled) {
+        state.ui_bridge.login_autostart_changed(effective);
+        return Err(error);
+    }
+    let action = if enabled {
+        "autostart-on"
+    } else {
+        "autostart-off"
+    };
+    let result = run_local_admin_sync(
+        paths,
+        bundle,
+        origin,
+        "lifecycle",
+        Some(owner),
+        None,
+        Some(&json!({ "action": action })),
+    );
+    if !matches!(&result, Ok(out) if out.ok) {
+        register_login(state, previous)?;
+        state.ui_bridge.login_autostart_changed(effective);
+    } else {
+        state.ui_bridge.login_autostart_changed(enabled);
+    }
+    result
 }
 
 async fn invoke_local_admin(
@@ -1241,6 +1125,7 @@ async fn handle_local_connect(
     let owner_id = caller.owner_id.clone();
 
     let res = tokio::task::spawn_blocking(move || {
+        let _guard = state.node_lifecycle.lock().unwrap();
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
         let active_meta = json!({
             "version": bundle.version,
@@ -1263,9 +1148,9 @@ async fn handle_local_connect(
         )?;
         if connect_out.ok {
             let desired_autostart = connect_out.body["autostart"].as_bool().unwrap_or(true);
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = set_desktop_login_autostart(&paths, &exe, desired_autostart);
-            }
+            let registered = register_login(&state, desired_autostart);
+            state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&paths));
+            registered.map_err(|error| format!("本机节点已连接。{error}"))?;
         }
         Ok::<_, String>(connect_out)
     })
@@ -1308,46 +1193,24 @@ async fn handle_local_lifecycle(
         Err(err) => return err,
     };
 
-    let cli_action = if body.action == "autostart" {
-        if body.enabled.unwrap_or(true) {
-            "autostart-on"
-        } else {
-            "autostart-off"
-        }
-    } else {
-        body.action.as_str()
-    }
-    .to_string();
-    let toggle_desktop_login = if body.action == "autostart" {
-        Some(body.enabled.unwrap_or(true))
-    } else {
-        None
-    };
-
     let im_origin = state.host_config.read().unwrap().im_origin.clone();
     let paths = state.paths.clone();
     let dev_root = state.dev_repo_root.clone();
     let owner_id = caller.owner_id.clone();
 
     let res = tokio::task::spawn_blocking(move || {
+        let _guard = state.node_lifecycle.lock().unwrap();
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
-        let life_res = run_local_admin_sync(
-            &paths,
-            &bundle,
-            &im_origin,
-            "lifecycle",
-            Some(&owner_id),
-            None,
-            Some(&json!({ "action": cli_action })),
-        )?;
-        if !life_res.ok {
-            return Ok(life_res);
-        }
-        if let Some(enable_login) = toggle_desktop_login {
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = set_desktop_login_autostart(&paths, &exe, enable_login);
+        let out = if body.action == "autostart" {
+            set_managed_login(&state, &bundle, &im_origin, &owner_id, Some(body.enabled.unwrap_or(true)))?
+        } else {
+            if !matches!(body.action.as_str(), "start" | "stop" | "restart") {
+                return Ok(LocalAdminResult { status: 400, ok: false, body: json!({ "code": "invalid_action", "detail": "Unsupported lifecycle action" }) });
             }
-        }
+            run_local_admin_sync(&paths, &bundle, &im_origin, "lifecycle", Some(&owner_id), None,
+                Some(&json!({ "action": body.action })))?
+        };
+        if !out.ok { return Ok(out); }
         run_local_admin_sync(&paths, &bundle, &im_origin, "inspect", Some(&owner_id), None, None)
     })
     .await;
@@ -1383,6 +1246,7 @@ async fn handle_local_config(
     let owner_id = caller.owner_id.clone();
 
     let res = tokio::task::spawn_blocking(move || {
+        let _guard = state.node_lifecycle.lock().unwrap();
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
         let cfg_res = run_local_admin_sync(
             &paths,
@@ -1653,7 +1517,7 @@ async fn connect_local_bridge_ipc(endpoint: &str) -> Result<(BoxedIpcRead, Boxed
     Err("Unsupported platform".to_string())
 }
 
-async fn ping_local_bridge(endpoint: &str) -> Option<Value> {
+pub(crate) async fn ping_local_bridge(endpoint: &str) -> Option<Value> {
     let Ok(Ok((reader, mut writer))) =
         tokio::time::timeout(Duration::from_millis(600), connect_local_bridge_ipc(endpoint)).await
     else {
@@ -1899,7 +1763,7 @@ fn persist_auth_session_from_im(
     state: &HostSharedState,
     im_origin: &str,
     upstream_json: &Value,
-    force_daemon_restart: bool,
+    refreshing_token: Option<&str>,
 ) -> Result<Value, String> {
     let access_token = upstream_json["access_token"]
         .as_str()
@@ -1926,17 +1790,19 @@ fn persist_auth_session_from_im(
         updated_at: now_secs(),
     };
 
-    let principal_changed = {
-        let mut sessions = state.sessions.write().unwrap();
-        let prev_user = sessions.by_origin.get(im_origin).map(|s| s.user_id.clone());
-        sessions.by_origin.insert(im_origin.to_string(), entry.clone());
-        write_private_json(&state.paths.sessions_path(), &*sessions)?;
-        prev_user.as_deref() != Some(user_id.as_str())
-    };
-
-    let current_origin = state.host_config.read().unwrap().im_origin.clone();
-    if current_origin == im_origin && (force_daemon_restart || principal_changed) {
-        let _ = state.session_tx.send(Some(ActiveDaemonSession {
+    let config = state.host_config.read().unwrap();
+    let mut sessions = state.sessions.write().unwrap();
+    let previous = sessions.by_origin.get(im_origin);
+    if refreshing_token.is_some_and(|token| previous.is_none_or(|s| s.refresh_token != token)) {
+        return Err("Desktop session changed during refresh".into());
+    }
+    let principal_changed = previous.is_none_or(|s| s.user_id != user_id);
+    let mut updated = sessions.clone();
+    updated.by_origin.insert(im_origin.to_string(), entry.clone());
+    write_private_json(&state.paths.sessions_path(), &updated)?;
+    *sessions = updated;
+    if config.im_origin == im_origin && (refreshing_token.is_none() || principal_changed) {
+        state.set_notification_session(Some(ActiveDaemonSession {
             im_origin: im_origin.to_string(),
             session: entry,
         }));
@@ -1948,23 +1814,20 @@ fn persist_auth_session_from_im(
     }))
 }
 
-fn clear_auth_session_for_origin(state: &HostSharedState, im_origin: &str) {
-    {
-        let mut sessions = state.sessions.write().unwrap();
-        sessions.by_origin.remove(im_origin);
-        let _ = write_private_json(&state.paths.sessions_path(), &*sessions);
+fn clear_auth_session_for_origin(state: &HostSharedState, im_origin: &str, expected_token: Option<&str>) {
+    let mut config = state.host_config.write().unwrap();
+    let mut sessions = state.sessions.write().unwrap();
+    if expected_token.is_some_and(|t| sessions.by_origin.get(im_origin).is_none_or(|s| s.refresh_token != t)) {
+        return;
     }
+    sessions.by_origin.remove(im_origin);
+    let _ = write_private_json(&state.paths.sessions_path(), &*sessions);
     state.auth_cache.lock().unwrap().clear();
     state.trajectory_tickets.lock().unwrap().clear();
-    let next_epoch = {
-        let mut cfg = state.host_config.write().unwrap();
-        cfg.context_epoch += 1;
-        cfg.context_epoch
-    };
-    let _ = state.session_epoch_tx.send(next_epoch);
-    let current_origin = state.host_config.read().unwrap().im_origin.clone();
-    if current_origin == im_origin {
-        let _ = state.session_tx.send(None);
+    config.context_epoch += 1;
+    let _ = state.session_epoch_tx.send(config.context_epoch);
+    if config.im_origin == im_origin {
+        state.set_notification_session(None);
     }
 }
 
@@ -2015,7 +1878,7 @@ async fn forward_im_auth_establish(
     let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) else {
         return json_error(StatusCode::BAD_GATEWAY, "Invalid auth JSON from IM server");
     };
-    match persist_auth_session_from_im(&state, &im_origin, &parsed, true) {
+    match persist_auth_session_from_im(&state, &im_origin, &parsed, None) {
         Ok(sanitized) => (status, Json(sanitized)).into_response(),
         Err(msg) => json_error(StatusCode::BAD_GATEWAY, msg),
     }
@@ -2073,7 +1936,7 @@ pub async fn refresh_stored_session_serialized(
 
     let code = res.status().as_u16();
     if code == 401 || code == 403 {
-        clear_auth_session_for_origin(state, im_origin);
+        clear_auth_session_for_origin(state, im_origin, Some(&entry.refresh_token));
         return Err((
             StatusCode::UNAUTHORIZED,
             "Session expired or revoked".to_string(),
@@ -2097,7 +1960,7 @@ pub async fn refresh_stored_session_serialized(
             "Malformed refresh payload".to_string(),
         ));
     };
-    persist_auth_session_from_im(state, im_origin, &parsed, false)
+    persist_auth_session_from_im(state, im_origin, &parsed, Some(&entry.refresh_token))
         .map_err(|msg| (StatusCode::BAD_GATEWAY, msg))
 }
 
@@ -2130,7 +1993,7 @@ async fn handle_im_auth_logout(
         .by_origin
         .get(&im_origin)
         .cloned();
-    clear_auth_session_for_origin(&state, &im_origin);
+    clear_auth_session_for_origin(&state, &im_origin, None);
     if let Some(entry) = stored {
         let target = format!("{}/im/v1/auth/logout", im_origin);
         let _ = state
@@ -2153,7 +2016,10 @@ async fn handle_im_http_proxy(
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
     }
-    let im_origin = state.host_config.read().unwrap().im_origin.clone();
+    let (im_origin, notification_session) = {
+        let config = state.host_config.read().unwrap();
+        (config.im_origin.clone(), state.session_tx.subscribe())
+    };
     let path_and_q = uri
         .path_and_query()
         .map(|pq| pq.as_str())
@@ -2200,6 +2066,8 @@ async fn handle_im_http_proxy(
         "etag",
         "retry-after",
         "content-disposition",
+        "content-length",
+        "content-encoding",
     ] {
         if let Some(val) = res.headers().get(pass_hdr) {
             if let Ok(hv) = HeaderValue::from_bytes(val.as_bytes()) {
@@ -2207,18 +2075,25 @@ async fn handle_im_http_proxy(
             }
         }
     }
-    let bytes = res.bytes().await.unwrap_or_default();
-    if status.is_success()
+    // Only conversation mutations need a complete body for the desktop notification cache.
+    let body = if status.is_success()
         && (method == Method::POST || method == Method::PATCH)
         && uri.path().starts_with("/im/v1/conversations/")
     {
+        let Ok(bytes) = res.bytes().await else {
+            return json_error(StatusCode::BAD_GATEWAY, "Incomplete response from IM server");
+        };
         if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
-            state
-                .notification_center
-                .upsert_conversation(&parsed, state.ui_bridge.as_ref());
+            let session = notification_session.borrow();
+            if session.is_some() && !session.has_changed() {
+                state.notification_center.upsert_conversation(&parsed, state.ui_bridge.as_ref());
+            }
         }
-    }
-    response_builder.body(Body::from(bytes)).unwrap()
+        Body::from(bytes)
+    } else {
+        Body::from_stream(res.bytes_stream())
+    };
+    response_builder.body(body).unwrap()
 }
 
 async fn handle_im_ws_proxy(
@@ -2699,6 +2574,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn notification_clicks_and_late_updates_follow_the_active_service_and_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = DesktopPaths::resolve(&DesktopCliOptions {
+            isolated_root: Some(tmp.path().to_owned()), ..Default::default()
+        }).unwrap();
+        fs::write(paths.notifications_log_path(), r#"{"title":"A","body":"synthetic preview"}"#).unwrap();
+        let ui = Arc::new(NoopUiBridge::default());
+        let origin = "http://127.0.0.1:1";
+        let host = start_host_server(paths.clone(), Some(origin), None, ui.clone()).await.unwrap();
+        assert!(!paths.notifications_log_path().exists());
+
+        let login = |user: &str| json!({"user":{"id":user},"access_token":"access","refresh_token":user});
+        persist_auth_session_from_im(&host.state, origin, &login("A"), None).unwrap();
+        let a = host.state.session_tx.borrow().clone().unwrap();
+        let link = a.notification_link("/chat/thread?thread=root");
+        handle_deep_link_url(&host.state, link.as_str());
+        assert_eq!(ui.pending_route.lock().unwrap().as_deref(), Some("/chat/thread?thread=root"));
+        host.state.notification_center.upsert_conversation(
+            &json!({"id":"old","title":"A title","unread_count":3}), ui.as_ref()
+        );
+
+        persist_auth_session_from_im(&host.state, origin, &login("B"), None).unwrap();
+        handle_deep_link_url(&host.state, link.as_str());
+        handle_deep_link_url(&host.state, "crewden-desktop://open?route=%2Fchat%2Flegacy-A");
+        host.state.with_notification_session(&a, || panic!("late A notification"));
+        assert!(ui.pending_route.lock().unwrap().is_none());
+        assert!(host.state.notification_center.snapshot_maps().1.is_empty());
+        assert_eq!(host.state.notification_center.unread(), 0);
+        assert!(persist_auth_session_from_im(&host.state, origin, &login("A"), Some("A")).is_err());
+        clear_auth_session_for_origin(&host.state, origin, Some("A"));
+        let b = host.state.session_tx.borrow().clone().unwrap();
+        assert_eq!(b.session.user_id, "B");
+
+        let other = "http://127.0.0.1:2";
+        persist_auth_session_from_im(&host.state, other, &login("B"), None).unwrap();
+        apply_server_switch(&host.state, other).unwrap();
+        handle_deep_link_url(&host.state, b.notification_link("/chat/b").as_str());
+        assert!(ui.pending_route.lock().unwrap().is_none());
+        let other_b = host.state.session_tx.borrow().clone().unwrap();
+        let other_link = other_b.notification_link("/chat/new");
+        handle_deep_link_url(&host.state, other_link.as_str());
+        assert_eq!(ui.pending_route.lock().unwrap().as_deref(), Some("/chat/new"));
+
+        clear_auth_session_for_origin(&host.state, other, None);
+        handle_deep_link_url(&host.state, other_link.as_str());
+        assert!(ui.pending_route.lock().unwrap().is_none());
+        assert!(!paths.notifications_log_path().exists());
+    }
+
+    #[tokio::test]
     async fn enforces_capability_cookie_origin_persists_port_preserves_503_and_hot_swaps_active_ui() {
         let tmp = tempfile::tempdir().unwrap();
         let fake_repo = tmp.path().join("repo");
@@ -2878,23 +2803,6 @@ mod tests {
             .await
             .unwrap();
         assert!(html_v2.contains("upgraded-v2"));
-
-        // 9. Popup banner returns static CSP-protected HTML with zero server-side `<script>` interpolation!
-        let xss_url = format!(
-            "http://127.0.0.1:{}/desktop/internal/popup-banner?nonce={}&title=%3C%2Fscript%3E%3Cscript%3Eevil()%3C%2Fscript%3E&body=%3Cimg%20src%3Dx%20onerror%3D1%3E",
-            port, host.state.boot_nonce
-        );
-        let popup_res = client.get(&xss_url).send().await.unwrap();
-        assert_eq!(popup_res.status(), reqwest::StatusCode::OK);
-        let csp = popup_res
-            .headers()
-            .get("content-security-policy")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        assert!(csp.contains("default-src 'none'"));
-        let popup_html = popup_res.text().await.unwrap();
-        assert!(!popup_html.contains("evil()"));
-        assert!(!popup_html.contains("<img"));
     }
 
     #[tokio::test]

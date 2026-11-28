@@ -154,6 +154,10 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
     await user.click(autostartSwitch);
     await waitFor(() => expect(autostartSwitch).toHaveAttribute("aria-checked", "false"));
 
+    autostart = true;
+    act(() => { window.dispatchEvent(new Event("crewden:login-autostart-changed")); });
+    await waitFor(() => expect(autostartSwitch).toHaveAttribute("aria-checked", "true"));
+
     await user.click(within(localCard).getByText(/本机运行配置/));
     expect(within(localCard).getByText(/Antigravity/)).toBeInTheDocument();
     const proxyInput = within(localCard).getByLabelText("代理地址");

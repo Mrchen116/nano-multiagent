@@ -59,6 +59,7 @@ import { validateTimeZone, type InteractionContext } from "@nano/product-contrac
 import { Interactions } from './interactions.js';
 import { WorkerPermissionCards } from './worker-permission-cards.js';
 import { InteractionBackground } from './interaction-background.js';
+import { attachHumanAvatars } from './human-avatar-projection.js';
 
 function readableMentions(content: string, members: Row[]): string {
   const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
@@ -1240,7 +1241,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   app.post("/im/v1/conversations", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req);
     reply.code(201);
-    return s.createConversation(p, body(req));
+    return attachHumanAvatars(db, s.createConversation(p, body(req)));
   });
   app.get("/im/v1/conversations", (req) => {
     const p = s.principal(req);
@@ -1249,7 +1250,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       const a = one(db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", query(req).agent_id);
       if (a?.node_id !== p.node_id) fail(404, "agent not found");
     }
-    return { items: s.conversations(uid,query(req).scope ?? "joined") };
+    const res = { items: s.conversations(uid,query(req).scope ?? "joined") };
+    return p.kind === "gateway" ? res : attachHumanAvatars(db, res);
   });
   app.get("/im/v1/sync", (req) => {
     const p = ctx.identity.authenticateRequest(req);
@@ -1258,17 +1260,18 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const max_event_id = one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n;
     const cleanup = all(db,'SELECT * FROM conversation_execution_cleanup').filter(row=>conversationAccess(db,row.conversation_id,p.id));
     const snapshot = {max_event_id,...(cleanup.length ? {execution_cleanup_revisions:Object.fromEntries(cleanup.map(row=>[row.conversation_id,row.revision]))} : {})};
-    return cursorOnly ? snapshot : {items:s.conversations(p.id),...snapshot};
+    return cursorOnly ? snapshot : attachHumanAvatars(db, {items:s.conversations(p.id),...snapshot});
   });
   app.get("/im/v1/conversations/:conversation_id", (req) => {
     const p = s.principal(req),
       id = params(req).conversation_id;
     s.access(p, id, query(req).agent_id);
-    return s.conversation(id, p.id ?? s.agentUser(query(req).agent_id).id);
+    const conv = s.conversation(id, p.id ?? s.agentUser(query(req).agent_id).id);
+    return p.kind === "gateway" ? conv : attachHumanAvatars(db, conv);
   });
   app.post("/im/v1/conversations/:conversation_id/join",req=>{
     const p=ctx.identity.authenticateRequest(req);
-    return s.joinConversation(p.id,params(req).conversation_id);
+    return attachHumanAvatars(db, s.joinConversation(p.id,params(req).conversation_id));
   });
   app.patch("/im/v1/conversations/:conversation_id", (req) => {
     const p = ctx.identity.authenticateRequest(req),
@@ -1323,7 +1326,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         },
       });
     }
-    return updated;
+    return attachHumanAvatars(db, updated);
   });
   app.delete("/im/v1/conversations/:conversation_id", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
@@ -1420,7 +1423,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     if (c.visibility === "private" && newlyAddedMembers.length > 0 && (existingProjectAgents.length > 0 || incomingProjectAgents.length > 0)) {
       broadcastRestoredProjectDirects(db, id, s);
     }
-    return s.conversation(id, p.id);
+    return attachHumanAvatars(db, s.conversation(id, p.id));
   });
   app.delete("/im/v1/conversations/:conversation_id/participants/:user_id", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
@@ -1490,7 +1493,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         last_read_message_id: lastRead,
       },
     });
-    return updated;
+    return attachHumanAvatars(db, updated);
   });
   app.post('/im/v1/message-receipts', req => {
     const p = ctx.identity.authenticateRequest(req);
@@ -1511,7 +1514,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     reply.code(201);
     const principal = s.principal(req);
     const message = await s.sendMessage(req,principal);
-    return principal.kind==='gateway' ? message : s.records.senderView(message,principal.id);
+    return principal.kind==='gateway' ? message : attachHumanAvatars(db, s.records.senderView(message,principal.id));
   });
   app.get('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.readDraft(req));
   app.put('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.writeDraft(req));
@@ -1529,7 +1532,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const {conversation_id, message_id}=params(req);
     const principal = s.principal(req);
     s.access(principal,conversation_id,query(req).agent_id);
-    return {message:s.records.senderView(s.records.conversationMessage(conversation_id,message_id),principal.id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
+    const res = {message:s.records.senderView(s.records.conversationMessage(conversation_id,message_id),principal.id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
+    return principal.kind === 'gateway' ? res : attachHumanAvatars(db, res);
   });
   app.get('/im/v1/conversations/:conversation_id/threads/:root_id', (req) => {
     const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
@@ -1538,7 +1542,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const reader = p.kind==='gateway' ? s.agentUser(query(req).agent_id).id : p.id;
     const rows = all(db, 'SELECT id FROM messages WHERE conversation_id=? AND thread_root_id=? ORDER BY rowid', id, root);
     const follow = one(db, 'SELECT following FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=?', id, root, reader);
-    return {root:s.records.senderView(s.message(root),reader), following:follow?.following===1, items: rows.map(row => ({type:'message', message:s.records.senderView(s.message(row.id),reader)}))};
+    const res = {root:s.records.senderView(s.message(root),reader), following:follow?.following===1, items: rows.map(row => ({type:'message', message:s.records.senderView(s.message(row.id),reader)}))};
+    return p.kind === 'gateway' ? res : attachHumanAvatars(db, res);
   });
   app.post('/im/v1/conversations/:conversation_id/threads/:root_id/follow', (req) => {
     const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
@@ -1594,6 +1599,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       const message = q.view === "summary" ? s.records.historySummary(id,row.id) : s.message(row.id);
       items.push({ type: "message", message: s.records.senderView(message,p.id) });
     }
-    return { items, ...(directReadThrough ? {direct_read_through_message_id:directReadThrough} : {}), next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
+    const res = { items, ...(directReadThrough ? {direct_read_through_message_id:directReadThrough} : {}), next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
+    return p.kind === "gateway" ? res : attachHumanAvatars(db, res);
   });
 }

@@ -33,7 +33,8 @@ url = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSBundle", "NSDictionary", "NSObject", "NSString", "NSUserNotification"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication"] }
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSDictionary", "NSObject", "NSNotification", "NSString", "NSUserNotification"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = ["Data_Xml_Dom", "UI_Notifications"] }

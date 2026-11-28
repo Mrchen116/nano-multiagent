@@ -4,6 +4,9 @@ import {MemoryRouter} from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../../i18n";
+import * as desktopApi from "../../../desktop/desktop-api";
+import { setDesktopBootContextForTest } from "../../../desktop/desktop-context";
+import * as desktopAgents from "../../../desktop/use-desktop-local-agents";
 import type { Attachment, Conversation, MentionCandidate, Message, PermissionRequest } from "../chat-types";
 import { MessagePane, type ReadingPosition } from "./message-pane";
 
@@ -71,6 +74,35 @@ const MENTION_CANDIDATES: MentionCandidate[] = [
 ];
 
 describe("MessagePane", () => {
+  it("opens and reveals the original UNC file URL from a Windows Desktop chat message", async () => {
+    setDesktopBootContextForTest({ imOrigin: "https://im.example", contextEpoch: 1, platform: "win32-x64" });
+    const localAgents = vi.spyOn(desktopAgents, "useDesktopLocalAgentMap").mockReturnValue(
+      new Map([["a-planner", { display_name: "Planner", workspace_root: "//fileserver/team/work" }]]),
+    );
+    const open = vi.spyOn(desktopApi, "openDesktopWorkspacePath").mockResolvedValue({ ok: true, resolved_path: "" });
+    const pdf = "file://fileserver/team/work/total%20%231.pdf";
+    const script = "file://fileserver/team/work/run%2Ecmd";
+    try {
+      render(<MessagePane conversation={DIRECT_CONV} messages={[{
+        ...SAMPLE_MESSAGES[1], content: `[Report](${pdf}) [Script](${script})`,
+      }]} mentionCandidates={[]} onSend={() => {}} />);
+      await userEvent.click(screen.getByRole("link", { name: "Report" }));
+      await userEvent.click(screen.getByRole("button", { name: "Open file" }));
+      await userEvent.click(screen.getAllByRole("button", { name: "Show in Explorer" })[0]);
+      await userEvent.click(screen.getByRole("link", { name: "Script" }));
+      expect(open.mock.calls.map(([request]) => request)).toEqual([
+        { agent_id: "a-planner", path: pdf, action: "open" },
+        { agent_id: "a-planner", path: pdf, action: "open" },
+        { agent_id: "a-planner", path: pdf, action: "reveal" },
+        { agent_id: "a-planner", path: script, action: "reveal" },
+      ]);
+    } finally {
+      setDesktopBootContextForTest(undefined);
+      open.mockRestore();
+      localAgents.mockRestore();
+    }
+  });
+
   it.each([false, true])('keeps a large group header compact and opens its member details (mobile=%s)', async isMobile => {
     const members = Array.from({length: 100}, (_, i) => ({type: 'user' as const, id: `member-${i}`, display_name: `Member ${i}`}));
     const open = vi.fn();
@@ -2382,7 +2414,8 @@ describe("MessagePane", () => {
       );
       expect(document.querySelector(".chat-kind-badge")).toBeNull();
       expect(screen.queryByText("laptop-prod")).not.toBeInTheDocument();
-      expect(document.querySelector(".chat-pane-header [aria-label=online]")).not.toBeNull();
+      expect(document.querySelector(".chat-pane-header [data-avatar]")).toBeNull();
+      expect(document.querySelector(".chat-pane-messages [data-avatar]")).not.toBeNull();
     });
 
     it("hides the header TokenChip on mobile (token chip lives under each bubble per R6)", () => {

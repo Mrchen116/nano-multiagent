@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { MessageInput } from './message-input.js';
 import type { MessageRecord } from './message-records.js';
+import { attachHumanAvatars } from './human-avatar-projection.js';
 import { fail, one, params, type ImContext, type Row } from './context.js';
 
 /** Freeze the normalized ordinary-send payload independently of transient delivery state.
@@ -64,6 +65,6 @@ export function registerMessageAttemptRoutes(app: FastifyInstance, ctx: ImContex
     if (!access.is_member) fail(404, 'message attempt not found');
     const message = one(ctx.db, 'SELECT id FROM messages WHERE conversation_id=? AND caller_idempotency_key=? AND sender_user_id=? AND sender_type=\'user\'', cid, key, principal.id);
     if (!message) fail(404, 'message attempt not found');
-    return ctx.messaging.records.senderView(ctx.messaging.message(message.id),principal.id);
+    return attachHumanAvatars(ctx.db, ctx.messaging.records.senderView(ctx.messaging.message(message.id),principal.id));
   });
 }

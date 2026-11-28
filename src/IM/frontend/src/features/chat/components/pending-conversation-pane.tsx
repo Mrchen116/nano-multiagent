@@ -5,16 +5,17 @@ import type { Conversation } from "../chat-types";
 import { Avatar, GroupAvatar, directAvatarId } from "./avatar";
 
 /** Keep the selected conversation identifiable while its access check completes. */
-export function PendingConversationPane({ conversation, selfUserId, children }: {
+export function PendingConversationPane({ conversation, selfUserId, isMobile, children }: {
   conversation?: Conversation;
   selfUserId: string | null;
+  isMobile: boolean;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
   return (
     <section className="chat-pane" aria-label={conversation?.title}>
       <header className="chat-pane-header chat-pane-pending-header">
-        {conversation && (conversation.type === "group"
+        {!isMobile && conversation && (conversation.type === "group"
           ? <GroupAvatar groupId={conversation.id} size={34} label={t("chat.list.filters.group")} />
           : <Avatar id={directAvatarId(conversation, selfUserId)} size={34} />)}
         <div className="chat-pane-header-body">

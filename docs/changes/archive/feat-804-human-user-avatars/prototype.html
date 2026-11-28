@@ -1,0 +1,1686 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>feat-804 Prototype — 真人用户自定义图片头像与全端统一展示</title>
+  <style>
+    :root {
+      --im-bg: #fbfafc;
+      --im-surface: #ffffff;
+      --im-surface-2: #f6f5f8;
+      --im-accent: #6b43d8;
+      --im-accent-fg: #ffffff;
+      --im-accent-2: #5732bf;
+      --im-accent-soft: #eee7fc;
+      --im-accent-border: #d1bff3;
+      --im-text: #30263e;
+      --im-text-muted: #6d6676;
+      --im-border: #e9e6ec;
+      --im-border-strong: #dad6e0;
+      --im-danger: #c44747;
+      --im-danger-soft: #fdeeee;
+      --im-success: #20835d;
+      --im-success-soft: #e7f5ec;
+      --im-success-text: #286744;
+      --im-user-bubble: #fff0b5;
+      --im-user-bubble-text: #443424;
+      --im-overlay: rgba(26, 20, 38, 0.36);
+      --im-shadow: 0 8px 24px -12px rgba(48, 32, 73, 0.14);
+      --im-shadow-strong: 0 20px 52px -16px rgba(48, 32, 73, 0.24);
+      --im-font-sans: "Helvetica Neue", "PingFang SC", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      --im-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0;
+      font-family: var(--im-font-sans);
+      color: var(--im-text);
+      background: #f2eff7;
+    }
+
+    /* Prototype Outer Harness (hidden when ?clean=1) */
+    .proto-harness {
+      background: #231c30;
+      color: #f4f1fa;
+      padding: 10px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    body.clean-mode .proto-harness { display: none; }
+    .proto-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .proto-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .proto-tag--bg { background: rgba(255,255,255,0.12); color: #e2dcf0; }
+    .proto-tag--new { background: #6b43d8; color: #fff; }
+    .proto-tag--demo { background: rgba(255, 219, 128, 0.2); color: #ffe299; }
+    .proto-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .proto-btn {
+      background: rgba(255,255,255,0.1);
+      color: #f4f1fa;
+      border: 1px solid rgba(255,255,255,0.16);
+      border-radius: 8px;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .proto-btn[aria-pressed="true"] {
+      background: #fff;
+      color: #231c30;
+      border-color: #fff;
+      font-weight: 600;
+    }
+    .proto-btn--sim {
+      background: rgba(240, 171, 137, 0.18);
+      border-color: rgba(240, 171, 137, 0.35);
+      color: #ffd7c2;
+    }
+
+    /* Product App Shell (matches src/IM/frontend/src/app/shell/app-shell.css: 88px left rail + bottom-left UserMenu) */
+    .app-shell {
+      display: flex;
+      flex-direction: row;
+      min-height: 680px;
+      background: var(--im-bg);
+    }
+    .shell-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .im-shell-rail {
+      width: 88px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      padding: 24px 10px 16px;
+      background: #f7f5fc;
+      border-right: 1px solid var(--im-border);
+      z-index: 40;
+    }
+    .im-shell-brand-link {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 17px 17px 17px 5px;
+      background: #fff0b5;
+      color: var(--im-accent);
+      border: 0;
+      cursor: pointer;
+    }
+    .im-shell-tabs {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      flex: 1;
+    }
+    .nav-tab {
+      border: 0;
+      background: transparent;
+      color: var(--im-text-muted);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.25;
+      min-height: 64px;
+      padding: 9px 2px;
+      border-radius: 14px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .nav-tab svg { width: 24px; height: 24px; }
+    .nav-tab:hover { background: rgba(255, 255, 255, 0.55); }
+    .nav-tab[aria-selected="true"] {
+      background: #ffffff;
+      color: var(--im-accent);
+      box-shadow: 0 2px 4px rgba(41, 53, 47, 0.04);
+    }
+    .user-menu-wrap { position: relative; }
+    .user-trigger {
+      border: 0;
+      background: transparent;
+      padding: 6px 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .user-trigger:hover, .user-trigger[aria-expanded="true"] { background: rgba(255, 255, 255, 0.55); }
+    .user-popover {
+      position: absolute;
+      bottom: 0;
+      left: calc(100% + 18px);
+      width: 280px;
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 18px;
+      box-shadow: 0 12px 44px rgba(41, 53, 47, 0.14);
+      padding: 8px;
+      z-index: 50;
+    }
+    .user-popover-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 12px;
+      background: #fff7dc;
+      border-radius: 12px;
+      margin-bottom: 6px;
+    }
+    .user-popover-head strong { display: block; font-size: 15px; font-weight: 650; }
+    .user-popover-head span { display: block; font-size: 12px; color: var(--im-text-muted); margin-top: 2px; }
+    .user-popover-item {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      min-height: 40px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--im-text);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .user-popover-item:hover { background: var(--im-surface-2); }
+
+    /* Shared Avatar System */
+    .chat-avatar {
+      position: relative;
+      display: inline-flex;
+      flex-shrink: 0;
+      vertical-align: middle;
+    }
+    .chat-avatar-face {
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      box-shadow: inset 0 0 0 1px rgba(48, 38, 62, 0.07);
+    }
+    .chat-avatar-face--agent {
+      border-radius: 0;
+      overflow: visible;
+      box-shadow: none;
+      background: transparent !important;
+    }
+    .chat-avatar-face img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .chat-avatar-status {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #22a06b;
+      border: 2px solid var(--im-surface);
+    }
+
+    /* Account Settings Surface (matches settings-surfaces.css) */
+    .settings-frame {
+      max-width: 880px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 28px 24px 44px;
+    }
+    .settings-heading { margin-bottom: 22px; }
+    .settings-heading h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .settings-heading p {
+      margin: 6px 0 0;
+      color: var(--im-text-muted);
+      font-size: 13.5px;
+    }
+    .settings-card {
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 14px;
+      margin-bottom: 18px;
+      box-shadow: var(--im-shadow);
+    }
+    .settings-section {
+      display: grid;
+      grid-template-columns: minmax(165px, 1fr) minmax(0, 2.2fr);
+      gap: 26px;
+      padding: 24px;
+    }
+    .settings-section > header h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 650;
+    }
+    .settings-section > header p {
+      margin: 6px 0 0;
+      color: var(--im-text-muted);
+      font-size: 12.5px;
+      line-height: 1.6;
+    }
+
+    /* NEW: Account Avatar Editor Row */
+    .account-identity-editor {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding-bottom: 20px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--im-border);
+      flex-wrap: wrap;
+    }
+    .account-avatar-trigger {
+      position: relative;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .account-avatar-trigger:hover {
+      box-shadow: 0 0 0 3px var(--im-accent-soft);
+    }
+    .account-avatar-trigger:focus-visible {
+      outline: 2px solid var(--im-accent);
+      outline-offset: 2px;
+    }
+    .account-identity-meta {
+      flex: 1;
+      min-width: 160px;
+    }
+    .account-identity-meta strong {
+      display: block;
+      font-size: 17px;
+      font-weight: 650;
+    }
+    .account-identity-meta > span {
+      display: block;
+      font-size: 13px;
+      color: var(--im-text-muted);
+      margin-top: 2px;
+    }
+    .account-avatar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .im-btn {
+      min-height: 36px;
+      padding: 0 14px;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid var(--im-border-strong);
+      background: var(--im-surface);
+      color: var(--im-text);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .im-btn:hover:not(:disabled) { background: var(--im-surface-2); }
+    .im-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .im-btn-primary {
+      background: var(--im-accent);
+      border-color: var(--im-accent);
+      color: #fff;
+    }
+    .im-btn-primary:hover:not(:disabled) { background: var(--im-accent-2); }
+    .im-btn-danger-ghost {
+      border-color: transparent;
+      background: transparent;
+      color: var(--im-danger);
+    }
+    .im-btn-danger-ghost:hover:not(:disabled) { background: var(--im-danger-soft); }
+
+    .avatar-inline-feedback {
+      margin: -8px 0 16px;
+      padding: 9px 12px;
+      border-radius: 9px;
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .avatar-inline-feedback--error {
+      background: var(--im-danger-soft);
+      color: var(--im-danger);
+    }
+    .avatar-inline-feedback--ok {
+      background: var(--im-success-soft);
+      color: var(--im-success-text);
+    }
+
+    .settings-field {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .im-input {
+      width: 100%;
+      min-height: 42px;
+      padding: 0 12px;
+      border-radius: 9px;
+      border: 1px solid var(--im-border-strong);
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--im-text);
+      background: var(--im-surface);
+    }
+    .settings-field-hint {
+      margin: 6px 0 0;
+      font-size: 12px;
+      color: var(--im-text-muted);
+    }
+    .settings-save {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 4px 2px 18px;
+      font-size: 13px;
+      color: var(--im-text-muted);
+    }
+    .settings-save-btns { display: flex; gap: 8px; }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+    }
+    .settings-row + .settings-row { border-top: 1px solid var(--im-border); }
+    .settings-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+      margin-left: 6px;
+    }
+
+    /* Chat + People + PersonPopover Multi-Surface Scene */
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 272px minmax(0, 1fr);
+      flex: 1;
+      min-height: 560px;
+      background: var(--im-surface);
+      max-width: 1120px;
+      width: 100%;
+      margin: 18px auto;
+      border: 1px solid var(--im-border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--im-shadow);
+    }
+    .sidebar {
+      border-right: 1px solid var(--im-border);
+      background: #fcfbfd;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-head {
+      padding: 14px;
+      border-bottom: 1px solid var(--im-border);
+    }
+    .sidebar-search {
+      width: 100%;
+      height: 34px;
+      border-radius: 9px;
+      border: 1px solid var(--im-border);
+      padding: 0 10px;
+      font-size: 12.5px;
+      background: var(--im-surface);
+    }
+    .sidebar-pills {
+      display: flex;
+      gap: 5px;
+      margin-top: 10px;
+    }
+    .sidebar-pill {
+      font-size: 11.5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--im-surface-2);
+      color: var(--im-text-muted);
+      font-weight: 600;
+    }
+    .sidebar-pill.active {
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+    }
+    .conv-list { padding: 8px; display: flex; flex-direction: column; gap: 3px; }
+    .conv-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .conv-item.active { background: var(--im-accent-soft); }
+    .conv-meta { flex: 1; min-width: 0; }
+    .conv-meta strong { display: block; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .conv-meta span { display: block; font-size: 12px; color: var(--im-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .chat-main { display: flex; flex-direction: column; background: var(--im-surface); position: relative; }
+    .chat-header {
+      height: 56px;
+      border-bottom: 1px solid var(--im-border);
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .chat-header-title { display: flex; align-items: center; gap: 10px; }
+    .chat-header-title strong { font-size: 15px; }
+    .chat-header-title span { font-size: 12px; color: var(--im-text-muted); }
+    .chat-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .chat-icon-btn {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--im-text-muted);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+    .chat-icon-btn:hover {
+      background: var(--im-surface-2);
+      color: var(--im-text);
+    }
+
+    .chat-stream {
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+    }
+    .msg-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      max-width: 82%;
+    }
+    .msg-row--self {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+    .msg-avatar-btn {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      cursor: pointer;
+      border-radius: 999px;
+    }
+    .msg-body { display: flex; flex-direction: column; gap: 4px; }
+    .msg-row--self .msg-body { align-items: flex-end; }
+    .msg-author { font-size: 12px; color: var(--im-text-muted); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+    .msg-bubble {
+      padding: 10px 13px;
+      border-radius: 13px;
+      background: var(--im-surface-2);
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: var(--im-text);
+    }
+    .msg-row--self .msg-bubble {
+      background: var(--im-user-bubble);
+      color: var(--im-user-bubble-text);
+    }
+    .mention-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 6px;
+      border-radius: 6px;
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+      font-weight: 600;
+      font-size: 12.5px;
+    }
+    .chat-message-quote {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding: 7px 10px;
+      border-left: 2.5px solid rgba(107, 67, 216, 0.42);
+      background: rgba(255, 255, 255, 0.62);
+      border-radius: 4px 7px 7px 4px;
+      font-size: 12px;
+      line-height: 1.45;
+      margin-bottom: 7px;
+      text-align: left;
+    }
+    .chat-message-quote strong {
+      display: block;
+      color: var(--im-text);
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .chat-message-quote span {
+      display: block;
+      color: var(--im-text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 340px;
+    }
+    .msg-meta-foot {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--im-text-muted);
+      margin-top: 1px;
+    }
+    .receipt-check-btn {
+      border: 0;
+      background: transparent;
+      color: var(--im-accent);
+      width: 22px;
+      height: 20px;
+      padding: 0;
+      border-radius: 5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .receipt-check-btn:hover { background: var(--im-accent-soft); }
+    .receipt-popover {
+      position: absolute;
+      right: 58px;
+      bottom: 44px;
+      width: 236px;
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 12px;
+      box-shadow: var(--im-shadow-strong);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 22;
+    }
+    .receipt-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+    }
+    .receipt-row-name {
+      flex: 1;
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .receipt-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--im-accent-soft);
+      color: var(--im-accent-2);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* PersonPopover card inside chat */
+    .person-popover {
+      position: absolute;
+      left: 62px;
+      top: 68px;
+      width: 268px;
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 14px;
+      box-shadow: var(--im-shadow-strong);
+      padding: 14px;
+      z-index: 20;
+    }
+    .person-popover-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .person-popover-head strong { display: block; font-size: 14.5px; }
+    .person-popover-head span { display: block; font-size: 12px; color: var(--im-text-muted); }
+    .person-popover-pa {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 9px;
+      border-radius: 9px;
+      background: var(--im-surface-2);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+
+    /* Mobile /me + Account Scene */
+    .mobile-stage {
+      max-width: 390px;
+      width: 100%;
+      margin: 16px auto;
+      background: oklch(0.95 0.005 240);
+      border: 1px solid var(--im-border-strong);
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: var(--im-shadow-strong);
+    }
+    .mobile-me-card {
+      background: #fff;
+      padding: 22px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 1px solid var(--im-border);
+      cursor: pointer;
+    }
+    .mobile-me-card strong { display: block; font-size: 19px; font-weight: 800; }
+    .mobile-me-card span { display: block; font-size: 12.5px; color: var(--im-text-muted); font-family: var(--im-font-mono); margin-top: 3px; }
+    .mobile-row {
+      background: #fff;
+      margin-top: 12px;
+      padding: 14px 18px;
+      border-top: 1px solid var(--im-border);
+      border-bottom: 1px solid var(--im-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 14.5px;
+      font-weight: 500;
+    }
+
+    /* Crop Dialog Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: var(--im-overlay);
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      z-index: 50;
+    }
+    .crop-dialog {
+      width: 100%;
+      max-width: 384px;
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 16px;
+      box-shadow: var(--im-shadow-strong);
+      padding: 20px;
+    }
+    .crop-dialog-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .crop-dialog-head h3 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+    .crop-close-btn {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--im-text-muted);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    .crop-close-btn:hover { background: var(--im-surface-2); color: var(--im-text); }
+    .crop-stage-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .crop-viewport {
+      position: relative;
+      width: 240px;
+      height: 240px;
+      border-radius: 14px;
+      background: #1b1625;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+    }
+    .crop-viewport:active { cursor: grabbing; }
+    .crop-viewport canvas {
+      width: 240px;
+      height: 240px;
+      display: block;
+    }
+    .crop-mask-ring {
+      position: absolute;
+      inset: 20px;
+      border-radius: 999px;
+      box-shadow: 0 0 0 999px rgba(18, 14, 26, 0.56), inset 0 0 0 1.5px rgba(255,255,255,0.9);
+      pointer-events: none;
+    }
+    .crop-controls-bar {
+      width: 100%;
+      max-width: 240px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--im-text-muted);
+    }
+    .crop-controls-bar input[type="range"] {
+      flex: 1;
+      accent-color: var(--im-accent);
+    }
+    .crop-dialog-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--im-border);
+    }
+    .crop-reselect-btn {
+      border: 0;
+      background: transparent;
+      color: var(--im-text-muted);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 8px;
+      margin-left: -8px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .crop-reselect-btn:hover { background: var(--im-surface-2); color: var(--im-text); }
+    .crop-dialog-foot-main { display: flex; gap: 8px; margin-left: auto; }
+    @media (max-width: 420px) {
+      .crop-dialog { padding: 16px; }
+      .crop-viewport, .crop-viewport canvas { width: 208px; height: 208px; }
+      .crop-mask-ring { inset: 16px; }
+      .crop-controls-bar { max-width: 208px; }
+      .crop-dialog-foot { gap: 10px; }
+    }
+    @media (max-width: 767px) {
+      .app-shell { flex-direction: column; min-height: 100vh; }
+      .im-shell-rail { display: none; }
+      .settings-frame { padding: 18px 14px 32px; }
+      .settings-section {
+        grid-template-columns: 1fr;
+        gap: 14px;
+        padding: 18px 16px;
+      }
+      .workspace-grid {
+        grid-template-columns: 1fr;
+        margin: 0;
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+      .sidebar { display: none; }
+      .person-popover { left: 16px; right: 16px; width: auto; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Prototype Harness: clearly separates background vs new UI vs demo controls -->
+  <aside class="proto-harness" aria-label="原型控制栏">
+    <div class="proto-badges">
+      <span class="proto-tag proto-tag--new">本次新增 / 修改</span>
+      <span>账号页头像上传/圆形裁剪/移除 + 全站圆照片渲染与圆章回退</span>
+      <span class="proto-tag proto-tag--bg">现有界面背景</span>
+      <span>左侧导航栏（左下角个人菜单）、显示名表单、群聊与个人名片</span>
+    </div>
+    <div class="proto-controls">
+      <span class="proto-tag proto-tag--demo">仅演示控制</span>
+      <button type="button" class="proto-btn" data-scene-btn="account" aria-pressed="true">账号设置</button>
+      <button type="button" class="proto-btn" data-scene-btn="crop" aria-pressed="false">圆形裁剪弹窗</button>
+      <button type="button" class="proto-btn" data-scene-btn="chat" aria-pressed="false">群聊人机区分与名片</button>
+      <button type="button" class="proto-btn" data-scene-btn="mobile-me" aria-pressed="false">手机端「我的」</button>
+      <button type="button" class="proto-btn proto-btn--sim" data-sample="0">示例图1：暖阳</button>
+      <button type="button" class="proto-btn proto-btn--sim" data-sample="1">示例图2：户外</button>
+      <button type="button" class="proto-btn proto-btn--sim" id="sim-invalid-btn">模拟 GIF/超限报错</button>
+      <button type="button" class="proto-btn proto-btn--sim" id="sim-offline-btn" aria-pressed="false">模拟图片离线回退</button>
+    </div>
+  </aside>
+
+  <div class="app-shell">
+    <header class="im-shell-rail" role="banner">
+      <button type="button" class="im-shell-brand-link" id="brand-home-btn" aria-label="Crewden">
+        <svg width="32" height="32" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M23 8H41C51.5 8 58 14.5 58 25V37C58 47.5 51.5 54 41 54H29L18.9 60.7C17.7 61.5 16 60.6 16 59.1V52.7C9.7 50.4 6 45.1 6 37V25C6 14.5 12.5 8 23 8ZM23 14C15.8 14 12 17.8 12 25V37C12 43.6 15 47 22 48.3V51.6L27 48H41C48.2 48 52 44.2 52 37V25C52 17.8 48.2 14 41 14H23Z" />
+          <rect x="21" y="24" width="7" height="12" rx="3.5" /><rect x="36" y="24" width="7" height="12" rx="3.5" />
+        </svg>
+      </button>
+      <nav class="im-shell-tabs" role="tablist" aria-label="主导航">
+        <button type="button" class="nav-tab" role="tab" data-nav="chat" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.75 5.25h10.5A2.75 2.75 0 0 1 20 8v6a2.75 2.75 0 0 1-2.75 2.75h-5.4L7 20v-3.25h-.25A2.75 2.75 0 0 1 4 14V8a2.75 2.75 0 0 1 2.75-2.75Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.8"/><path d="M8.25 11h7.5" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"/></svg>
+          <span>聊天</span>
+        </button>
+        <button type="button" class="nav-tab" role="tab" data-nav-static="people" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9.25" cy="8.25" r="2.75" stroke="currentColor" stroke-width="1.8"/><path d="M4 18.75v-.85C4 15.35 6.35 13.5 9.25 13.5s5.25 1.85 5.25 4.4v.85" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/><circle cx="16.25" cy="9" r="2.25" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 13.75c2 .15 3.5 1.65 3.5 3.8v1.2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/></svg>
+          <span>同事</span>
+        </button>
+        <button type="button" class="nav-tab" role="tab" data-nav-static="tasks" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1" stroke="currentColor" stroke-width="1.8"/><rect x="15" y="15" width="6" height="5" rx="1" stroke="currentColor" stroke-width="1.8"/><path d="M9 6.5h5a4 4 0 0 1 4 4V15M6 9v8.5h9" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <span>任务</span>
+        </button>
+        <button type="button" class="nav-tab" role="tab" data-nav-static="agents" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.3 14.9V9.7A2.6 2.6 0 0 1 7.6 7.45l3.1-1.8a2.6 2.6 0 0 1 2.6 0l3.15 1.82" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/><path d="M17.7 9.1v5.2a2.6 2.6 0 0 1-1.3 2.25l-3.1 1.8a2.6 2.6 0 0 1-2.6 0l-3.15-1.82" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/><path d="m12 8.7 2.85 1.65v3.3L12 15.3l-2.85-1.65v-3.3L12 8.7Z" fill="currentColor"/><circle cx="17.75" cy="7.55" r="1.45" fill="currentColor"/><circle cx="6.25" cy="16.45" r="1.45" fill="currentColor"/></svg>
+          <span>助手</span>
+        </button>
+      </nav>
+      <div class="user-menu-wrap">
+        <button type="button" class="user-trigger" id="user-menu-trigger" aria-label="个人菜单" title="个人菜单">
+          <span id="rail-self-avatar"></span>
+        </button>
+        <div class="user-popover" id="user-popover" hidden>
+          <div class="user-popover-head">
+            <span id="popover-self-avatar"></span>
+            <div>
+              <strong id="popover-self-name">林夏</strong>
+              <span>@linxia</span>
+            </div>
+          </div>
+          <button type="button" class="user-popover-item" id="goto-account-btn">
+            <span>账号与个人资料</span><span>›</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="shell-main">
+
+    <!-- Scene 1: Account Settings Page -->
+    <main id="scene-account" class="settings-frame">
+      <header class="settings-heading">
+        <h1>账号</h1>
+        <p>管理你的个人头像、显示名，以及个人空间与团队资格。</p>
+      </header>
+
+      <section class="settings-card settings-section">
+        <header>
+          <h2>个人身份</h2>
+          <p>同事和你的助手会在聊天、提及与通讯录里看到这里的头像和名字。</p>
+        </header>
+        <div>
+          <div class="account-identity-editor">
+            <button type="button" class="account-avatar-trigger" id="avatar-click-trigger" title="更换个人头像" aria-label="更换个人头像">
+              <span id="account-self-avatar"></span>
+            </button>
+            <div class="account-identity-meta">
+              <strong id="account-display-title">林夏</strong>
+              <span>@linxia</span>
+            </div>
+            <div class="account-avatar-actions">
+              <input type="file" id="avatar-file-input" accept="image/png,image/jpeg,image/webp" hidden />
+              <button type="button" class="im-btn" id="open-crop-btn">更换头像</button>
+              <button type="button" class="im-btn im-btn-danger-ghost" id="remove-avatar-btn">移除</button>
+            </div>
+          </div>
+
+          <div id="avatar-feedback" class="avatar-inline-feedback" hidden></div>
+
+          <label class="settings-field" for="display-name-input">显示名称</label>
+          <input id="display-name-input" class="im-input" value="林夏" maxlength="128" />
+          <p class="settings-field-hint" id="name-draft-hint">同事与助手在聊天、提及和通讯录中看到的名称。</p>
+        </div>
+      </section>
+
+      <div class="settings-save">
+        <span id="form-status-text">当前无未保存的显示名修改</span>
+        <div class="settings-save-btns">
+          <button type="button" class="im-btn" id="discard-name-btn" disabled>放弃修改</button>
+          <button type="button" class="im-btn im-btn-primary" id="save-name-btn" disabled>保存账号</button>
+        </div>
+      </div>
+
+      <section class="settings-card settings-section">
+        <header>
+          <h2>可用空间</h2>
+          <p>个人空间与团队协作权限彼此独立。</p>
+        </header>
+        <div>
+          <div class="settings-row">
+            <div>
+              <strong>个人空间 <span class="settings-badge">已启用</span></strong>
+              <p class="settings-field-hint">你的个人助手与私人工作记录仅自己可见。</p>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <strong>团队空间 <span class="settings-badge">成员</span></strong>
+              <p class="settings-field-hint">可与团队同事及公开数字员工协作。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Scene 2: Mixed Human + PA + Specialist Agent Chat & PersonPopover -->
+    <section id="scene-chat" class="workspace-grid" hidden>
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <input class="sidebar-search" value="" placeholder="搜索会话、同事或消息 (⌘K)" readonly />
+          <div class="sidebar-pills">
+            <span class="sidebar-pill active">全部</span>
+            <span class="sidebar-pill">同事</span>
+            <span class="sidebar-pill">助手</span>
+          </div>
+        </div>
+        <div class="conv-list">
+          <div class="conv-item active">
+            <span id="sidebar-group-avatar"></span>
+            <div class="conv-meta">
+              <strong>产品研发群</strong>
+              <span>林夏：收到，核心指标已经达标，三点准时过发布清单。</span>
+            </div>
+          </div>
+          <div class="conv-item">
+            <span id="sidebar-peer-photo"></span>
+            <div class="conv-meta">
+              <strong>陈明</strong>
+              <span>好的，下午一起过一下接口</span>
+            </div>
+          </div>
+          <div class="conv-item">
+            <span id="sidebar-pa-portrait"></span>
+            <div class="conv-meta">
+              <strong>小麦（个人助手）</strong>
+              <span>已为你整理好今日待办</span>
+            </div>
+          </div>
+          <div class="conv-item">
+            <span id="sidebar- peer-initials"></span>
+            <div class="conv-meta">
+              <strong>赵敏</strong>
+              <span>设计稿已上传到群里</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="chat-main">
+        <header class="chat-header">
+          <div class="chat-header-title">
+            <span id="header-group-avatar"></span>
+            <div>
+              <strong>产品研发群</strong>
+              <span> · 5 位成员</span>
+            </div>
+          </div>
+          <div class="chat-header-actions" aria-label="会话操作">
+            <button type="button" class="chat-icon-btn" title="群任务" aria-label="群任务">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m9 12 2 2 4-4"/></svg>
+            </button>
+            <button type="button" class="chat-icon-btn" title="会话设置" aria-label="会话设置">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="chat-stream">
+          <!-- Colleague with uploaded photo -->
+          <div class="msg-row">
+            <button type="button" class="msg-avatar-btn" id="chenming-avatar-btn" title="查看陈明名片">
+              <span id="msg-chenming-avatar"></span>
+            </button>
+            <div class="msg-body">
+              <div class="msg-author">陈明</div>
+              <div class="msg-bubble">
+                早！<span class="mention-chip">@林夏</span> <span class="mention-chip">@鲁班</span> 下午三点前我们把桌面端 1.4 灰度包的监控看板核对完？
+              </div>
+            </div>
+          </div>
+
+          <!-- Colleague without photo (initials circle fallback) -->
+          <div class="msg-row">
+            <span id="msg-zhaomin-avatar"></span>
+            <div class="msg-body">
+              <div class="msg-author">赵敏</div>
+              <div class="msg-bubble">
+                埋点字典我已经同步到文档了，重点看首屏冷启动耗时和重连成功率这两个指标。
+              </div>
+            </div>
+          </div>
+
+          <!-- Specialist Agent (geometric character silhouette) -->
+          <div class="msg-row">
+            <span id="msg-luban-avatar"></span>
+            <div class="msg-body">
+              <div class="msg-author">鲁班 · 架构数字员工</div>
+              <div class="msg-bubble">
+                已跑完预发回归：冷启动 P95 为 <code>410ms</code>，断网重连恢复率 <code>99.8%</code>，无异常告警。
+              </div>
+            </div>
+          </div>
+
+          <!-- Self message with clean typographic quote (NO avatar inside quote) + subtle double-check receipt -->
+          <div class="msg-row msg-row--self">
+            <span id="msg-self-avatar"></span>
+            <div class="msg-body">
+              <div class="msg-bubble">
+                <div class="chat-message-quote">
+                  <strong>陈明</strong>
+                  <span>早！@林夏 @鲁班 下午三点前我们把桌面端 1.4 灰度包的监控看板核对完？</span>
+                </div>
+                收到，核心指标已经达标，三点准时过发布清单。
+              </div>
+              <div class="msg-meta-foot">
+                <time>10:18</time>
+                <button type="button" class="receipt-check-btn" id="receipt-trigger-btn" title="查看已读回执" aria-label="查看已读回执">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- On-demand Receipt Popover (matches message-pane.tsx ReceiptStatusPopover) -->
+        <div class="receipt-popover" id="receipt-popover" hidden role="dialog" aria-label="已读回执">
+          <div id="receipt-popover-rows"></div>
+        </div>
+
+        <!-- Contextual PersonPopover (matches real person-popover.tsx actions) -->
+        <div class="person-popover" id="person-popover" hidden>
+          <div class="person-popover-head">
+            <span id="card-chenming-avatar"></span>
+            <div style="flex:1">
+              <strong>陈明</strong>
+              <span>@chenming</span>
+            </div>
+            <button type="button" class="im-btn" style="min-height:26px;padding:0 8px" id="close-person-card" aria-label="关闭">✕</button>
+          </div>
+          <div class="person-popover-pa">
+            <span style="display:inline-flex;align-items:center;gap:6px">
+              <span id="card-pa-avatar"></span>
+              <span>个人助手 · 阿禾</span>
+            </span>
+            <span style="color:var(--im-accent);font-weight:600">发消息</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="im-btn im-btn-primary" style="flex:1;justify-content:center" id="card-msg-btn">发消息</button>
+            <button type="button" class="im-btn" style="justify-content:center" id="card-mention-btn">@ 提及</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Scene 3: Mobile /me Entry -->
+    <section id="scene-mobile-me" hidden>
+      <div class="mobile-stage">
+        <div class="mobile-me-card" id="mobile-me-card-link">
+          <span id="mobile-self-avatar"></span>
+          <div style="flex:1;min-width:0">
+            <strong id="mobile-self-name">林夏</strong>
+            <span>@linxia</span>
+          </div>
+          <span style="font-size:20px;color:var(--im-text-muted)">›</span>
+        </div>
+        <div class="mobile-row">
+          <span>我的电脑 · 2 台在线</span>
+          <span style="color:var(--im-text-muted)">›</span>
+        </div>
+        <div class="mobile-row" id="mobile-row-account" style="cursor:pointer">
+          <div>
+            <div>账号与个人资料</div>
+            <div style="font-size:12px;color:var(--im-text-muted);margin-top:2px">更换个人头像、显示名与团队资格</div>
+          </div>
+          <span style="color:var(--im-text-muted)">›</span>
+        </div>
+        <div class="mobile-row">
+          <span>模型服务</span>
+          <span style="color:var(--im-text-muted)">›</span>
+        </div>
+      </div>
+    </section>
+    </div>
+  </div>
+
+  <!-- Circular Crop Dialog -->
+  <div class="modal-backdrop" id="crop-modal" hidden>
+    <div class="crop-dialog" role="dialog" aria-modal="true" aria-labelledby="crop-dialog-title">
+      <div class="crop-dialog-head">
+        <h3 id="crop-dialog-title">调整头像</h3>
+        <button type="button" class="crop-close-btn" id="close-crop-x" aria-label="关闭">✕</button>
+      </div>
+      <div class="crop-stage-wrap">
+        <div class="crop-viewport" id="crop-viewport">
+          <canvas id="crop-canvas" width="480" height="480"></canvas>
+          <div class="crop-mask-ring"></div>
+        </div>
+        <div class="crop-controls-bar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <input type="range" id="crop-zoom" min="1" max="2.8" step="0.02" value="1.22" aria-label="缩放比例" />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </div>
+      </div>
+      <div class="crop-dialog-foot">
+        <button type="button" class="crop-reselect-btn" id="pick-local-in-modal">重新选择</button>
+        <div class="crop-dialog-foot-main">
+          <button type="button" class="im-btn" id="cancel-crop-btn">取消</button>
+          <button type="button" class="im-btn im-btn-primary" id="confirm-crop-btn">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const AVATAR_PALETTE = [
+      { background: "#ffccac", foreground: "#733b27" },
+      { background: "#bfe8d9", foreground: "#275b49" },
+      { background: "#e2d8ff", foreground: "#57408c" },
+      { background: "#ffd0e3", foreground: "#783955" },
+      { background: "#acdfef", foreground: "#214d63" },
+      { background: "#ffdb80", foreground: "#634621" },
+      { background: "#cadbff", foreground: "#364c83" }
+    ];
+
+    function colorForSeed(seed) {
+      let hash = 0;
+      for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
+      return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+    }
+
+    // Generate deterministic vivid illustrated portrait photos on an offscreen canvas so the prototype is 100% self-contained offline!
+    function makeSamplePhotoCanvas(kind) {
+      const c = document.createElement("canvas");
+      c.width = 640; c.height = 480;
+      const g = c.getContext("2d");
+      if (kind === 0) {
+        const bg = g.createLinearGradient(0, 0, 640, 480);
+        bg.addColorStop(0, "#f7c59f"); bg.addColorStop(0.55, "#e8998d"); bg.addColorStop(1, "#6b43d8");
+        g.fillStyle = bg; g.fillRect(0, 0, 640, 480);
+        g.fillStyle = "rgba(255,244,214,0.45)"; g.beginPath(); g.arc(490, 110, 95, 0, Math.PI * 2); g.fill();
+        // Shoulders & warm sweater
+        g.fillStyle = "#352849"; g.beginPath(); g.ellipse(320, 465, 175, 130, 0, Math.PI, 0, false); g.fill();
+        g.fillStyle = "#fff5eb"; g.beginPath(); g.arc(320, 345, 42, 0, Math.PI); g.fill();
+        // Neck & head
+        g.fillStyle = "#f4cbb2"; g.fillRect(298, 265, 44, 62);
+        g.fillStyle = "#24192c"; g.beginPath(); g.arc(320, 205, 92, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#f9d5be"; g.beginPath(); g.arc(320, 218, 72, 0, Math.PI * 2); g.fill();
+        // Bangs & hair
+        g.fillStyle = "#24192c";
+        g.beginPath(); g.arc(312, 168, 74, Math.PI * 0.95, Math.PI * 2.08); g.fill();
+        // Eyes & warm smile
+        g.fillStyle = "#2c1e35";
+        g.beginPath(); g.arc(294, 218, 6.5, 0, Math.PI * 2); g.arc(346, 218, 6.5, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "rgba(235,120,120,0.35)";
+        g.beginPath(); g.arc(278, 236, 11, 0, Math.PI * 2); g.arc(362, 236, 11, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#8a4640"; g.lineWidth = 4; g.lineCap = "round";
+        g.beginPath(); g.arc(320, 236, 20, 0.2 * Math.PI, 0.8 * Math.PI); g.stroke();
+      } else {
+        const bg = g.createLinearGradient(0, 0, 640, 480);
+        bg.addColorStop(0, "#7ec8e3"); bg.addColorStop(0.6, "#a8e6cf"); bg.addColorStop(1, "#3b7a57");
+        g.fillStyle = bg; g.fillRect(0, 0, 640, 480);
+        // Mountains
+        g.fillStyle = "rgba(43,92,74,0.35)";
+        g.beginPath(); g.moveTo(0, 480); g.lineTo(180, 250); g.lineTo(370, 480); g.fill();
+        g.beginPath(); g.moveTo(240, 480); g.lineTo(480, 220); g.lineTo(640, 480); g.fill();
+        // Person
+        g.fillStyle = "#264653"; g.beginPath(); g.ellipse(320, 470, 180, 132, 0, Math.PI, 0, false); g.fill();
+        g.fillStyle = "#eac0a2"; g.fillRect(296, 268, 48, 60);
+        g.fillStyle = "#f2c9ac"; g.beginPath(); g.arc(320, 214, 70, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#1f2421"; g.beginPath(); g.arc(320, 174, 73, Math.PI * 1.02, Math.PI * 1.98); g.fill();
+        // Glasses
+        g.strokeStyle = "#2b2d42"; g.lineWidth = 4.5;
+        g.strokeRect(272, 202, 38, 28); g.strokeRect(330, 202, 38, 28);
+        g.beginPath(); g.moveTo(310, 215); g.lineTo(330, 215); g.stroke();
+        g.fillStyle = "#2b2d42"; g.beginPath(); g.arc(291, 216, 4.5, 0, Math.PI * 2); g.arc(349, 216, 4.5, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#7c4738"; g.lineWidth = 4; g.lineCap = "round";
+        g.beginPath(); g.arc(320, 240, 17, 0.18 * Math.PI, 0.82 * Math.PI); g.stroke();
+      }
+      return c;
+    }
+
+    const SAMPLE_CANVASES = [makeSamplePhotoCanvas(0), makeSamplePhotoCanvas(1)];
+    function cropToDataUrl(source, zoom, panX, panY) {
+      const out = document.createElement("canvas");
+      out.width = 256; out.height = 256;
+      const ctx = out.getContext("2d");
+      const baseScale = Math.max(256 / source.width, 256 / source.height) * zoom;
+      const w = source.width * baseScale;
+      const h = source.height * baseScale;
+      const x = (256 - w) / 2 + panX * (256 / 200);
+      const y = (256 - h) / 2 + panY * (256 / 200);
+      ctx.drawImage(source, x, y, w, h);
+      return out.toDataURL("image/png");
+    }
+
+    const state = {
+      scene: "account",
+      savedName: "林夏",
+      draftName: "林夏",
+      selfAvatarUrl: cropToDataUrl(SAMPLE_CANVASES[0], 1.22, 0, -6),
+      peerAvatarUrl: cropToDataUrl(SAMPLE_CANVASES[1], 1.18, 0, -4),
+      offlineFallback: false,
+      cropOpen: false,
+      cropSource: SAMPLE_CANVASES[0],
+      cropZoom: 1.22,
+      cropPanX: 0,
+      cropPanY: -6
+    };
+
+    function personAvatarHtml(name, url, size, online) {
+      const swatch = colorForSeed(name);
+      const initials = (name.trim().slice(0, 2) || "U").toUpperCase();
+      const showImg = url && !state.offlineFallback;
+      return `<span class="chat-avatar" style="width:${size}px;height:${size}px">
+        <span class="chat-avatar-face" style="width:${size}px;height:${size}px;background:${swatch.background};color:${swatch.foreground};font-size:${Math.round(size * 0.36)}px">
+          ${showImg ? `<img src="${url}" alt="${name}" />` : initials}
+        </span>
+        ${online ? `<span class="chat-avatar-status"></span>` : ""}
+      </span>`;
+    }
+
+    function agentPortraitHtml(personal, bodyColor, inkColor, size, online) {
+      const path = personal
+        ? "M15 38C15 19 25 10 42 11c18 1 27 13 25 30-2 18-16 28-33 25C20 64 13 53 15 38Z"
+        : "M36 12c4-4 10-4 14 1l18 22c4 5 3 11-1 15L46 68c-5 4-11 3-15-1L12 45c-4-5-3-11 1-15Z";
+      return `<span class="chat-avatar" style="width:${size}px;height:${size}px">
+        <span class="chat-avatar-face chat-avatar-face--agent" style="width:${size}px;height:${size}px">
+          <svg width="${size}" height="${size}" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+            <path d="${path}" fill="${bodyColor}" />
+            <g transform="rotate(${personal ? -7 : 8} 40 40)">
+              <ellipse cx="31" cy="37" rx="6.8" ry="8.5" fill="#fffdf8" />
+              <ellipse cx="49" cy="37" rx="6.8" ry="8.5" fill="#fffdf8" />
+              <ellipse cx="31" cy="38" rx="2.8" ry="4.2" fill="${inkColor}" />
+              <ellipse cx="49" cy="38" rx="2.8" ry="4.2" fill="${inkColor}" />
+              ${personal ? `<path d="M36 52q5 4 10-1" stroke="${inkColor}" stroke-width="2.5" stroke-linecap="round" />` : ""}
+            </g>
+          </svg>
+        </span>
+        ${online ? `<span class="chat-avatar-status"></span>` : ""}
+      </span>`;
+    }
+
+    function groupAvatarHtml(size) {
+      return `<span style="width:${size}px;height:${size}px;border-radius:${Math.round(size * 0.28)}px;background:#e2d8ff;color:#57408c;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg width="${Math.round(size * 0.52)}" height="${Math.round(size * 0.52)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/></svg>
+      </span>`;
+    }
+
+    function renderAll() {
+      const name = state.savedName;
+      document.getElementById("rail-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 36, false);
+      document.getElementById("popover-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 36, false);
+      document.getElementById("popover-self-name").textContent = name;
+      document.getElementById("account-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 56, false);
+      document.getElementById("account-display-title").textContent = name;
+      document.getElementById("mobile-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 62, false);
+      document.getElementById("mobile-self-name").textContent = name;
+
+      document.getElementById("open-crop-btn").textContent = state.selfAvatarUrl ? "更换头像" : "上传头像";
+      document.getElementById("remove-avatar-btn").hidden = !state.selfAvatarUrl;
+
+      // Name draft independent check
+      const dirty = state.draftName.trim() !== state.savedName;
+      const valid = state.draftName.trim().length > 0;
+      document.getElementById("discard-name-btn").disabled = !dirty;
+      document.getElementById("save-name-btn").disabled = !dirty || !valid;
+      document.getElementById("form-status-text").textContent = !valid
+        ? "显示名称不能为空"
+        : dirty
+          ? "有未保存的修改"
+          : "未修改";
+
+      // Chat scene avatars
+      document.getElementById("sidebar-group-avatar").innerHTML = groupAvatarHtml(38);
+      document.getElementById("header-group-avatar").innerHTML = groupAvatarHtml(36);
+      document.getElementById("sidebar-peer-photo").innerHTML = personAvatarHtml("陈明", state.peerAvatarUrl, 38, false);
+      document.getElementById("sidebar-pa-portrait").innerHTML = agentPortraitHtml(true, "#b19aef", "#43335e", 38, true);
+      const zhaoSlot = document.getElementById("sidebar- peer-initials");
+      if (zhaoSlot) zhaoSlot.innerHTML = personAvatarHtml("赵敏", null, 38, false);
+
+      document.getElementById("msg-chenming-avatar").innerHTML = personAvatarHtml("陈明", state.peerAvatarUrl, 30, false);
+      document.getElementById("msg-zhaomin-avatar").innerHTML = personAvatarHtml("赵敏", null, 30, false);
+      document.getElementById("msg-luban-avatar").innerHTML = agentPortraitHtml(false, "#8bcbb0", "#285345", 30, true);
+      document.getElementById("msg-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 30, false);
+      const checkSvg = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>`;
+      document.getElementById("receipt-popover-rows").innerHTML = [
+        [personAvatarHtml("陈明", state.peerAvatarUrl, 24, false), "陈明"],
+        [personAvatarHtml("赵敏", null, 24, false), "赵敏"],
+        [agentPortraitHtml(false, "#8bcbb0", "#285345", 24, false), "鲁班"]
+      ].map(([av, label]) => `<div class="receipt-row">${av}<span class="receipt-row-name">${label}</span><span class="receipt-pill">${checkSvg}已读</span></div>`).join("");
+      document.getElementById("card-chenming-avatar").innerHTML = personAvatarHtml("陈明", state.peerAvatarUrl, 38, false);
+      document.getElementById("card-pa-avatar").innerHTML = agentPortraitHtml(true, "#8cbce9", "#2c4b6c", 22, true);
+
+      // Scene visibility
+      const activeMain = state.scene === "crop" ? "account" : state.scene;
+      document.getElementById("scene-account").hidden = activeMain !== "account";
+      document.getElementById("scene-chat").hidden = activeMain !== "chat";
+      document.getElementById("scene-mobile-me").hidden = activeMain !== "mobile-me";
+      document.getElementById("crop-modal").hidden = !state.cropOpen;
+
+      document.querySelectorAll("[data-scene-btn]").forEach((btn) => {
+        btn.setAttribute("aria-pressed", String(btn.dataset.sceneBtn === state.scene));
+      });
+      document.querySelectorAll("[data-nav]").forEach((tab) => {
+        tab.setAttribute("aria-selected", String(tab.dataset.nav === activeMain));
+      });
+
+      if (state.cropOpen) renderCropStage();
+    }
+
+    function clampPan() {
+      const src = state.cropSource;
+      const circleDiam = 200;
+      const baseScale = Math.max(circleDiam / src.width, circleDiam / src.height) * state.cropZoom;
+      const maxX = Math.max(0, (src.width * baseScale - circleDiam) / 2);
+      const maxY = Math.max(0, (src.height * baseScale - circleDiam) / 2);
+      state.cropPanX = Math.max(-maxX, Math.min(maxX, state.cropPanX));
+      state.cropPanY = Math.max(-maxY, Math.min(maxY, state.cropPanY));
+    }
+
+    function renderCropStage() {
+      clampPan();
+      const src = state.cropSource;
+      const main = document.getElementById("crop-canvas");
+      const mctx = main.getContext("2d");
+      mctx.clearRect(0, 0, main.width, main.height);
+      const circleDiam = 400; // 2x retina for 200px inner ring inside 240px box
+      const baseScale = Math.max(circleDiam / src.width, circleDiam / src.height) * state.cropZoom;
+      const w = src.width * baseScale;
+      const h = src.height * baseScale;
+      const x = (main.width - w) / 2 + state.cropPanX * 2;
+      const y = (main.height - h) / 2 + state.cropPanY * 2;
+      mctx.drawImage(src, x, y, w, h);
+    }
+
+    function showFeedback(kind, message) {
+      const box = document.getElementById("avatar-feedback");
+      box.className = `avatar-inline-feedback avatar-inline-feedback--${kind}`;
+      box.textContent = message;
+      box.hidden = false;
+    }
+
+    function setScene(next) {
+      state.scene = next;
+      state.cropOpen = next === "crop";
+      renderAll();
+    }
+
+    // Event Wiring
+    document.querySelectorAll("[data-scene-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => setScene(btn.dataset.sceneBtn));
+    });
+    document.querySelectorAll("[data-nav]").forEach((tab) => {
+      tab.addEventListener("click", () => setScene(tab.dataset.nav));
+    });
+
+    document.getElementById("brand-home-btn").addEventListener("click", () => setScene("chat"));
+    document.getElementById("user-menu-trigger").addEventListener("click", () => {
+      const pop = document.getElementById("user-popover");
+      pop.hidden = !pop.hidden;
+    });
+    document.getElementById("goto-account-btn").addEventListener("click", () => {
+      document.getElementById("user-popover").hidden = true;
+      setScene("account");
+    });
+
+    const openCropModal = () => {
+      document.getElementById("avatar-feedback").hidden = true;
+      state.cropOpen = true;
+      state.scene = "crop";
+      renderAll();
+    };
+    document.getElementById("open-crop-btn").addEventListener("click", openCropModal);
+    document.getElementById("avatar-click-trigger").addEventListener("click", openCropModal);
+    document.getElementById("pick-local-in-modal").addEventListener("click", () => {
+      document.getElementById("avatar-file-input").click();
+    });
+
+    let pendingObjectUrl = null;
+    function revokePendingObjectUrl() {
+      if (pendingObjectUrl) {
+        URL.revokeObjectURL(pendingObjectUrl);
+        pendingObjectUrl = null;
+      }
+    }
+    function downscaleIfNeeded(img) {
+      const maxDim = 2048;
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (w <= maxDim && h <= maxDim) return img;
+      const scale = maxDim / Math.max(w, h);
+      const c = document.createElement("canvas");
+      c.width = Math.round(w * scale);
+      c.height = Math.round(h * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      return c;
+    }
+    document.getElementById("avatar-file-input").addEventListener("change", (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+        state.cropOpen = false;
+        state.scene = "account";
+        showFeedback("error", "仅支持 5 MB 以内的静态 PNG、JPEG 或 WebP 图片，当前已生效头像保持不变。");
+        renderAll();
+        return;
+      }
+      revokePendingObjectUrl();
+      const objectUrl = URL.createObjectURL(file);
+      pendingObjectUrl = objectUrl;
+      const img = new Image();
+      img.onload = () => {
+        state.cropSource = downscaleIfNeeded(img);
+        revokePendingObjectUrl();
+        state.cropZoom = 1.15;
+        state.cropPanX = 0;
+        state.cropPanY = 0;
+        state.cropOpen = true;
+        state.scene = "crop";
+        renderAll();
+      };
+      img.onerror = () => {
+        revokePendingObjectUrl();
+        showFeedback("error", "图片无法解码，请选择其他静态图片。");
+      };
+      img.src = objectUrl;
+    });
+
+    document.querySelectorAll("[data-sample]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.cropSource = SAMPLE_CANVASES[Number(btn.dataset.sample)];
+        state.cropZoom = 1.2;
+        state.cropPanX = 0;
+        state.cropPanY = -4;
+        state.cropOpen = true;
+        state.scene = "crop";
+        renderAll();
+      });
+    });
+
+    document.getElementById("crop-zoom").addEventListener("input", (ev) => {
+      state.cropZoom = Number(ev.target.value);
+      renderCropStage();
+    });
+
+    // Pointer drag pan inside crop viewport
+    let dragStart = null;
+    const viewport = document.getElementById("crop-viewport");
+    viewport.addEventListener("pointerdown", (ev) => {
+      viewport.setPointerCapture(ev.pointerId);
+      dragStart = { x: ev.clientX - state.cropPanX, y: ev.clientY - state.cropPanY };
+    });
+    viewport.addEventListener("pointermove", (ev) => {
+      if (!dragStart) return;
+      state.cropPanX = ev.clientX - dragStart.x;
+      state.cropPanY = ev.clientY - dragStart.y;
+      renderCropStage();
+    });
+    viewport.addEventListener("pointerup", () => { dragStart = null; });
+
+    const closeCrop = () => {
+      revokePendingObjectUrl();
+      state.cropOpen = false;
+      state.scene = "account";
+      renderAll();
+      document.getElementById("open-crop-btn").focus();
+    };
+    document.getElementById("close-crop-x").addEventListener("click", closeCrop);
+    document.getElementById("cancel-crop-btn").addEventListener("click", closeCrop);
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && state.cropOpen) {
+        ev.preventDefault();
+        closeCrop();
+      }
+    });
+
+    document.getElementById("confirm-crop-btn").addEventListener("click", () => {
+      state.selfAvatarUrl = cropToDataUrl(state.cropSource, state.cropZoom, state.cropPanX, state.cropPanY);
+      revokePendingObjectUrl();
+      state.cropOpen = false;
+      state.scene = "account";
+      showFeedback("ok", "个人头像已更新，全站聊天与导航栏已同步生效。");
+      renderAll();
+      document.getElementById("open-crop-btn").focus();
+    });
+
+    document.getElementById("remove-avatar-btn").addEventListener("click", () => {
+      state.selfAvatarUrl = null;
+      showFeedback("ok", "已移除自定义头像，恢复默认首字母圆章。");
+      renderAll();
+    });
+
+    document.getElementById("display-name-input").addEventListener("input", (ev) => {
+      state.draftName = ev.target.value;
+      renderAll();
+    });
+    document.getElementById("discard-name-btn").addEventListener("click", () => {
+      state.draftName = state.savedName;
+      document.getElementById("display-name-input").value = state.savedName;
+      renderAll();
+    });
+    document.getElementById("save-name-btn").addEventListener("click", () => {
+      state.savedName = state.draftName.trim();
+      document.getElementById("display-name-input").value = state.savedName;
+      renderAll();
+    });
+
+    document.getElementById("chenming-avatar-btn").addEventListener("click", () => {
+      const pop = document.getElementById("person-popover");
+      pop.hidden = !pop.hidden;
+    });
+    document.getElementById("receipt-trigger-btn").addEventListener("click", () => {
+      const rpop = document.getElementById("receipt-popover");
+      rpop.hidden = !rpop.hidden;
+    });
+    document.getElementById("close-person-card").addEventListener("click", () => {
+      document.getElementById("person-popover").hidden = true;
+    });
+    document.getElementById("card-msg-btn").addEventListener("click", () => { document.getElementById("person-popover").hidden = true; });
+    document.getElementById("card-mention-btn").addEventListener("click", () => { document.getElementById("person-popover").hidden = true; });
+    document.getElementById("mobile-me-card-link").addEventListener("click", () => setScene("account"));
+    document.getElementById("mobile-row-account").addEventListener("click", () => setScene("account"));
+
+    document.getElementById("sim-invalid-btn").addEventListener("click", () => {
+      state.cropOpen = false;
+      state.scene = "account";
+      showFeedback("error", "不支持动态 GIF 或超过 5 MB 的文件，请选择静态 PNG、JPEG 或 WebP 图片（原头像未受影响）。");
+      renderAll();
+    });
+    document.getElementById("sim-offline-btn").addEventListener("click", (ev) => {
+      state.offlineFallback = !state.offlineFallback;
+      ev.currentTarget.setAttribute("aria-pressed", String(state.offlineFallback));
+      renderAll();
+    });
+
+    // URL query parameters for deterministic walkthrough snapshots (?scene=account|crop|chat|mobile-me&clean=1&fallback=1&error=1&draft=1&receipts=1)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("clean") === "1") document.body.classList.add("clean-mode");
+    if (params.get("fallback") === "1") {
+      state.offlineFallback = true;
+      document.getElementById("sim-offline-btn").setAttribute("aria-pressed", "true");
+    }
+    if (params.get("removed") === "1") {
+      state.selfAvatarUrl = null;
+    }
+    if (params.get("draft") === "1") {
+      state.draftName = "林夏（产品设计）";
+      document.getElementById("display-name-input").value = state.draftName;
+    }
+    if (params.get("popover") === "1") { document.getElementById("person-popover").hidden = false; }
+    if (params.get("receipts") === "1") { document.getElementById("receipt-popover").hidden = false; }
+    if (params.get("error") === "1") {
+      showFeedback("error", "不支持动态 GIF 或超过 5 MB 的文件，请选择静态 PNG、JPEG 或 WebP 图片（原头像未受影响）。");
+    }
+    if (params.get("lang") === "en") {
+      document.getElementById("crop-dialog-title").textContent = "Adjust photo";
+      document.getElementById("pick-local-in-modal").textContent = "Choose another";
+      document.getElementById("cancel-crop-btn").textContent = "Cancel";
+      document.getElementById("confirm-crop-btn").textContent = "Save";
+    }
+    const initialScene = params.get("scene");
+    if (initialScene && ["account", "crop", "chat", "mobile-me"].includes(initialScene)) {
+      setScene(initialScene);
+    } else {
+      renderAll();
+    }
+  </script>
+</body>
+</html>

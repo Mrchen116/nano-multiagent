@@ -2,6 +2,7 @@ import {isRecord} from './node-rpc-values.js';
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAgentAccessConversation } from "./collaboration.js";
 import { agentAvailable } from "./identity.js";
+import { attachHumanAvatars } from "./human-avatar-projection.js";
 import { createHmac, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
@@ -259,7 +260,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     );
     db.prepare("UPDATE conversations SET target_node_id=? WHERE id=?").run(node!, c.id);
     reply.code(201);
-    return { conversation: s.conversation(c.id, fresh.id), prompt: r.prompt };
+    return { conversation: attachHumanAvatars(db, s.conversation(c.id, fresh.id)), prompt: r.prompt };
   });
   app.post("/im/v1/conversations/:conversation_id/fork", async (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
@@ -408,7 +409,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           ).run(latest.content.slice(0, 120), latest.created_at, branch.id);
       });
       reply.code(201);
-      return s.conversation(branch.id, p.id);
+      return attachHumanAvatars(db, s.conversation(branch.id, p.id));
     } catch (e) {
       if (!one(db, "SELECT 1 FROM messages WHERE conversation_id=?", branch.id))
         db.prepare("DELETE FROM conversations WHERE id=?").run(branch.id);
