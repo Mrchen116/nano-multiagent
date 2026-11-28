@@ -57,4 +57,4 @@ def test_signed_channel_rejects_unsigned_dmg_before_mount(tmp_path, monkeypatch)
 
     monkeypatch.setattr(distribution, "run", reject)
     with pytest.raises(subprocess.CalledProcessError):
-        distribution.verify(tmp_path, False, "AAAAAAAAAA")
+        distribution.verify(tmp_path, "developer-id-notarized", "AAAAAAAAAA")

@@ -6,4 +6,4 @@
 
 `2b66d100b` 保留原 Mac 宿主 smoke，独立执行从 DMG 拷出的实际应用。与七项合成基线的只读 merge-tree 核对通过。独立定向 Python 检查 8 项通过，shell/Node 语法和 diff 检查通过。
 
-正式签名产物仍待组织 runner 验证。需保留 Apple 返回的 Accepted submission IDs、最终 DMG 哈希和独立 runner 对 app、DMG、首次启动及同 Team 原生模块加载的输出。具体历史产物与对照实验见 [修复记录](fix.md)。
+可选公证模式的真实签名产物留待组织 runner 验证。需保留 Apple 返回的 Accepted submission IDs、最终 DMG 哈希和独立 runner 对 app、DMG、首次启动及同 Team 原生模块加载的输出。具体历史产物与对照实验见 [修复记录](fix.md)。

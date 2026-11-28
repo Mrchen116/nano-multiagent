@@ -1,3 +1,4 @@
+import { macDistributionLabel } from '../../../desktop/mac-distribution-label';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { DesktopDualInstallPicker, hasDesktopInstallAwareness } from '../../../desktop/desktop-install-picker';
@@ -65,7 +66,7 @@ export function NodeConnectGuide({ node, onRefresh }: { node?: NodeSettingsProfi
             <h3>{text('重新安装或打开 Crewden Desktop', 'Reinstall or open Crewden Desktop')}</h3>
             <p>{text('下载最新安装包覆盖安装，或直接打开桌面客户端恢复这台电脑。', 'Download the latest installer or open Crewden Desktop directly to recover this computer.')}</p>
             <div className="desktop-action-row">
-              <a className="desktop-btn primary" href={desktopRecoveryMaterials.download_url} target="_blank" rel="noreferrer">{text('下载最新 Crewden Desktop', 'Download latest Crewden Desktop')}</a>
+              <a className="desktop-btn primary" href={desktopRecoveryMaterials.download_url} target="_blank" rel="noreferrer">{text('下载最新 Crewden Desktop', 'Download latest Crewden Desktop')}{nodePlatform === 'desktop-darwin-arm64' && ` · ${t(macDistributionLabel(desktopRecoveryMaterials))}`}</a>
               <a className="desktop-btn" href={desktopRecoveryMaterials.connect_url}>{text('打开 Crewden Desktop', 'Open Crewden Desktop')}</a>
             </div>
           </div>

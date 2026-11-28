@@ -1,3 +1,4 @@
+import { macDistributionLabel } from "./mac-distribution-label";
 import { useState } from "react";
 import type { DesktopInstall, OnboardingState } from "../features/onboarding/onboarding-api";
 import { WindowsInstallPanel } from "../features/onboarding/windows-install";
@@ -32,7 +33,7 @@ export function DesktopDualInstallPicker({
   onStartDesktopOrWindows?(opened: boolean): void;
   renderUnixHeadless(): React.ReactNode;
 }) {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const zh = i18n.language.startsWith("zh");
   const text = (cn: string, en: string) => (zh ? cn : en);
   const [os, setOs] = useState<ComputerOsChoice>(detectSuggestedOs);
@@ -44,6 +45,7 @@ export function DesktopDualInstallPicker({
   const desktopMaterials: DesktopInstall | null | undefined =
     os === "macos" ? install.desktop_darwin_arm64 : os === "windows" ? install.desktop_win32_x64 : null;
 
+  const macNotice = os === "macos" && desktopMaterials ? t(macDistributionLabel(desktopMaterials)) : null;
   const downloadLabel =
     os === "macos"
       ? text("下载 Crewden Desktop (Apple Silicon)", "Download Crewden Desktop (Apple Silicon)")
@@ -166,7 +168,7 @@ export function DesktopDualInstallPicker({
                 rel="noreferrer"
                 onClick={() => onStartDesktopOrWindows?.(false)}
               >
-                {text("重新下载安装包", "Download installer again")}
+                {text("重新下载安装包", "Download installer again")}{macNotice && ` · ${macNotice}`}
               </a>
             </div>
           </div>
@@ -195,7 +197,7 @@ export function DesktopDualInstallPicker({
                   setDesktopPhase("launched");
                 }}
               >
-                {downloadLabel}
+                {downloadLabel}{macNotice && ` · ${macNotice}`}
               </a>
               <a
                 className="desktop-btn mobile-full"

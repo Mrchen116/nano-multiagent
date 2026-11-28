@@ -2388,6 +2388,9 @@
     "definition": "人和 AI 一起工作的聊天空间。"
   },
   "crewdenDownload": {
+    "macUnnotarized": "未经 Apple 公证",
+    "macNotarized": "已通过 Apple 公证",
+    "macTestPackage": "测试包 · 未经 Apple 公证",
     "heroMac": "下载 macOS 客户端",
     "heroWindows": "下载 Windows 客户端",
     "heroIos": "获取 iOS 客户端",

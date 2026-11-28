@@ -36,19 +36,23 @@ async function fixture(failure = '') {
       if(args[0]!=='release'||args[1]!=='create'||args[2]!=='v${releaseVersion}'||args[args.indexOf('--title')+1]!=='Nano Node v${releaseVersion}'||args[args.indexOf('--target')+1]!=='${version}') process.exit(2);
       fs.writeFileSync(dir+'/notes', args[args.indexOf('--notes')+1]);
       fs.copyFileSync(args[3], dir+'/uploaded');
+      fs.mkdirSync(dir+'/uploads');
+      for (const path of args.slice(3, args.indexOf('--repo'))) fs.copyFileSync(path, dir+'/uploads/'+require('node:path').basename(path));
     }`,
-    curl: `if(args[0]!=='--disable'||args.includes('--header')||args.includes('--user')||!args.includes(${JSON.stringify(downloadUrl)})) process.exit(3);
+    curl: `const assetUrl=args.find(arg=>arg.startsWith(${JSON.stringify(downloadUrl.slice(0, downloadUrl.lastIndexOf('/') + 1))}));
+      if(args[0]!=='--disable'||args.includes('--header')||args.includes('--user')||!assetUrl) process.exit(3);
       if(${JSON.stringify(failure)}==='download') process.exit(22);
-      const bytes=fs.readFileSync(dir+'/uploaded');
+      const bytes=fs.readFileSync(dir+'/uploads/'+require('node:path').basename(assetUrl));
       fs.writeFileSync(args[args.indexOf('-o')+1], ${JSON.stringify(failure)}==='checksum'?'wrong package':bytes);`,
   };
   for (const [name, source] of Object.entries(helpers)) {
     await writeFile(join(bin, name), prelude + source);
     await chmod(join(bin, name), 0o700);
   }
-  const run = (release = releaseVersion, changes = '- 改进节点连接', upgradeNotes = '无需额外操作') =>
+  const run = (release = releaseVersion, changes = '- 改进节点连接', upgradeNotes = '无需额外操作', macMode?: string) =>
     spawnSync(process.execPath, [isolatedPublisher, directory], { cwd: directory, encoding: 'utf8',
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RELEASE_VERSION: release,
+        MACOS_DISTRIBUTION: macMode, MACOS_SIGNING_IDENTITY: undefined, MACOS_NOTARY_PROFILE: undefined,
         RELEASE_CHANGES: changes, RELEASE_UPGRADE_NOTES: upgradeNotes } });
   return { directory, candidate, bytes, run, published: { ...candidate, version: releaseVersion, source_commit: version, download_url: downloadUrl } };
 }
@@ -69,6 +73,61 @@ it('promotes only the same uploaded and anonymously verified bytes, without over
     expect(await readFile(join(f.directory, 'uploaded'))).toEqual(f.bytes);
     expect(await readFile(join(f.directory, 'manifest.json'), 'utf8')).toBe(published);
   } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+// Build all four release manifests so the test reaches the unified publication
+// entrypoint with both Windows installers and only fixture GitHub binaries.
+async function platformMaterials(f: Awaited<ReturnType<typeof fixture>>, macMode: string) {
+  const base = new URL('.', f.published.download_url).href;
+  for (const platform of ['win32-x64', 'desktop-win32-x64', 'desktop-darwin-arm64']) {
+    const lightweight = platform === 'win32-x64';
+    const mac = platform === 'desktop-darwin-arm64';
+    const sub = join(f.directory, lightweight ? 'windows' : platform);
+    await mkdir(sub);
+    const asset = async (name: string, content: string) => {
+      await writeFile(join(sub, name), content);
+      return {name, download_url: base + name, size: Buffer.byteLength(content), sha256: createHash('sha256').update(content).digest('hex')};
+    };
+    const platformFlags = lightweight ? {launcher_protocol: 1} : {shell_protocol: 1};
+    const common = {version: f.published.version, source_commit: f.published.source_commit, updater_protocol: 1, data_epoch: 1, ...platformFlags};
+    const payload = (kind: string) => lightweight ? `windows-${kind}-x64.zip` : `desktop-${kind}-${platform.slice(8)}.tar.gz`;
+    const descriptor = await asset(lightweight ? 'windows-x64.json' : platform + '.json', JSON.stringify({
+      ...common, runtime: await asset(payload('runtime'), 'runtime'), app: await asset(payload('app'), 'app'),
+    }));
+    const installer = await asset(mac ? 'Crewden-Desktop-arm64.dmg' : lightweight ? 'Crewden-Setup-x64.exe' : 'Crewden-Desktop-Setup-x64.exe', 'installer');
+    await writeFile(join(sub, `manifest.${platform}.json`), JSON.stringify({...common, ...descriptor, installer, package: descriptor.name,
+      platform, node_major: 24, pnpm_version: '11.7.0', ...(mac ? {macos_distribution: macMode} : {})}));
+  }
+}
+
+it.each([
+  ['unnotarized', undefined, '未经 Apple 公证'],
+  ['developer-id-notarized', 'developer-id-notarized', '已通过 Apple 公证'],
+] as const)('includes the correct Mac disclosure in a unified %s release', async (artifactMode, selectedMode, disclosure) => {
+  const f = await fixture();
+  try {
+    await platformMaterials(f, artifactMode);
+    const result = f.run(undefined, undefined, undefined, selectedMode);
+    expect(result.status, result.stderr).toBe(0);
+    const notes = await readFile(join(f.directory, 'notes'), 'utf8');
+    expect(notes.split('\n').find(line => line.includes('Crewden-Desktop-arm64.dmg'))).toContain(disclosure);
+    for (const name of ['manifest.json', 'manifest.win32-x64.json', 'manifest.desktop-win32-x64.json', 'manifest.desktop-darwin-arm64.json']) {
+      expect(JSON.parse(await readFile(join(f.directory, name), 'utf8')).version).toBe(f.published.version);
+    }
+  } finally { await rm(f.directory, {recursive: true, force: true}); }
+});
+
+it.each([
+  ['unsigned-test', undefined], ['unnotarized', 'developer-id-notarized'], ['developer-id-notarized', undefined],
+] as const)('rejects a %s artifact for the selected release mode before uploading', async (artifactMode, selectedMode) => {
+  const f = await fixture();
+  try {
+    await platformMaterials(f, artifactMode);
+    const result = f.run(undefined, undefined, undefined, selectedMode);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('macOS release requires the verified');
+    await expect(readFile(join(f.directory, 'uploaded'))).rejects.toThrow();
+  } finally { await rm(f.directory, {recursive: true, force: true}); }
 });
 
 it.each([[' ', '无需额外操作'], ['- 改进节点连接', '']])('requires both release note sections before uploading', async (changes, upgradeNotes) => {

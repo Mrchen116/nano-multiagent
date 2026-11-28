@@ -236,12 +236,12 @@ def sign_candidate(candidate, target, identity, profile):
         release.rename(target)
 
 
-def verify(directory, unsigned_test, team):
+def verify(directory, mode, team):
     dmg = directory / DMG
     manifest = read_json(directory / MANIFEST)
     verify_hash(dmg, manifest["installer"])
     requirement = None
-    if not unsigned_test:
+    if mode == "developer-id-notarized":
         if not re.fullmatch(r"[A-Z0-9]{10}", team):
             raise ValueError("The expected Developer ID team is required")
         requirement = f'anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "{team}"'
@@ -281,7 +281,7 @@ def verify(directory, unsigned_test, team):
                     verify_archive(seed / name, Path(native_tmp), floor, requirement)
             installed = tmp / "Crewden.app"
             run("ditto", app, installed)
-        if not unsigned_test:
+        if mode == "developer-id-notarized":
             run(
                 "xattr",
                 "-w",
@@ -307,6 +307,9 @@ def verify(directory, unsigned_test, team):
             tmp / "Crewden.app",
             manifest["sha256"],
         )
+    # Mark the outer manifest only after the exact DMG passes the selected checks.
+    manifest["macos_distribution"] = mode
+    write_json(directory / MANIFEST, manifest)
 
 
 def main():
@@ -318,9 +321,9 @@ def main():
     verifier = commands.add_parser("verify")
     verifier.add_argument("directory", type=Path)
     verifier.add_argument(
-        "--unsigned-test",
-        action="store_true",
-        help="Skip Apple trust checks for an internal test artifact",
+        "--mode",
+        choices=("unsigned-test", "unnotarized", "developer-id-notarized"),
+        required=True,
     )
     args = parser.parse_args()
     if args.command == "sign":
@@ -331,7 +334,7 @@ def main():
             os.environ.get("MACOS_NOTARY_PROFILE", ""),
         )
     else:
-        verify(args.directory, args.unsigned_test, os.environ.get("MACOS_TEAM_ID", ""))
+        verify(args.directory, args.mode, os.environ.get("MACOS_TEAM_ID", ""))
 
 
 if __name__ == "__main__":

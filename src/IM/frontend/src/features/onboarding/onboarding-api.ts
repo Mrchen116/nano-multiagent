@@ -1,9 +1,10 @@
+import type { MacDistribution } from '@nano/product-contracts';
 import { authFetchJson } from '../auth/auth-fetch';
 
 export interface OnboardingNode { node_id: string; node_name: string; alias: string | null; status: string }
 export interface OnboardingAgent { agent_id: string; display_name: string; node_id: string; default_model: string; workspace_root: string; work_mode: string }
 export interface WindowsInstall { download_url: string; connect_url: string }
-export interface DesktopInstall { download_url: string; connect_url: string; version: string }
+export interface DesktopInstall { macos_distribution?: MacDistribution; download_url: string; connect_url: string; version: string }
 export interface IosInstall { download_url: string }
 export interface PublicInstallMaterials {
   available: boolean;

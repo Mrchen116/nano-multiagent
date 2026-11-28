@@ -2407,6 +2407,9 @@
     "definition": "A shared workspace for people and AI."
   },
   "crewdenDownload": {
+    "macUnnotarized": "Not notarized by Apple",
+    "macNotarized": "Notarized by Apple",
+    "macTestPackage": "Test build · Not notarized by Apple",
     "heroMac": "Download for macOS",
     "heroWindows": "Download for Windows",
     "heroIos": "Get iOS app",

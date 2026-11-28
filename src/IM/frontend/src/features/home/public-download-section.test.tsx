@@ -71,9 +71,14 @@ describe('PublicHomePage multi-platform client download entry', () => {
     expect(detectVisitorPlatform({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64)', platform: 'Linux x86_64', maxTouchPoints: 0 })).toBe('other');
   });
 
-  it('recommends macOS Desktop in Hero on Mac, shows Windows download, and honestly marks iOS as coming soon', async () => {
+  it.each([
+    [undefined, '未经 Apple 公证'],
+    ['unnotarized', '未经 Apple 公证'],
+    ['developer-id-notarized', '已通过 Apple 公证'],
+    ['unsigned-test', '测试包 · 未经 Apple 公证'],
+  ] as const)('shows the Mac distribution status for %s before both downloads', async (mode, label) => {
     stubNavigator('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'MacIntel');
-    injectPublicInstall(SAMPLE_MATERIALS);
+    injectPublicInstall({ ...SAMPLE_MATERIALS, desktop_darwin_arm64: { ...SAMPLE_MATERIALS.desktop_darwin_arm64, macos_distribution: mode } });
 
     render(
       <MemoryRouter initialEntries={['/about']}>
@@ -88,6 +93,8 @@ describe('PublicHomePage multi-platform client download entry', () => {
     expect(screen.getByRole('link', { name: '网页版直接使用' })).toHaveAttribute('href', '/register');
 
     const macCard = screen.getByTestId('download-card-macos');
+    expect(macCard).toHaveTextContent(label);
+    expect(screen.getByTestId('hero-smart-download')).toHaveTextContent(label);
     expect(within(macCard).getByText('当前设备')).toBeInTheDocument();
     expect(within(macCard).getByText(/macOS 15\.0\+ · Apple Silicon/)).toBeInTheDocument();
     expect(within(macCard).getByRole('link', { name: '下载 macOS 版' })).toHaveAttribute(

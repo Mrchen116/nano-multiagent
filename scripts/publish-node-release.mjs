@@ -18,6 +18,10 @@ const repository = 'Mrchen116/nano-multiagent';
 const version = process.env.RELEASE_VERSION;
 if (!version || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version))
   throw new Error('RELEASE_VERSION must be an explicit X.Y.Z version (without v prefix)');
+const macMode = process.env.MACOS_DISTRIBUTION ?? 'unnotarized';
+if (!['unnotarized', 'developer-id-notarized'].includes(macMode))
+  throw new Error('MACOS_DISTRIBUTION must be unnotarized or developer-id-notarized');
+const macDisclosure = macMode === 'unnotarized' ? '未经 Apple 公证' : '已通过 Apple 公证';
 const changes = process.env.RELEASE_CHANGES?.trim();
 const upgradeNotes = process.env.RELEASE_UPGRADE_NOTES?.trim();
 if (!changes || !upgradeNotes) throw new Error('RELEASE_CHANGES and RELEASE_UPGRADE_NOTES are required');
@@ -105,11 +109,11 @@ for (const spec of desktopSpecs) {
   const sub = join(directory, spec.subdir);
   const mPath = join(sub, spec.manifestName);
   const dm = existsSync(mPath) ? JSON.parse(await readFile(mPath, 'utf8')) : null;
-  if (!dm && existsSync(join(root, spec.scriptGate)))
+  if (!dm && (existsSync(join(root, spec.scriptGate)) || (spec.platform === 'desktop-darwin-arm64' && macMode === 'developer-id-notarized')))
     throw new Error(`The selected source requires its matching Desktop build (${spec.platform})`);
   if (!dm) continue;
-  if (spec.platform === 'desktop-darwin-arm64' && dm.macos_distribution !== 'developer-id-notarized')
-    throw new Error('macOS release requires the verified Developer ID distribution artifact');
+  if (spec.platform === 'desktop-darwin-arm64' && dm.macos_distribution !== macMode)
+    throw new Error(`macOS release requires the verified ${macMode} artifact; received ${dm.macos_distribution ?? 'unmarked'}`);
   if (dm.package !== spec.descriptorName || dm.platform !== spec.platform
       || dm.version !== version || dm.source_commit !== revision
       || dm.updater_protocol !== 1 || dm.data_epoch !== 1 || dm.shell_protocol !== 1
@@ -140,7 +144,7 @@ const notes = [
     `- 安装包 [${candidate.package}](${manifest.download_url})`,
     `- 源码提交 [\`${revision}\`](https://github.com/${repository}/commit/${revision})`,
     `- SHA-256 \`${candidate.sha256}\``,
-    ...extraAssets.map(({name, url, sha256}) => `- [${name}](${url}) SHA-256 \`${sha256}\``),
+    ...extraAssets.map(({name, url, sha256}) => `- [${name}](${url})${name === 'Crewden-Desktop-arm64.dmg' ? '（' + macDisclosure + '）' : ''} SHA-256 \`${sha256}\``),
   ].join('\n'),
 ].join('\n\n');
 // gh release create fails if this tag already has a Release; never use upload --clobber.

@@ -11,6 +11,14 @@ on:
         description: Full source commit SHA (40 lowercase hex characters)
         type: string
         required: true
+      macos_distribution:
+        description: Mac 分发方式（默认未经 Apple 公证）
+        type: choice
+        required: true
+        default: unnotarized
+        options:
+          - unnotarized
+          - developer-id-notarized
       changes:
         description: 相对上一发行版的用户可见变化（Markdown）
         type: string
@@ -45,6 +53,8 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
       - id: platform
+        env:
+          MACOS_DISTRIBUTION: ${{ inputs.macos_distribution }}
         run: |
           if test -f scripts/build-windows-installer.ps1; then
             echo "windows=true" >> "$GITHUB_OUTPUT"
@@ -58,6 +68,10 @@ jobs:
             fi
             echo "desktop=true" >> "$GITHUB_OUTPUT"
           else
+            if [[ "$MACOS_DISTRIBUTION" == "developer-id-notarized" ]]; then
+              echo "::error::The selected source has no Mac desktop package to notarize."
+              exit 1
+            fi
             echo "desktop=false" >> "$GITHUB_OUTPUT"
           fi
   windows:
@@ -76,7 +90,7 @@ jobs:
       version: ${{ inputs.version }}
   sign-macos:
     needs: [source, desktop]
-    if: needs.source.outputs.desktop == 'true'
+    if: needs.source.outputs.desktop == 'true' && inputs.macos_distribution == 'developer-id-notarized'
     environment: macos-distribution
     # Set this to a protected, pre-provisioned signing runner. On a repository
     # without signing infrastructure the hosted runner fails with a diagnostic.
@@ -92,7 +106,7 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
-          name: unsigned-test-desktop-darwin-arm64-${{ inputs.commit }}
+          name: unnotarized-desktop-darwin-arm64-${{ inputs.commit }}
           path: candidate
       - name: Sign native code and notarize and staple the app and disk image
         env:
@@ -124,10 +138,15 @@ jobs:
       - name: Check tickets, publisher, Gatekeeper, seed and first startup from the final DMG
         env:
           MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
-        run: python3 packaging/desktop/macos/distribution.py verify signed
+        run: python3 packaging/desktop/macos/distribution.py verify signed --mode developer-id-notarized
   publish:
     needs: [source, windows, desktop, verify-macos]
-    if: always() && needs.source.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && ((needs.desktop.result == 'success' && needs.verify-macos.result == 'success') || (needs.source.outputs.desktop == 'false' && needs.desktop.result == 'skipped'))
+    if: >-
+      always() && needs.source.result == 'success' &&
+      (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
+      (needs.desktop.result == 'success' || (needs.source.outputs.desktop == 'false' && needs.desktop.result == 'skipped')) &&
+      ((inputs.macos_distribution == 'unnotarized' && needs.verify-macos.result == 'skipped') ||
+       (inputs.macos_distribution == 'developer-id-notarized' && needs.verify-macos.result == 'success'))
     runs-on: ubuntu-latest
     steps:
       # Keep publishing policy from this workflow revision, even for older source commits.
@@ -156,7 +175,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'
         with:
-          name: signed-desktop-darwin-arm64-${{ inputs.commit }}
+          name: ${{ inputs.macos_distribution == 'developer-id-notarized' && 'signed' || 'unnotarized' }}-desktop-darwin-arm64-${{ inputs.commit }}
           path: dist/node-release/desktop-darwin-arm64
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'
@@ -166,6 +185,7 @@ jobs:
       - name: Publish and anonymously verify the same packages
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          MACOS_DISTRIBUTION: ${{ inputs.macos_distribution }}
           RELEASE_CHANGES: ${{ inputs.changes }}
           RELEASE_UPGRADE_NOTES: ${{ inputs.upgrade_notes }}
           GH_TOKEN: ${{ github.token }}

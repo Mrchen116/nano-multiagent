@@ -1,3 +1,4 @@
+import { macDistributionLabel } from '../../desktop/mac-distribution-label';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ChevronDown, Copy, Play } from 'lucide-react';
@@ -182,7 +183,8 @@ export function HeroDownloadActions({
     );
   }
 
-  const macDownload = platform === 'macos' ? materials?.desktop_darwin_arm64?.download_url : undefined;
+  const mac = platform === 'macos' ? materials?.desktop_darwin_arm64 : null;
+  const macDownload = mac?.download_url;
   const winDownload = platform === 'windows' ? materials?.desktop_win32_x64?.download_url : undefined;
   const iosDownload = platform === 'ios' ? materials?.ios?.download_url : undefined;
   const matchedDownload = macDownload || winDownload || iosDownload;
@@ -228,7 +230,7 @@ export function HeroDownloadActions({
           </button>
         </div>
         <div className="crew-hero-platforms">
-          <span>{heroMeta}</span>
+          <span>{heroMeta}{mac && ` · ${t(macDistributionLabel(mac))}`}</span>
           <span className="crew-hero-platforms-sep" aria-hidden="true">·</span>
           <a className="crew-hero-platforms-link" href="#download">
             {otherPlatformsLabel}
@@ -312,7 +314,7 @@ export function PublicDownloadSection({ materials }: { materials: PublicInstallM
             </div>
             <h3>macOS</h3>
             <div className="crew-plat-req">
-              {mac?.version ? `${dl('macosReq')} · v${mac.version}` : dl('macosReq')}
+              {dl('macosReq')}{mac && ` · v${mac.version} · ${t(macDistributionLabel(mac))}`}
             </div>
             <p className="crew-plat-desc">{dl('macosDesc')}</p>
             {mac?.download_url ? (
