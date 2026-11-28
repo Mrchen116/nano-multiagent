@@ -106,3 +106,44 @@
 - **`R1-W3`: `accepted`** — 已将分支 `unit/feat-822-memory-capacity-and-gating` 直接 rebase 至 `unit/feat-806-dolphinbench-eval`（`222591463`），在 `spec.md` 声明 `Depends on: feat-806`，并将 `packages/dsh-integration/src/evaluation/*`（含 `runtime.ts` 与 `dolphinbench-runtime.ts`）纳入 `design.md` 涉及范围与 `M1` 范围：两者均把 `deferred_below_min_volume` 识别为正常延后，`dolphinbench-runtime.ts` 仅在实际完成巩固时推进 `lastConsolidationAt`，且 `freezeIngestion` 的 `force: true` 走 `dreaming.start(parent, false)` 强制排空末尾残留增量。
 - **`R1-R1`: `accepted`** — 已纳入 `design.md` 与 `specs/gateway/agent-capabilities.md`：`proactivePolicyForWindowWake` 与 `Dreaming.renderInput` 均校验 `knowledge/proactivity-policy.md` 为库内非符号链接常规文件且 `<= 6,000` 码元，超限异常文件在主动唤醒中不内联、在 `Dreaming` 首轮仅输出路径修复提示。
 - **`R1-R2`: `accepted`** — 已纳入 `design.md`：`consolidationIssues(beforeVersions, initialDirtyPaths)` 同时将批次起始已处于 Git 未提交状态的页面纳入本批触及页上限检查。
+
+
+## Round 2
+
+### Metadata
+
+- **reviewer**: Independent Gate 2 Design Reviewer (`change-design-reviewer` + `agent-context-review` design mode, session `a5759120-e907-4923-9619-a45d5f2e7a48`)
+- **target**: `docs/changes/feat-822-memory-capacity-and-gating/{spec.md,design.md,design-review.md,M1-memory-capacity-and-gating/.gitkeep,specs/gateway/{agent-capabilities.md,personal-agent.md,global-agent.md}}` @ `8aa865a78051db1266723f52565547663a7a9f13` (stacked base `222591463adb9eb134f5eb62df9cb663b325493f` `unit/feat-806-dolphinbench-eval`)
+- **review_mode**: `delta`
+- **mode_reason**: Re-review of bounded Gate 2 revisions resolving `R1-W1`..`R1-W3` and `R1-R1`..`R1-R2`, plus branch rebase onto `unit/feat-806-dolphinbench-eval` and `M1` evaluation-adapter scope expansion (`retained_from: Round 1` for unchanged architecture boundaries, prompt/skill de-boilerplate rules, five-platform parity matrix, and unaffected delta-spec scenarios).
+- **started_at**: `2026-11-28T16:38:15+09:00`
+- **completed_at**: `2026-11-28T16:40:30+09:00`
+- **duration**: `2m15s`
+
+### Verdict
+
+**Approved** — `0 CRITICAL / 0 WARNING` (`0 Recommendations`)
+
+### Coverage 与证据
+
+- **`retained_from: Round 1`**：跨包单向依赖与单写者边界（`AGENTS.md` / `SPEC.md`）、`canonicalAgentConfiguration` 指纹不变性、`MEMORY.md` 主动专区 `<= 2,000` 码元与二级页 `16,000` / `32,000` 码元配额划分、双阶段去免责套话提示词原则、`proactivity-signals.md` 前台禁读隔离、《五端对齐矩阵》及三份 delta-spec 未改动 Scenario 均未发生反向变更，沿用 Round 1 核验证据。
+- **本轮变更与波及范围核验（`222591463..8aa865a78`）**：
+  1. **分支基线与评测目录核实**：核实当前 worktree 已 cleanly rebase 至 `unit/feat-806-dolphinbench-eval`（`222591463`），`evals/dolphinbench/` 与 `packages/dsh-integration/src/evaluation/{dolphinbench.ts,dolphinbench-runtime.ts,runtime.ts,history.ts}` 均已在检出树就位；`./scripts/docs-check`（248 份受护文档通过）与 `python3 scripts/check_platform_parity.py --base-ref 222591463 --head-sha 8aa865a78` 均通过。
+  2. **主动唤醒窗口内版本去重（Context Engineering 复核）**：`design.md`（第 15、70–72、91–95 行）与 `specs/gateway/{personal-agent,global-agent}.md`（第 14、20–21 行）已统一以最近一次 `compact-checkpoint` 为窗口边界定义 `updatedEntryForWindowWake` 与 `proactivePolicyForWindowWake`，既保持 `systemPrompt` / `runtime-context` 缓存前缀零改写，又消除同窗高频 `proactive_review` 向 `agent.session.deriveMessages()` 重复追加全文副本的问题，并在换窗后自动恢复新窗口首次附带。
+  3. **`Dreaming` 增量门禁状态机与信号精度复核**：`design.md`（第 15、78–80、113–120 行）与 `specs/gateway/agent-capabilities.md`（第 30、83 行）已收口首批评估边界（`completed.length === 0` 且无 `continuation`）、延后时清零 `failures`/`retryAt`、`no_eligible_increment` 零积压夜同步推进 `lastConsolidatedCycle`、初始建档按无二级页面且 `MEMORY.md` 含 `No topics saved yet.`（与 `memory-documents.ts:124-129` 三角色 seed 完全一致）判定、任务面板直通仅采信 `actor.type === "user"` / `human_control`（排除 `actor.type === "agent"` 自记账/立卡通知），并将 `send_message`/`send_user_message` 回复载荷、`read_messages` 正文及 `source_text_continuation` 纳入 `substantiveSourceTokens`。
+  4. **评测适配与防御边界复核**：`M1` 范围已覆盖 `packages/dsh-integration/src/evaluation/*`，明确 `evaluation/runtime.ts` 与 `dolphinbench-runtime.ts` 兼容 `deferred_below_min_volume`、`dolphinbench-runtime.ts` 仅在实际完成巩固时推进 `lastConsolidationAt` 且 `freezeIngestion`（`force: true`）通过手动 `dreaming.start(parent, false)` 强制排空末尾残留增量；同时纳入 `proactivity-policy.md` 常规文件与 `<= 6,000` 码元上限保护及 `consolidationIssues(beforeVersions, initialDirtyPaths)` 起始脏页检查。
+
+### 历史问题闭环
+
+- **`R1-W1`**：Author Resolution `accepted` — 核实 `design.md` 第 15、70–72、91–95、161 行及 `specs/gateway/{personal-agent,global-agent}.md` 第 14、20–21 行已闭合窗口内版本去重契约 → **`closed`**。
+- **`R1-W2`**：Author Resolution `accepted` — 核实 `design.md` 第 15、78–80、113–120、161 行及 `specs/gateway/agent-capabilities.md` 第 30 行已闭合人类任务信号过滤、`no_eligible_increment` 推进 `lastConsolidatedCycle`、初始 seed 判据、首批边界及 Global 回复 token 计量 → **`closed`**。
+- **`R1-W3`**：Author Resolution `accepted` — 核实分支已 rebase 至 `222591463`（`unit/feat-806-dolphinbench-eval`），`spec.md` 第 5 行声明 `Depends on: feat-806`，`design.md` 第 15、37、155、161 行已纳入 `evaluation/*` 的 `deferred_below_min_volume` 兼容与封板强制排空 → **`closed`**。
+- **`R1-R1`** / **`R1-R2`**：Author Resolution `accepted` — 已分别在 `design.md` 第 14–15、75、94、97–98 行与 `specs/gateway/agent-capabilities.md` 第 83 行落实。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
