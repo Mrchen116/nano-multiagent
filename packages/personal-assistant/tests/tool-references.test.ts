@@ -157,3 +157,74 @@ it.each(['conversations', 'read_messages', 'search_messages', 'threads', 'task_g
     expect(store.toolReferences.result('alice', 'schedule.history', native)).toEqual(native);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
+
+it('strips visual avatar_version metadata across all projected tool methods without altering user text', () => {
+  const store = new NodeStore(':memory:', 'owner');
+  try {
+    const refs = store.toolReferences;
+    const cases: Array<[string, Record<string, unknown>, string?]> = [
+      ['inbox', {
+        sources: [{ id: 'c_1', target: 'c_1', participants: [{ id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' }] }],
+        messages: [{ id: 'm_1', content: 'literal avatar_version in text stays', sender: { id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' } }],
+        security_incidents: [{ incident_ref: 'inc_1', actor_id: 'u_2', avatar_version: 'cafe12345678' }],
+      }],
+      ['conversations', {
+        conversations: [{ id: 'c_1', target: 'c_1', members: [{ user_id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' }] }],
+        messages: [{ message_id: 'm_1', sender: { id: 'u_1', name: 'Alice', avatar_version: 'deadbeef1234' }, content: [{ type: 'text', text: 'hi' }] }],
+      }, 'read'],
+      ['read_messages', {
+        messages: [{ message_id: 'm_1', sender: { id: 'u_1', name: 'Alice', avatar_version: 'deadbeef1234' }, reply_to: { message_id: 'm_0', sender: { id: 'u_2', avatar_version: '112233445566' } }, content: 'hi' }],
+      }],
+      ['search_messages', {
+        messages: [{ message_id: 'm_1', sender: { id: 'u_1', name: 'Alice', avatar_version: 'deadbeef1234' }, content: [{ type: 'text', text: 'match' }] }],
+      }],
+      ['send_message.context', {
+        target: 'c_1',
+        recipient: { kind: 'user', id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' },
+      }],
+      ['threads', {
+        threads: [{ target: 'c_1:m_1', participants: [{ id: 'u_1', actor: { id: 'u_1', avatar_version: 'deadbeef1234' } }] }],
+      }, 'list'],
+      ['personal_sources', {
+        items: [{ id: 'c_1', participants: [{ id: 'u_1', avatar_version: 'deadbeef1234' }] }],
+      }],
+      ['task_graph', {
+        ok: true,
+        result: {
+          graph_id: 'tg_1',
+          nodes: [{
+            id: 'n1',
+            title: 'Task mentioning avatar_version',
+            created_by: { type: 'user', id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' },
+            assignee: { type: 'user', id: 'u_2', display_name: 'Bob', avatar_version: null },
+            updated_by_actor: { type: 'user', id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' },
+          }],
+        },
+      }],
+    ];
+    for (const [method, payload, action] of cases) {
+      const projected = JSON.stringify(refs.result('alice', method, payload, action));
+      expect(projected, method).not.toContain('"avatar_version"');
+    }
+    const inboxOut = refs.result('alice', 'inbox', cases[0]![1]) as any;
+    expect(inboxOut.messages[0].content).toBe('literal avatar_version in text stays');
+  } finally {
+    store.close();
+  }
+
+  const inbox = new InboxStore(':memory:');
+  try {
+    const obsInput: RelayInput = {
+      agent_id: 'alice',
+      conversation_id: 'c_obs',
+      relay_task_id: 'obs_m_obs_1',
+      idempotency_key: 'obs_m_obs_1',
+      metadata: { conversation_type: 'direct', pa_observation: true },
+      message: { id: 'm_obs_1', content: 'unchanged internal relay', sender_type: 'user', sender_user_id: 'u_peer', attachments: [] },
+    };
+    inbox.acceptRelay(obsInput, false, true);
+    expect(() => inbox.acceptRelay({ ...obsInput }, false, true)).not.toThrow();
+  } finally {
+    inbox.close();
+  }
+});

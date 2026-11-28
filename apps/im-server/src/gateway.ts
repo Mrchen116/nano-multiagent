@@ -24,6 +24,7 @@ import { Work } from "./work.js";
 import { projectBroadcastNotificationHints, projectReplayNotificationHints } from "./notification-projector.js";
 import {canonicalAgentConfiguration, interactiveResponse, decodeAgentPublication, type AgentPublication} from "@nano/product-contracts";
 import { TrajectoryObservers } from './trajectory.js';
+import { attachHumanAvatars } from './human-avatar-projection.js';
 export type Connection = {
   socket: WebSocket;
   owner_id: string;
@@ -306,6 +307,9 @@ export class Gateway {
       eligibleBrowsers.push(b);
     }
     if (!eligibleBrowsers.length) return;
+    const outbound = frame.data && frame.event_type !== "user.profile_updated"
+      ? { ...frame, data: attachHumanAvatars(db, frame.data) }
+      : frame;
     const hints = projectBroadcastNotificationHints(
       db,
       [...new Set(eligibleBrowsers.map(b => b.userId))],
@@ -314,7 +318,7 @@ export class Gateway {
     );
     for (const b of eligibleBrowsers) {
       const hint = hints.get(b.userId);
-      this.write(b.socket, hint ? { ...frame, notification_hint: hint } : frame);
+      this.write(b.socket, hint ? { ...outbound, notification_hint: hint } : outbound);
       b.cursor = Math.max(b.cursor, frame.event_id ?? 0);
     }
   }
@@ -360,14 +364,14 @@ export class Gateway {
           event_type: e.event_type,
           event_id: e.event_id,
           conversation_id: e.conversation_id,
-          data: {
+          data: attachHumanAvatars(db, {
             ...data,
             event_id: e.event_id,
             conversation_id: e.conversation_id,
             message_id: e.message_id ?? data.message_id,
             delivery_status: e.delivery_status,
             created_at: e.event_type === "message.reconciled" ? data.created_at : e.created_at,
-          },
+          }),
         });
       }
       const hints = projectReplayNotificationHints(db, b.userId, replayFrames, {

@@ -297,4 +297,116 @@ extension CrewdenParityUITests {
         XCTAssertTrue(notice.waitForExistence(timeout: 15))
         capture("crewden-thread-unfollowed")
     }
+
+    func testManageHumanProfilePhotoAndVerifyTeamSurfaces() throws {
+        continueAfterFailure = false
+        let origin = try required("NANO_UI_ORIGIN")
+        let url = try XCTUnwrap(URL(string: origin))
+        XCTAssertEqual(url.host, "127.0.0.1")
+        XCTAssertGreaterThan(try XCTUnwrap(url.port), 1024)
+        app.launchEnvironment["NANO_IM_BASE_URL"] = origin
+        app.launchArguments = ["-nano.locale", "zh"]
+        app.launch()
+
+        let username = app.textFields["输入用户名"]
+        if username.waitForExistence(timeout: 10) {
+            username.tap()
+            username.typeText(try required("NANO_UI_USERNAME"))
+            let password = app.secureTextFields["输入密码"]
+            password.tap()
+            password.typeText(try required("NANO_UI_PASSWORD"))
+            app.buttons["登录"].tap()
+        }
+
+        let chatTitle = try required("NANO_UI_CHAT_TITLE")
+        let chatRow = app.staticTexts[chatTitle].firstMatch
+        XCTAssertTrue(chatRow.waitForExistence(timeout: 20))
+        chatRow.tap()
+
+        let quotedReply = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "核心指标已达标")).firstMatch
+        XCTAssertTrue(quotedReply.waitForExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 1.0)
+        capture("ios-group-chat-avatars")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.tabBars.buttons["我的"].tap()
+        let myTeam = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "我的团队")).firstMatch
+        XCTAssertTrue(myTeam.waitForExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 0.8)
+        capture("ios-me-space-avatar")
+
+        myTeam.tap()
+        let teamMembers = app.buttons["团队成员"]
+        XCTAssertTrue(teamMembers.waitForExistence(timeout: 10))
+        teamMembers.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "周宁")).firstMatch.waitForExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 1.0)
+        capture("ios-company-members-avatars")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["设置"].tap()
+        let profileNav = app.buttons["个人资料与语言"]
+        XCTAssertTrue(profileNav.waitForExistence(timeout: 10))
+        profileNav.tap()
+
+        let changeBtn = app.buttons["更换头像"]
+        XCTAssertTrue(changeBtn.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["移除头像"].exists)
+        Thread.sleep(forTimeInterval: 0.8)
+        capture("ios-account-with-avatar")
+
+        let nameField = app.textFields["显示名称"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 10))
+        nameField.tap()
+        nameField.typeText("（草稿保留）")
+        if app.keyboards.buttons["Return"].exists {
+            app.keyboards.buttons["Return"].tap()
+        } else if app.keyboards.buttons["return"].exists {
+            app.keyboards.buttons["return"].tap()
+        }
+
+        app.buttons["移除头像"].tap()
+        XCTAssertTrue(app.staticTexts["已移除自定义头像"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["上传头像"].exists)
+        XCTAssertFalse(app.buttons["移除头像"].exists)
+        XCTAssertEqual((nameField.value as? String)?.contains("草稿保留"), true)
+        capture("ios-account-removed-keeps-draft")
+
+        let discardBtn = app.buttons["放弃修改"]
+        if !discardBtn.isHittable { app.swipeUp() }
+        XCTAssertTrue(discardBtn.waitForExistence(timeout: 5))
+        discardBtn.tap()
+        app.swipeDown()
+        Thread.sleep(forTimeInterval: 0.5)
+
+        let uploadBtn = app.buttons["上传头像"]
+        XCTAssertTrue(uploadBtn.waitForExistence(timeout: 5))
+        uploadBtn.tap()
+
+        let inAppPhoto = app.images.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS %@", "Photo", "照片")).firstMatch
+        XCTAssertTrue(inAppPhoto.waitForExistence(timeout: 10))
+        // PHPicker's out-of-process Metal grid (PXGGridLayout-Info) reports hitPoint {-1,-1} to host XCUITest; tap its center coordinate directly.
+        inAppPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let cropNav = app.navigationBars["调整头像"]
+        XCTAssertTrue(cropNav.waitForExistence(timeout: 15))
+        let slider = app.sliders.firstMatch
+        if slider.waitForExistence(timeout: 5) {
+            slider.adjust(toNormalizedSliderPosition: 0.25)
+        }
+        capture("ios-avatar-crop-sheet")
+
+        cropNav.buttons["保存"].tap()
+        XCTAssertTrue(app.staticTexts["个人头像已更新"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["更换头像"].exists)
+        Thread.sleep(forTimeInterval: 0.8)
+        capture("ios-account-reuploaded")
+
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.staticTexts[chatTitle].firstMatch.waitForExistence(timeout: 20))
+        Thread.sleep(forTimeInterval: 1.0)
+        capture("ios-cold-relaunch-inbox")
+    }
 }

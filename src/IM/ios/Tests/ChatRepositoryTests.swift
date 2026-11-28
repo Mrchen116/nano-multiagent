@@ -714,6 +714,40 @@ final class ChatRepositoryTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty, "a leftover handed-off file cannot recreate a resolved DB row")
     }
 
+    func testSchemaV9PersistsAndUpdatesActorAvatarVersionAcrossRestart() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        var chat = conversation("avatar-chat")
+        chat.participants = [
+            ActorRef(type: "user", id: "u1", display_name: "Alice", user_id: "u1", avatar_version: "a1b2c3d4e5f6"),
+            ActorRef(type: "user", id: "u2", display_name: "Bob", user_id: "u2", avatar_version: nil),
+        ]
+        _ = try await repo.applySnapshot([chat], maxEventID: 1, snapshotSeq: context.snapshotSeq + 1, write: context)
+        try await repo.close()
+
+        let location = ChatStorageLocation.directory(root.appendingPathComponent("db", isDirectory: true))
+        let rawQueue = try DatabaseQueue(path: location.databaseURL.path)
+        let schemaVer = try await rawQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key='schema.version'")
+        }
+        XCTAssertEqual(schemaVer, "9")
+        try rawQueue.close()
+
+        let reopened = try open(location)
+        let loaded = try await reopened.conversations()
+        XCTAssertEqual(loaded.first?.participants.first(where: { $0.id == "u1" })?.avatar_version, "a1b2c3d4e5f6")
+        XCTAssertNil(loaded.first?.participants.first(where: { $0.id == "u2" })?.avatar_version)
+
+        // Real-time updateActorProfile updates display_name & avatar_version in place, and clears on nil.
+        let updated = try await reopened.updateActorProfile(userID: "u1", displayName: "Alice Lin", avatarVersion: "ff0011223344", hasAvatarVersion: true)
+        XCTAssertEqual(updated.first?.participants.first(where: { $0.id == "u1" })?.display_name, "Alice Lin")
+        XCTAssertEqual(updated.first?.participants.first(where: { $0.id == "u1" })?.avatar_version, "ff0011223344")
+
+        let cleared = try await reopened.updateActorProfile(userID: "u1", displayName: nil, avatarVersion: nil, hasAvatarVersion: true)
+        XCTAssertNil(cleared.first?.participants.first(where: { $0.id == "u1" })?.avatar_version)
+        try await reopened.close()
+    }
+
     // MARK: - Helpers
 
     func open(_ location: ChatStorageLocation? = nil) throws -> ChatRepository {

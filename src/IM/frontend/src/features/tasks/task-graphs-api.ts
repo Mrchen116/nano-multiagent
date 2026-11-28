@@ -29,6 +29,7 @@ export type TaskActor = {
   id: string;
   display_name?: string | null;
   user_id?: string | null;
+  avatar_version?: string | null;
 };
 
 export type DirectCounts = Partial<Record<TaskStatus, number>> & { total?: number; done?: number };

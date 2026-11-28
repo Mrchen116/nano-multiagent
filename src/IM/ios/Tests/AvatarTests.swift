@@ -94,8 +94,84 @@ final class AvatarTests: XCTestCase {
     }
 
     func testExternalDisplayIdentityDoesNotResolveToMirrorOwner() {
-        let owner = Contact(user_id:"owner", kind:"human", display_name:"Ada")
-        let sender = ActorRef(avatar_id:"external:opaque", type:"user", id:"owner", display_name:"Lin", user_id:"owner")
-        XCTAssertEqual(AvatarDirectory(contacts:[owner]).resolve(.actor(sender)), .person("Lin"))
+        let owner = Contact(user_id:"owner", kind:"human", display_name:"Ada", avatar_version:"owner-ver-1")
+        let sender = ActorRef(avatar_id:"external:opaque", type:"user", id:"owner", display_name:"Lin", user_id:"owner", avatar_version:"owner-ver-1")
+        XCTAssertEqual(AvatarDirectory(contacts:[owner]).resolve(.actor(sender)), .person("Lin", avatar: nil))
+    }
+
+    @MainActor
+    func testHumanCustomAvatarResolutionMemberFallbackAndMemoryStoreEviction() throws {
+        let pendingMember = SettingsMember(
+            id: "u-pending",
+            username: "pending",
+            display_name: "赵敏",
+            avatar_version: "ver-pending-1",
+            membership_status: "pending",
+            is_company_admin: false,
+            node_count: 0,
+            agent_count: 0
+        )
+        let directory = AvatarDirectory()
+        XCTAssertEqual(
+            directory.resolve(.member(pendingMember)),
+            .person("赵敏", avatar: UserAvatarRef(userID: "u-pending", version: "ver-pending-1"))
+        )
+
+        let store = AvatarImageStore()
+        let ref1 = UserAvatarRef(userID: "u-pending", version: "ver-pending-1")
+        let ref2 = UserAvatarRef(userID: "u-pending", version: "ver-pending-2")
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let sample = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64), format: format).image { ctx in
+            UIColor.systemBlue.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }
+
+        // Before image loads: falls back to initials circle without crashing.
+        let fallbackRenderer = ImageRenderer(
+            content: AvatarView(id: .member(pendingMember), size: 36).environment(\.avatarImageStore, store)
+        )
+        fallbackRenderer.scale = 1
+        let fallbackPixels = try XCTUnwrap(fallbackRenderer.uiImage?.pngData())
+
+        store.installForTesting(sample, for: ref1)
+        XCTAssertEqual(store.cachedCount, 1)
+        let photoRenderer = ImageRenderer(
+            content: AvatarView(id: .member(pendingMember), size: 36).environment(\.avatarImageStore, store)
+        )
+        photoRenderer.scale = 1
+        let photoPixels = try XCTUnwrap(photoRenderer.uiImage?.pngData())
+        XCTAssertNotEqual(photoPixels, fallbackPixels)
+
+        // Evicting for new version removes old cached entry while keeping target version if present.
+        store.installForTesting(sample, for: ref2)
+        store.evict(userID: "u-pending", keepingVersion: "ver-pending-2")
+        XCTAssertNil(store.image(for: ref1))
+        XCTAssertNotNil(store.image(for: ref2))
+
+        // Sign-out / account switch clears all memory entries immediately.
+        store.clear()
+        XCTAssertEqual(store.cachedCount, 0)
+        XCTAssertNil(store.image(for: ref2))
+    }
+
+    func testAvatarImageProcessorRejectsGifAndDownscalesOversizedDimensions() throws {
+        let gif = Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!
+        XCTAssertThrowsError(try AvatarImageProcessor.prepareWorkingImage(from: gif)) { err in
+            XCTAssertEqual(err as? AvatarImageProcessor.ValidationError, .unsupported)
+        }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let huge = UIGraphicsImageRenderer(size: CGSize(width: 3000, height: 2000), format: format).pngData { ctx in
+            UIColor.orange.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 3000, height: 2000))
+        }
+        let downscaled = try AvatarImageProcessor.prepareWorkingImage(from: huge)
+        XCTAssertLessThanOrEqual(max(downscaled.size.width, downscaled.size.height), 2048)
+        let (cropped, mime) = try AvatarImageProcessor.exportCroppedAvatar(source: downscaled, zoom: 1.2, pan: .zero)
+        XCTAssertEqual(mime, "image/png")
+        let decoded = try XCTUnwrap(UIImage(data: cropped))
+        XCTAssertEqual(decoded.size, CGSize(width: 512, height: 512))
     }
 }

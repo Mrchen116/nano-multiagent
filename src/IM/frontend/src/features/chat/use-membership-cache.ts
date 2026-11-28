@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { listConversations } from "./chat-api";
+import { evictUserAvatarBlobs, resetFailedAvatarBlobs } from "./components/avatar-blob-store";
 import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { useAuthStore } from "../auth/auth-store";
 import type { Conversation } from "./chat-types";
@@ -49,8 +50,43 @@ export function useMembershipCache() {
     }
     const unsubscribe = subscribeUserStream({ onRecovery: snapshot => {
       for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) retireChatReadCache(client, id, revision);
+      resetFailedAvatarBlobs();
+      void client.invalidateQueries({ queryKey: ["contacts"] });
       return refresh();
     }, onEvent: event => {
+      if (event.eventType === "user.profile_updated") {
+        const uid = typeof event.payload.user_id === "string" ? event.payload.user_id : null;
+        const nextName = typeof event.payload.display_name === "string" ? event.payload.display_name : undefined;
+        const nextAvatar =
+          typeof event.payload.avatar_version === "string" || event.payload.avatar_version === null
+            ? event.payload.avatar_version
+            : undefined;
+        if (uid) {
+          evictUserAvatarBlobs(uid, nextAvatar);
+          const current = useAuthStore.getState().user;
+          if (current && current.id === uid) {
+            useAuthStore.getState().replaceUser({
+              ...current,
+              ...(nextName !== undefined ? { display_name: nextName } : {}),
+              ...(nextAvatar !== undefined ? { avatar_version: nextAvatar } : {}),
+            });
+            void client.invalidateQueries({ queryKey: ["settings", "account"] });
+          }
+          for (const prefix of [
+            ["contacts"],
+            ["chat", "conversations"],
+            ["chat", "conversation-detail"],
+            ["chat", "messages"],
+            ["chat", "thread"],
+            ["company", "members"],
+            ["task-graphs"],
+            ["personal-agent"],
+          ]) {
+            void client.invalidateQueries({ queryKey: prefix });
+          }
+        }
+        return;
+      }
       if (
         event.eventType === "task_graph.changed"
         || (event.eventType === "message.created"

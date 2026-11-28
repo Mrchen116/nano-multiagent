@@ -38,6 +38,7 @@ export interface PolicyProfile {
 export interface AccountProfile {
   user_id: string;
   display_name: string;
+  avatar_version?: string | null;
   owned_node_ids: string[];
   default_entry_node_id: string;
   created_at: string;

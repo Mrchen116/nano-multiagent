@@ -15,6 +15,7 @@ type Member = {
   id: string;
   username: string;
   display_name: string;
+  avatar_version?: string | null;
   membership_status: "pending" | "active" | "suspended";
   is_company_admin: boolean;
   node_count: number;
@@ -62,6 +63,7 @@ export function CompanyMembersPage() {
   return (
     <AvatarIdentities source="names" actors={members.map(member => ({
       type:"user", id:member.id, display_name:member.display_name || member.username,
+      ...(member.avatar_version !== undefined ? { avatar_version: member.avatar_version } : {}),
     }))}>
     <section className="company-page" aria-label={t("company.title")}>
       {isMobile && (
