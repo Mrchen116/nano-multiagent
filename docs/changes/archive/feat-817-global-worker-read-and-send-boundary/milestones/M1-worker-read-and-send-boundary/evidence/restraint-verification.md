@@ -26,3 +26,23 @@
 2. **Accurate Non-Zero Bash Status**: DSH `bash` outputs `[exit code: 1]` with `isError: false`; `inspector.ts` surfaces `status: "error"` on `dsh:18`, enabling immediate root-cause inspection without redundant retries.
 3. **Secret Redaction on Real Wire**: `./scripts/diag.sh` emitted `auth_header=Bearer sk-proj-9999888877776666555544443333` on stderr; `read_worker` returned `auth_header=Bearer [REDACTED]` with `redacted: true`, and the root's `send_message` reported `ERR_CONN_POOL_EXHAUSTED` at `src/pool.ts:42` with zero secret exposure.
 4. **Uniform Settled Usage Trailer**: Worker 1's `subagent-settled` notification appended `[Worker usage: turns=1, tokens=60910]` once without recursion or altering `source.kind`.
+
+---
+
+## Follow-Up Verification on Primary Production Model (`codexOAuth:gpt-6.2-sol`)
+
+- **Session ID**: `feat817-restraint-2026-11-28T08-40-14-032Z`
+- **Model / Provider**: `codexOAuth:gpt-6.2-sol` via real local `http://127.0.0.1:4000` (`anthropic-messages`, streaming, `reasoningEffort: low`)
+- **Commit Verified**: `d5000a40d4f3a4a21a80555123f3220cf778acd2` (merged with `origin/develop` `bbcbc5d4a`)
+- **Local Uncommitted Evidence Locators (outside repo)**:
+  - Structured trajectory report: `<artifactDir>/scratch/restraint-report-2026-11-28T08-40-14-032Z.json`
+  - Raw outbound Anthropic wire requests (24 total: 17 Global Root + 7 Worker-1): `<artifactDir>/scratch/wire-requests-2026-11-28T08-40-14-032Z.jsonl`
+- **Wire Invariants Verified**: 100% identical `system` (`ca103beea7e4`) and `tools` (`7a04b24ae9b1`, 18 tools) hashes across all 17 Global Root requests; `read_worker` present, `list_agents`/`interrupt_agent` absent, zero secret leaks (`Bearer [REDACTED]` confirmed), zero base64 images, zero `<available_skills>` noise in `read_worker` outputs.
+
+| Scenario (`codexOAuth:gpt-6.2-sol`) | Design Threshold | Observed `read_worker` Calls | Returned `read_worker` Chars | Root Turn Tokens (`totalTokens`) | Verdict |
+|---|---|---|---|---|---|
+| **S1: Dispatch background worker** | `read_worker` total `== 0` | `0` (`delegate_worker(start)` = 1, `send_message` = 1, `notes` saved `worker_id`) | `0` | `57,406` | **PASS** |
+| **S2: Progress question while worker running** | `summary <= 1`, `list <= 1`, `read == 0`, no polling | `1` (`action="summary"`, `worker_id="worker-60b3c1ed..."`) | `698` | `31,381` | **PASS** |
+| **S3: Clear final report + `[Worker usage: ...]`** | `read == 0`, direct `send_message` delivery | `0` (`send_message` = 1 delivering exact findings from `src/db.ts:5-7` & `src/retry.ts:1-4`) | `0` | `22,577` | **PASS** |
+| **S4: Ambiguous failure on one-shot diagnostic** | `read <= 2`, `0` duplicate calls, total chars `<= 16,000`, root cause found, no secret leak | `1` (`action="read"`, `view="activity"`, `limit=8`, `worker_id="worker-0418c314..."`) | `1,301` | `71,654` | **PASS** |
+

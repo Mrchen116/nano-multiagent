@@ -44,6 +44,6 @@
 - 重要目标和关键设计覆盖：`read_worker` 跨运行时只读观测、轮次与已结算 Token 统计、终局唤醒 `[Worker usage: ...]` 尾注、外部 CLI 独立持久历史、Global/PA `send_message` 纯对外收口、隐藏 `list_agents`/`interrupt_agent`、五端 `fixedTools` 同步及真实模型四场景克制读取硬门槛均已落地并通过验证。
 - 开放问题 / pending / inconclusive：无（0 存活阻塞 findings）。
 - 最终 delta 校对：3 份 Gateway delta-spec 经 `G1-code-and-contracts` 独立核对为 `aligned`，已归并至 `docs/specs/gateway/{spec,global-agent,agent-capabilities}.md`。
-- 版本变化后保留 / 补验的判断与依据：`9b7d11484..deb28eb58` 经 `G1` 独立闭环复验通过；未改动 Context 装配或 DSH wire 行为，`G2` `pass` 结论按 `validation.md` 保留有效；其后仅执行文档归并/归档。
+- 版本变化后保留 / 补验的判断与依据：`9b7d11484..deb28eb58` 经 `G1` 独立闭环复验通过；未改动 Context 装配或 DSH wire 行为，`G2` `pass` 结论按 `validation.md` 保留有效；合并 `origin/develop`（`d5000a40d`）后已额外在主推荐模型 `codexOAuth:gpt-6.2-sol` 上补跑完整四场景克制读取与 24 条出站 wire 验证（17 条 Global Root 请求 `system`/`tools` 哈希 100% 稳定，S1 `0`、S2 `summary=1 (698 chars), read=0`、S3 `read=0`、S4 `read(view="activity", limit=8)=1 (1,301 chars), 0 duplicate`，0 泄密/0 噪声，全部通过）。
 - 测试资源回收结果：真实模型隔离运行临时目录与本地透明抓包代理已在验证脚本 `finally` 块中关闭并清理完毕，工作树无遗留进程、PID、临时配置或 `src/IM/frontend/dist/` 提交物；开发 worktree 按规范在 PR 合并前保留。
 - 交付范围与剩余事项：推送分支并创建目标为 `develop` 的 PR，等待远端 CI（含 macOS iOS `build.sh test`）与人工合并；合并后清理开发 worktree。
