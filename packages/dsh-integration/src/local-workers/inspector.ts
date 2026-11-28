@@ -65,6 +65,7 @@ interface TraceItem {
   text: string;
   duration_ms?: number;
   reason_code?: string;
+  is_error?: boolean;
 }
 
 export interface WorkerReadSource {
@@ -75,10 +76,17 @@ export interface WorkerReadSource {
 
 const EXCLUDED_DSH_USER_SOURCES = new Set([
   'agent-instructions',
+  'agent-context',
   'runtime-context',
+  'skill-catalog',
   'skill-invocation',
   'working-directory',
   'compact-checkpoint',
+  'model-selection',
+  'tool-registry',
+  'action-cards',
+  'ptc-mode',
+  'plan-mode',
 ]);
 
 const PEM_PRIVATE_KEY_RE =
@@ -371,6 +379,7 @@ function projectDshSession(
         seq: event.seq,
         time: isoTime(event.time),
         kind: 'system',
+        is_error: true,
         text: message,
       });
     }
@@ -397,6 +406,12 @@ function projectCliHistory(record: WorkerHistoryRecord | undefined): {
     text: entry.text,
     ...(entry.durationMs !== undefined ? { duration_ms: entry.durationMs } : {}),
     ...(entry.reasonCode ? { reason_code: entry.reasonCode } : {}),
+    ...(entry.kind === 'system' &&
+    (entry.status === 'error' ||
+      Boolean(entry.reasonCode) ||
+      /\b(error|failed|interrupted|denied|declined|aborted)\b/i.test(entry.text))
+      ? { is_error: true }
+      : {}),
   }));
   return { items, historyTruncated: Boolean(record.truncatedBefore && record.truncatedBefore > 0) };
 }
@@ -547,7 +562,9 @@ export class WorkerInspector {
     const tokensPartial = trace.usage ? trace.usage.tokensPartial : row.tokensPartial;
     const updatedAt = Math.max(row.updatedAt ?? 0, trace.updatedAt ?? 0) || undefined;
 
-    const activityItems = trace.items.filter((item) => item.kind === 'tool' || item.kind === 'system');
+    const activityItems = trace.items.filter(
+      (item) => item.kind === 'tool' || (item.kind === 'system' && item.is_error),
+    );
     const recentActivity = activityItems.slice(-SUMMARY_ACTIVITY_LIMIT).map((item) => {
       const rawSummary = item.kind === 'tool' ? (item.summary || item.tool_name || 'tool') : item.text;
       const safe = redactSecrets(rawSummary).text;
@@ -563,7 +580,7 @@ export class WorkerInspector {
       trace.items.findLast((item) => item.kind === 'message' && item.role === 'worker' && item.via === 'report') ??
       trace.items.findLast((item) => item.kind === 'message' && item.role === 'worker');
     const latestErrorItem =
-      trace.items.findLast((item) => item.kind === 'system') ??
+      trace.items.findLast((item) => item.kind === 'system' && item.is_error) ??
       trace.items.findLast((item) => item.kind === 'tool' && item.status === 'error');
 
     const reportText = latestReportItem?.text || row.latestReport;

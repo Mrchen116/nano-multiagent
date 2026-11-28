@@ -341,13 +341,16 @@ export function apply(ctx) {
 
     const summary = toolJson('call-summary');
     expect(summary).toMatchObject({ worker_id: workerId, runtime: 'dsh', state: 'completed', turn_count: 1, total_tokens: 57 });
+    expect(summary.latest_error).toBeUndefined();
     expect(summary.latest_report).toContain('DSH_REPORT_SENTINEL');
     expect(summary.latest_report).not.toContain('sk-ant-1234567890abcdefghijklmnop');
     expect(summary.recent_activity.some((a: any) => a.tool_name === 'read')).toBe(true);
+    expect(summary.recent_activity.some((a: any) => a.tool_name === 'system')).toBe(false);
 
     const msgs = toolJson('call-msgs');
     expect(JSON.stringify(msgs)).toContain('DSH_REPORT_SENTINEL');
     expect(JSON.stringify(msgs)).not.toContain('WORKSPACE_INJECTION_SENTINEL_DO_NOT_LEAK');
+    expect(JSON.stringify(msgs)).not.toContain('available_skills');
     expect(msgs.items.every((item: any) => item.kind !== 'tool')).toBe(true);
 
     const act = toolJson('call-act');
