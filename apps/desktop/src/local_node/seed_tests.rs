@@ -219,6 +219,99 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     assert_eq!(fs::read(workspace_file).unwrap(), b"saved note");
 }
 
+#[test]
+fn seed_preflight_rejects_low_disk_space_before_unpacking() {
+    let tmp = tempfile::tempdir().unwrap();
+    let seed = tmp.path();
+    let runtime = seed.join("runtime");
+    let app = seed.join("app");
+    let node = runtime.join(standalone_node_rel_path());
+    fs::create_dir_all(node.parent().unwrap()).unwrap();
+    #[cfg(unix)]
+    fs::write(&node, "#!/bin/sh\nexec node \"$@\"\n").unwrap();
+    #[cfg(windows)]
+    copy_test_node(&node);
+    fs::write(
+        runtime.join("layout.mjs"),
+        include_bytes!("../../../../packaging/desktop/layout.mjs"),
+    )
+    .unwrap();
+    fs::write(runtime.join("dependencies.json"), "{}").unwrap();
+    fs::create_dir(&app).unwrap();
+    fs::write(app.join("workspaces.json"), "{}").unwrap();
+
+    let mut rt_meta = archive(seed, "runtime", &runtime);
+    let mut app_meta = archive(seed, "app", &app);
+    // Simulate production archive metadata (~180 MiB runtime + ~25 MiB app) on a 1.1 GiB free drive.
+    rt_meta["size"] = json!(180 * 1024 * 1024u64);
+    app_meta["size"] = json!(25 * 1024 * 1024u64);
+    let descriptor = json!({
+        "runtime": rt_meta,
+        "app": app_meta,
+    });
+    let raw = serde_json::to_vec(&descriptor).unwrap();
+    let target = sha256_hex(&raw);
+    fs::write(seed.join("descriptor.json"), &raw).unwrap();
+    fs::write(
+        seed.join(seed_manifest_filename()),
+        json!({
+            "package": "descriptor.json",
+            "sha256": target,
+            "version": "1.0.0"
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let paths = isolated_paths(&seed.join("low-disk"));
+    let one_point_one_gib = 1_181_116_006u64; // 1.1 GiB
+    let err = ensure_seed_bundle_installed_with_available_bytes(
+        &paths,
+        Some(seed),
+        Some(one_point_one_gib),
+    )
+    .expect_err("Expected preflight disk space check to fail when only 1.1 GiB is free");
+    assert!(err.contains("磁盘可用空间不足"), "unexpected error: {err}");
+    assert!(err.contains("1.1 GB"), "expected available 1.1 GB in message: {err}");
+    assert!(!paths.desktop_home.join("versions").join(&target).exists());
+    assert!(
+        query_available_disk_bytes(&paths.desktop_home).unwrap_or(0) > 0,
+        "OS free disk space query should return positive available bytes"
+    );
+    assert_eq!(
+        classify_seed_error("Extract app.tar.gz: tar extraction failed: Write failed: No space left on device"),
+        SeedErrorKind::DiskFull
+    );
+    assert_eq!(
+        classify_seed_error_for_os(
+            "Copy runtime.tar.gz: There is not enough space on the disk. (os error 112)",
+            true
+        ),
+        SeedErrorKind::DiskFull
+    );
+    assert_eq!(
+        classify_seed_error_for_os("Write file: (os error 28)", false),
+        SeedErrorKind::DiskFull
+    );
+    assert_eq!(
+        classify_seed_error_for_os("Rename dir: (os error 5)", true),
+        SeedErrorKind::PermissionOrLocked
+    );
+    // Win32 os error 50 (ERROR_NOT_SUPPORTED) and POSIX os error 5 (EIO) / 32 (EPIPE) must NOT match PermissionOrLocked!
+    assert_eq!(
+        classify_seed_error_for_os("Request failed (os error 50)", true),
+        SeedErrorKind::Other
+    );
+    assert_eq!(
+        classify_seed_error_for_os("Read archive: Input/output error (os error 5)", false),
+        SeedErrorKind::Other
+    );
+    assert_eq!(
+        classify_seed_error_for_os("Write pipe: Broken pipe (os error 32)", false),
+        SeedErrorKind::Other
+    );
+}
+
 #[cfg(windows)]
 fn copy_test_node(destination: &Path) {
     let found = Command::new("node")

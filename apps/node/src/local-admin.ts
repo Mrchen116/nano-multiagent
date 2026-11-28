@@ -14,6 +14,7 @@ import {
   type DesktopLocalInspectResponse,
   type DesktopWorkerProbeItem,
 } from '@nano/product-contracts';
+import { findWindowsWorker } from '@nano/dsh-integration/client';
 import { bootstrapNode } from './bootstrap.js';
 import {
   BrowserPairingRequestError,
@@ -54,12 +55,9 @@ export function connectionConfigPathForOrigin(origin: string, explicitConfigPath
 
 export const desktopActiveFilePath = (configPath: string) => join(dirname(configPath), '.desktop-active.json');
 
-const DEFAULT_SERVICE_PATH =
-  process.platform === 'win32'
-    ? process.env.PATH ?? ''
-    : '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+const DEFAULT_SERVICE_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 
-/** Probe local CLI worker runtimes (`dsh`, `codex`, `claude`) using merged service + candidate `PATH`. */
+/** Probe local CLI worker runtimes using the configured worker search path. */
 export async function probeDesktopWorkers(candidatePath?: string): Promise<DesktopWorkerProbeItem[]> {
   const mergedSegments = [
     ...(candidatePath ? candidatePath.split(delimiter) : []),
@@ -69,19 +67,17 @@ export async function probeDesktopWorkers(candidatePath?: string): Promise<Deskt
     .map(segment => segment.trim())
     .filter(Boolean);
   const uniqueDirs = [...new Set(mergedSegments)];
-  const suffixes = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
 
   const findBinary = async (binary: string): Promise<string | null> => {
+    if (process.platform === 'win32') return findWindowsWorker(binary, candidatePath ?? process.env.PATH ?? '');
     for (const dir of uniqueDirs) {
-      for (const ext of suffixes) {
-        const full = join(dir, binary + ext);
-        try {
-          await access(full, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
-          const stat = await lstat(full);
-          if (stat.isFile() || stat.isSymbolicLink()) return full;
-        } catch {
-          // Try next directory.
-        }
+      const full = join(dir, binary);
+      try {
+        await access(full, constants.X_OK);
+        const stat = await lstat(full);
+        if (stat.isFile() || stat.isSymbolicLink()) return full;
+      } catch {
+        // Try next directory.
       }
     }
     return null;
@@ -194,12 +190,16 @@ export async function inspectLocalNode(input: {
   }
   const config = await NodeConfiguration.read(configPath);
   const value = config.value;
+  const environment = value.gateway?.environment;
+  const workerPath = process.platform === 'win32'
+    ? Object.entries(environment ?? {}).findLast(([key]) => key.toUpperCase() === 'PATH')?.[1]
+    : environment?.PATH;
   const nodeName = value.node.node_name ?? value.node.node_id ?? hostname();
   if (input.supervisionOnly && (!value.node.user_id || !value.im_service.token)) {
     return { ownership: 'unbound', node_name: nodeName };
   }
   if (!value.node.user_id || !value.im_service.token) {
-    const workers = await probeDesktopWorkers(value.gateway?.environment?.PATH);
+    const workers = await probeDesktopWorkers(workerPath);
     return {
       ownership: 'unbound',
       node_id: value.node.node_id,
@@ -238,7 +238,7 @@ export async function inspectLocalNode(input: {
   const activeTasks = live ? await pingBridgeActiveTasks(configPath) : 0;
   const { proxy, userEnvironment } = extractDesktopProxySettings(value.gateway?.environment);
   const [workers, browser, logs] = await Promise.all([
-    probeDesktopWorkers(value.gateway?.environment?.PATH),
+    probeDesktopWorkers(workerPath),
     inspectDailyBrowserStatus(browserPairingFile(configPath, value.node), undefined, input.browserDeps),
     readLogTail(configPath, input.logQuery),
   ]);

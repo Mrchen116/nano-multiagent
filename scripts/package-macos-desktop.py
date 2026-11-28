@@ -35,7 +35,9 @@ def build_info_plist(version: str) -> bytes:
         "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": short_ver,
         "CFBundleVersion": version[:32],
-        "LSMinimumSystemVersion": "12.0",
+        "LSMinimumSystemVersion": json.loads(
+            (ROOT / "apps/desktop/tauri.conf.json").read_text()
+        )["bundle"]["macOS"]["minimumSystemVersion"],
         "NSHighResolutionCapable": True,
         "NSUserNotificationAlertStyle": "alert",
         "CFBundleURLTypes": [
@@ -201,11 +203,6 @@ def main() -> None:
             json.dumps(manifest, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
         ).encode("utf-8")
         manifest_path.write_bytes(manifest_bytes)
-        subprocess.run(
-            ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(app_bundle)],
-            check=True,
-        )
-
         print(
             json.dumps(
                 {

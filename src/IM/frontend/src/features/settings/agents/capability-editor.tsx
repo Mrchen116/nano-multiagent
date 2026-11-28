@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   changeCapability,
+  definitionsForRole,
   effectiveCapabilityFeatures,
   effectiveSelectedTools,
   fixedTools,
@@ -32,7 +33,8 @@ export function capabilityCatalog(
   language = "zh",
 ): CapabilityCatalog & { fixed_tools: string[] } {
   const role = personal ? "personal" : "root";
-  const features = (caps?.features ?? []).filter(feature => personal || feature.key !== "proactive_planning");
+  const effectiveMode = personal ? "global" : (mode === "single_thread" ? "single_thread" : "global");
+  const features = definitionsForRole(personal, caps?.features ?? [], effectiveMode);
   const fixed = [...new Set([...(caps?.fixed_tools ?? []), ...fixedTools(mode, role, false)])];
   const baseCatalog: CapabilityCatalog = {
     features,

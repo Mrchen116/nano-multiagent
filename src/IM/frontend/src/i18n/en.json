@@ -77,8 +77,9 @@
     "userMenu": {
       "newAgent": "New agent",
       "nodes": "Nodes",
+      "models": "AI Models & API",
       "account": "Account",
-      "policies": "Policies",
+      "policies": "Usage & Policies",
       "language": "Language",
       "downloadApps": "Download apps",
       "signOut": "Sign out"
@@ -109,7 +110,14 @@
       "account": "Account",
       "accountSubtitle": "Profile and spaces",
       "nodes": "Nodes",
-      "nodesSubtitle": "Nodes and gateway",
+      "nodesSubtitle": "Computers and servers running your assistants",
+      "nodesConnectedPrefix": "Runs your assistants",
+      "models": "AI Models & API",
+      "modelsSubtitle": "AI model providers and API keys",
+      "policies": "Usage & Policies",
+      "policiesSubtitle": "Attachment storage usage and team presets",
+      "companySubtitle": "Approve members and manage team access",
+      "downloadAppsSubtitle": "Get desktop and mobile apps",
       "language": "Language",
       "notifications": "Notifications",
       "signOut": "Sign out"
@@ -145,9 +153,14 @@
       "nodes": "Nodes",
       "account": "Account"
     },
+    "models": {
+      "title": "AI Models & API",
+      "subtitle": "Configure AI models and API keys for your assistants.",
+      "backToModels": "← AI Models & API"
+    },
     "nodes": {
       "title": "Nodes",
-      "subtitle": "Gateway nodes connected to this workspace.",
+      "subtitle": "Manage connected nodes (computers and servers) and updates.",
       "loading": "Loading nodes…",
       "empty": "No devices bound yet",
       "emptyBody": "Bind a device to run and manage your own Agents.",
@@ -277,9 +290,9 @@
       }
     },
     "policies": {
-      "title": "Policies",
-      "subtitle": "Review actual storage and maintain team policy presets.",
-      "loading": "Loading policies…",
+      "title": "Usage & Policies",
+      "subtitle": "Check actual attachment storage usage and maintain team runtime and safety presets.",
+      "loading": "Loading…",
       "fields": {
         "defaultModel": "Default Model",
         "defaultModelHint": "Model used when no agent-level override is set.",
@@ -307,7 +320,7 @@
       "presetsSubtitle": "These values are stored as presets and are not enforced.",
       "notAppliedTitle": "These presets do not change current behavior",
       "notAppliedHint": "Model, turns, audit, rate, attachment size and retention values are stored only. Manage actual models in assistant settings; attachment limits are determined by the service.",
-      "manageModels": "Manage model services",
+      "manageModels": "Manage AI Models & API",
       "groups": {
         "runtime": {
           "title": "Run presets",
@@ -386,7 +399,7 @@
     "openNodes": "Open Nodes",
     "empty": {
       "title": "No agents yet",
-      "body": "Open Nodes to create your first runtime profile on an online bound node."
+      "body": "Open Nodes to create your first assistant on an online connected node."
     },
     "rowStatus": {
       "online": "{{id}} online",
@@ -1543,7 +1556,8 @@
     },
     "proactive_planning": {
       "label": "Proactive planning",
-      "help": "Quietly updates agreed task progress after conversations settle, then prepares substantive notes, morning brief handoffs, and Proposed cards after 03:00 Dreaming. Turning this off stops automatic quiet and nightly wakes while keeping manual task graphs and your explicit tasks and schedules active."
+      "help": "Quietly updates agreed task progress after conversations settle, then prepares substantive notes, morning brief handoffs, and Proposed cards after 03:00 Dreaming. Turning this off stops automatic quiet and nightly wakes while keeping manual task graphs and your explicit tasks and schedules active.",
+      "globalHelp": "Quietly updates agreed task progress in each originating conversation after activity settles, then reviews ROLE.md and active goals after 03:00 Dreaming to surface bounded Proposed cards on the originating group or 1-on-1 task board (silent by default with no morning greetings; working-hours nudges only for urgent prep or role-scoped risks). Turning this off stops automatic quiet and nightly wakes while keeping explicit tasks and schedules active."
     },
     "heartbeat": {
       "label": "Scheduled Check-in (Heartbeat)",
@@ -1874,7 +1888,7 @@
   },
   "company": {
     "suspendAction": "Suspend",
-    "subtitle": "Approve new members and manage access to the company workspace.",
+    "subtitle": "Approve new members and manage access to the team workspace.",
     "refreshList": "Refresh",
     "member": "Member",
     "role": "Role",
@@ -1893,7 +1907,7 @@
       "active": "Active",
       "suspended": "Suspended"
     },
-    "title": "Company members",
+    "title": "Team members",
     "pending": "Waiting for approval",
     "pendingHint": "Your account is ready. An administrator must approve access to the company workspace.",
     "suspended": "Membership suspended",
@@ -2426,12 +2440,18 @@
     "definition": "A shared workspace for people and AI."
   },
   "crewdenDownload": {
-    "heroMac": "Download for macOS",
+    "macUnnotarized": "Not notarized by Apple",
+    "macNotarized": "Notarized by Apple",
+    "macTestPackage": "Test build · Not notarized by Apple",
+    "installGuide": "Installation guide",
+    "macInstallTitle": "Install on Mac",
+    "macInstallSteps": "Open the downloaded DMG, drag Crewden Desktop into Applications, then open it from there.",
+    "macFirstOpen": "On first launch, macOS may say it cannot verify the developer. If you downloaded the installer from the official Crewden site, go to System Settings → Privacy & Security and choose Open Anyway.",
     "heroWindows": "Download for Windows",
     "heroIos": "Get iOS app",
     "useInBrowser": "Use in browser",
     "openWorkspace": "Open workspace",
-    "heroMetaMac": "Apple Silicon (.dmg) · Zero terminal setup",
+    "heroMetaMac": "macOS 15.0+ · Apple Silicon",
     "heroMetaWindows": "Windows 10 / 11 x64 (.exe) · Zero terminal setup",
     "heroMetaIos": "iPhone (iOS 17+) · Native experience",
     "iosSoonHeroHint": "iOS app coming soon · Use Crewden in your browser today",
@@ -2442,9 +2462,9 @@
     "sectionTitle": "Get Crewden on your devices",
     "sectionSubtitle": "Desktop apps bundle the workspace and resident local node; mobile keeps your work within reach anywhere.",
     "currentDevice": "Current device",
-    "macosReq": "Apple Silicon (M-series) · DMG",
+    "macosReq": "macOS 15.0+ · Apple Silicon (M-series) · DMG",
     "macosDesc": "Built-in local node and menu bar presence with instant local file and trajectory access.",
-    "macosAction": "Download for macOS",
+    "macosAction": "Download for Mac",
     "windowsReq": "Windows 10 / 11 (x64) · EXE",
     "windowsDesc": "Ready out of the box with system tray presence, login autostart, and desktop notifications.",
     "windowsAction": "Download for Windows",

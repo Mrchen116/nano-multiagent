@@ -113,7 +113,7 @@ struct AgentDraft: Equatable, Sendable {
     }
     func previewPayload(capabilities: AgentCapabilities?, creating: Bool, customWorkspace: Bool, personal: Bool = false) -> [String: JSONValue] {
         let skillIDs = skills_selection_mode == "default_discovery" ? capabilities?.skills.map(\.name) ?? [] : skills
-        let resolvedFeatures = effectiveFeatures(capabilities: capabilities)
+        let resolvedFeatures = effectiveFeatures(capabilities: capabilities, personal: personal)
         var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(resolvedFeatures.mapValues(JSONValue.bool)), "tool_ids": .array(effectiveTools(capabilities: capabilities, personal: personal).map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode), "work_mode": .string(work_mode)]
         body["heartbeat_enabled"] = .bool(resolvedFeatures["heartbeat"] ?? false)
         body["cron_enabled"] = .bool(resolvedFeatures["cron_scheduling"] ?? false)
@@ -166,7 +166,7 @@ struct AgentModelOption: Codable, Identifiable, Sendable {
     struct Reasoning: Codable, Sendable { var kind: String; var `default`: String?; var levels: [String]? }
 }
 struct AgentFeature: Codable, Identifiable, Sendable {
-    var key: String; var label_i18n: String; var help_i18n: String; var default_on: Bool; var available: Bool; var requires: Requirements
+    var key: String; var roles: [String]? = nil; var modes: [String]? = nil; var label_i18n: String; var help_i18n: String; var default_on: Bool; var available: Bool; var requires: Requirements
     struct Requirements: Codable, Sendable {
         var features: [String]; var tools: [String]; var skills: [String]
         func values(for kind: String) -> [String] { kind == "feature" ? features : kind == "tool" ? tools : skills }
@@ -178,6 +178,15 @@ struct AgentCapabilities: Codable, Sendable {
     var fixed_tools: [String]? = nil
     var node_id: String; var models: [AgentModelOption]; var skills: [AgentOption]; var tools: [AgentOption]
     var platform_default_model: String?; var default_workspace_template: String?; var features: [AgentFeature]
+    func featuresForMode(mode: String, personal: Bool = false) -> [AgentFeature] {
+        let role = personal ? "personal" : "root"
+        let effectiveMode = personal ? "global" : (mode == "single_thread" ? "single_thread" : "global")
+        return features.filter { feature in
+            let roleMatch = feature.roles.map { $0.contains(role) } ?? true
+            let modeMatch = feature.modes.map { $0.contains(effectiveMode) } ?? (personal || effectiveMode == "global" || feature.key != "proactive_planning")
+            return roleMatch && modeMatch
+        }
+    }
 }
 struct AgentContactPage: Decodable, Sendable { var items: [Contact]; var next_cursor: String? }
 struct AgentPrompt: Decodable, Sendable { var prompt: String }

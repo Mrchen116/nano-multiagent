@@ -293,6 +293,7 @@ struct AgentCreateView: View {
     private var hasEdits: Bool { draft != initialDraft || customWorkspace || selectedVariant != 0 }
 
     @State private var customWorkspace = false
+    @State private var proactiveDisabledInGlobal = false
     @State private var error: String?
     @State private var busy = false
     @State private var pending = false
@@ -419,11 +420,22 @@ struct AgentCreateView: View {
             draft.description = value == "research" ? L("研究与资料比较", "Research and comparison") : value == "writing" ? L("写作与内容策划", "Writing and planning") : ""
             draft.initial_role = instruction
         }
-        .onChange(of: draft.work_mode) { _, _ in
+        .onChange(of: draft.work_mode) { _, mode in
             guard let capabilities else { return }
-            let active = draft.effectiveFeatures(capabilities: capabilities)
-            for feature in capabilities.features where active[feature.key] == true {
+            if mode == "single_thread" {
+                draft.features.removeValue(forKey: "proactive_planning")
+            } else if mode == "global", proactiveDisabledInGlobal {
+                draft.features["proactive_planning"] = false
+            }
+            let modeFeatures = capabilities.featuresForMode(mode: mode, personal: false)
+            let active = draft.effectiveFeatures(capabilities: capabilities, personal: false)
+            for feature in modeFeatures where active[feature.key] == true {
                 _ = draft.changeCapability(.init(kind: "feature", name: feature.key, enabled: true), capabilities: capabilities)
+            }
+            if mode == "global", !proactiveDisabledInGlobal,
+               modeFeatures.contains(where: { $0.key == "proactive_planning" }),
+               draft.effectiveFeatures(capabilities: capabilities, personal: false)["task_graph"] != false {
+                _ = draft.changeCapability(.init(kind: "feature", name: "proactive_planning", enabled: true), capabilities: capabilities)
             }
             draft.tool_allowlist = draft.sanitizeStaticTools(personal: false, capabilities: capabilities)
         }
@@ -445,6 +457,9 @@ struct AgentCreateView: View {
         if let block = draft.changeCapabilities(actions, capabilities: capabilities).first {
             capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
         } else {
+            if draft.work_mode == "global", let toggle = actions.last(where: { $0.kind == "feature" && $0.name == "proactive_planning" }) {
+                proactiveDisabledInGlobal = !toggle.enabled
+            }
             draft.tool_allowlist = draft.sanitizeStaticTools(personal: false, capabilities: capabilities)
         }
     }

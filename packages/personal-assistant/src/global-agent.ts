@@ -87,6 +87,7 @@ export class GlobalAgent {
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
       runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload(params))}};
     this.options=options;
+    options.inbox.attachToolReferences(options.store.toolReferences);
     this.runtimeUnavailable(options.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
     this.controls = new SessionControls(options);
     this.personal = new PersonalAssistant({
@@ -488,6 +489,8 @@ export class GlobalAgent {
         && (input.metadata.pa_observation === true || input.metadata.personal_delivery === 'observer')
         && (input.metadata.personal_is_owner === true || input.metadata.addressed_to_owner === true || input.metadata.replied_to_owner === true || input.metadata.mentioned_owner === true || !input.metadata.context_only);
       if (isOwnerPrivateHuman || isRelevantObservation) this.options.onProactiveActivity?.(config.agentId);
+    } else if (input.message.sender_type === 'user' && !isTaskNotice && !unaddressedControl && !input.metadata.context_only) {
+      this.options.onProactiveActivity?.(config.agentId);
     }
     void this.receipt(input, 'accepted');
     this.armBackground();
@@ -559,10 +562,12 @@ export class GlobalAgent {
     }
     return this.options.inbox.check(config.agentId, !!config.personal,this.options.store.ownerTimezone);
   }
-  /** Synchronize pending server observations and refresh unread source titles before a scheduled PA step. */
+  /** Synchronize pending server observations (PA only) and refresh unread source titles before a scheduled Global step. */
   async syncProactiveObservations(config: AgentConfiguration, binding: SessionBinding): Promise<void> {
-    await this.recoverPersonalObservations();
-    await this.flushPendingReviews(config, binding);
+    if (config.personal) {
+      await this.recoverPersonalObservations();
+      await this.flushPendingReviews(config, binding);
+    }
     await this.checkInbox(config, binding);
   }
   private renderNotice(config:AgentConfiguration,{sources}:ReturnType<InboxStore['check']>):string {
@@ -661,9 +666,12 @@ export class GlobalAgent {
       const sources = await this.personal.request(config, 'pa.sources', { action: 'list' });
       const items = sources.items as { id: string; excluded: boolean }[];
       const allowed = new Set([...items.filter(item => !item.excluded).map(item => item.id), config.personal!.conversationId]);
+      const toRef = (id: string) => this.options.store.toolReferences.conversationRef(config.agentId, id);
       // The complete policy set covers already-consumed historical sources, not only unread Inbox rows.
       await this.options.runtime.request('knowledge.sources.sync', { agentId: config.agentId, snapshot: {
-        revision: String((sources.policy as {revision:number}).revision), allowed: [...allowed], excluded: items.filter(item => item.excluded).map(item => item.id),
+        revision: String((sources.policy as {revision:number}).revision),
+        allowed: [...allowed].map(toRef),
+        excluded: items.filter(item => item.excluded).map(item => toRef(item.id)),
       } });
       this.options.inbox.revokeUnavailableSources(config.agentId, allowed);
       this.personalAllowedSources.set(config.agentId, allowed);
@@ -929,25 +937,39 @@ export class GlobalAgent {
     const controller = new AbortController(); this.calls.set(call.operationId, controller);this.callAgents.set(call.operationId,call.agentId);
     try {
       const personalConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId && agent.personal);
+      const agentConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId);
       if (call.method === 'memory.sources.refresh') {
-        if (!personalConfig) throw new Error('Trusted personal identity required');
-        if (call.args.includePendingTaskContext === true && this.taskContext) {
-          if (this.options.inbox.reviews.pendingConversations(personalConfig.agentId).length > 0) {
-            await this.flushPendingReviews(personalConfig, binding);
+        if (personalConfig) {
+          if (call.args.includePendingTaskContext === true && this.taskContext) {
+            if (this.options.inbox.reviews.pendingConversations(personalConfig.agentId).length > 0) {
+              await this.flushPendingReviews(personalConfig, binding);
+            }
+            const items = await this.taskContext.peekPendingForDreaming({
+              agentId: personalConfig.agentId,
+              sessionId: binding.sessionId,
+              ownerId: this.options.ownerId,
+            });
+            const allowed = this.personalAllowedSources.get(personalConfig.agentId)
+              ?? await this.refreshPersonalSources(personalConfig);
+            return {
+              synchronized: true,
+              pendingTaskContext: items.filter(item => allowed.has(item.conversationId)),
+            };
           }
-          const items = await this.taskContext.peekPendingForDreaming({
-            agentId: personalConfig.agentId,
-            sessionId: binding.sessionId,
-            ownerId: this.options.ownerId,
-          });
-          const allowed = this.personalAllowedSources.get(personalConfig.agentId)
-            ?? await this.refreshPersonalSources(personalConfig);
-          return {
-            synchronized: true,
-            pendingTaskContext: items.filter(item => allowed.has(item.conversationId)),
-          };
+          await this.refreshPersonalSources(personalConfig); return { synchronized: true };
         }
-        await this.refreshPersonalSources(personalConfig); return { synchronized: true };
+        if (agentConfig?.mode === 'global') {
+          if (call.args.includePendingTaskContext === true && this.taskContext) {
+            const items = await this.taskContext.peekPendingForDreaming({
+              agentId: agentConfig.agentId,
+              sessionId: binding.sessionId,
+              ownerId: this.options.ownerId,
+            });
+            return { synchronized: true, pendingTaskContext: items };
+          }
+          return { synchronized: true };
+        }
+        throw new Error('Trusted personal or global identity required');
       }
       if(call.method==='pa.authorization') {
         if(!personalConfig)throw new Error('Trusted personal identity required');

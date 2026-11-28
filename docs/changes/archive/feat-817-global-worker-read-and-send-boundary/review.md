@@ -4,7 +4,7 @@
 
 - 本次问题与需求/设计位置：[spec.md](spec.md)、[design.md](design.md)、[specs/gateway/spec.md](specs/gateway/spec.md)、[specs/gateway/global-agent.md](specs/gateway/global-agent.md)、[specs/gateway/agent-capabilities.md](specs/gateway/agent-capabilities.md)
 - 实际 `executed_base` / `validated_at`：`ce1ca8fba524276e09cc14482185e7bf2b92e5e7` / `9b7d114848ca50524eee8253dc8a4010dd5d97e4`（Round 1）→ `deb28eb58b1e863e33f2f362a3751035b3d0123d`（Round 2 闭环复验）
-- 最终 `effective_base` / `effective_through` 与保留依据：见下方流程收口；`9b7d11484..deb28eb58` 仅修复 CLI 历史投影与错误摘要（`manager.ts` / `inspector.ts` / `worker-inspection.test.ts`），未改动 Prompt、工具 Schema、`capabilities.ts`、`approval.ts`、`index.ts`、`SKILL.md` 或 DSH wire 上下文，因此 `G2-context-and-behavior` 原 `pass` 结论 `retained`。
+- 最终 `effective_base` / `effective_through` 与保留依据：已同步最新 `origin/develop`（`effective_base = bbcbc5d4a6599cc4d289ba7e07493e6895cdddb1`），全部代码文件零冲突自动合入，仅合并 3 份 Gateway spec 的对齐头与 `Global Agent` 计数（`25`）；`9b7d11484..deb28eb58` 仅修复 CLI 历史投影与错误摘要（`manager.ts` / `inspector.ts` / `worker-inspection.test.ts`），未改动 Prompt、工具 Schema、`capabilities.ts`、`approval.ts`、`index.ts`、`SKILL.md` 或 DSH wire 上下文，因此 `G2-context-and-behavior` 原 `pass` 结论 `retained`。
 
 ## 审查结果
 

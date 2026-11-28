@@ -36,7 +36,7 @@ export const delegation = {name:'nano-global-delegation',inject:['tools','nanoWo
  }};
 
 /** Global mode supplies root Inbox access and explicit product communication. */
-export function apply(ctx: Context, config: { mode?: string; personal?: boolean; workerRuntime?: WorkerRuntime; computerUse?: boolean }) {
+export function apply(ctx: Context, config: { mode?: string; personal?: boolean; proactiveCare?: boolean; workerRuntime?: WorkerRuntime; computerUse?: boolean }) {
   ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
   const nativeSend = ctx.tools.get('send_message');
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-global-mode', order: 800, text:
@@ -76,6 +76,8 @@ A thread target has the form <chat_id>:<root_message_id> while the main timeline
 - In group chats, participating or being @-mentioned follows a thread automatically. When a thread no longer needs your attention, call threads(action="unfollow", target="<chat_id>:<root_message_id>", reason=...); humans see a brief notice and can @-mention you to bring you back. Use threads(action="list") to inspect followed threads.
 
 Memory holds relevant background and lessons from past work. Use it to inform current decisions. Use read_messages and search_messages to look up who said what, when, or in what context. A memory can point you to the original message. If a question about a past conversation is still unanswered, search the chats you can access before saying you don't know.
+
+Honor ROLE.md and all four resident calibration buckets under "## 主动性与介入偏好" (or "## Proactive & Intervention Preferences") in MEMORY.md—applying both role-wide standing rules and collaborator/conversation-scoped boundaries, following relative .md links to entities/, projects/, or workstreams/ when triggered, and never reading knowledge/proactivity-signals.md. When a recurring report or check-in schedule fires, inspect notes for any matching [Pending Morning Brief] or [Pending Proactive Handoff: <target>] handoff, deliver its prepared substance and live task_cards in one message after verifying unread Inbox messages, and clear that handoff entry.${config.proactiveCare ? ' Load nano-proactive-care (if not already loaded in this context window) when handling <proactive-review-wake>, <proactive-nightly-wake>, or proactive follow-ups.' : ''}
 
 Your assistant prose is private. Use send_message for your own public replies, acknowledgments, questions and results. Deliver a human request addressed to you to its originating conversation or thread target, unless the human requested silence. A Task's fixed conversation determines its delivery target.
 

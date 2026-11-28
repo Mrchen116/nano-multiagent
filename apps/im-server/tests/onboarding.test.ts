@@ -141,6 +141,12 @@ it('serves Desktop macOS arm64 and Windows x64 materials side-by-side with light
     ios: null,
   });
 
+  expect(publicInstall.json().desktop_darwin_arm64.macos_distribution).toBe('unnotarized');
+  for (const mode of ['unnotarized', 'developer-id-notarized', 'unsigned-test']) {
+    writeFileSync(join(dir, 'manifest.desktop-darwin-arm64.json'), JSON.stringify({...macDesktop, macos_distribution: mode}));
+    expect((await app.inject('/im/v1/public/install')).json().desktop_darwin_arm64.macos_distribution).toBe(mode);
+  }
+
   const iosApp = await createServer({
     dbPath: join(dir, 'im-ios.sqlite3'),
     publicUrl: 'https://nano.example',

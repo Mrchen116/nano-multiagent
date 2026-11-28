@@ -141,10 +141,12 @@ export interface PlatformInstaller {
 
 export type DesktopPlatform = 'desktop-darwin-arm64' | 'desktop-win32-x64';
 
+export type MacDistribution = 'unsigned-test' | 'unnotarized' | 'developer-id-notarized';
+
 export type ReleaseManifest = ReleaseMetadata & (
   | {package: 'nano-node.tgz'; platform?: undefined; shell_protocol?: undefined}
   | {package: 'windows-x64.json'; platform: 'win32-x64'; size: number; installer: PlatformInstaller; shell_protocol?: undefined}
-  | {package: 'desktop-darwin-arm64.json'; platform: 'desktop-darwin-arm64'; size: number; shell_protocol: 1; installer: PlatformInstaller}
+  | {package: 'desktop-darwin-arm64.json'; platform: 'desktop-darwin-arm64'; macos_distribution?: MacDistribution; size: number; shell_protocol: 1; installer: PlatformInstaller}
   | {package: 'desktop-win32-x64.json'; platform: 'desktop-win32-x64'; size: number; shell_protocol: 1; installer: PlatformInstaller}
 );
 
@@ -230,7 +232,9 @@ export function parseReleaseManifest(input: unknown, options?: ParseReleaseManif
     return {...common, package: 'windows-x64.json', platform: 'win32-x64', size: v.size, installer: parsedInstaller};
   }
   if (v.package === 'desktop-darwin-arm64.json') {
-    return {...common, package: 'desktop-darwin-arm64.json', platform: 'desktop-darwin-arm64', size: v.size, shell_protocol: 1, installer: parsedInstaller};
+    const mode = v.macos_distribution;
+    if (mode !== undefined && mode !== 'unsigned-test' && mode !== 'unnotarized' && mode !== 'developer-id-notarized') return null;
+    return {...common, ...(mode === undefined ? {} : {macos_distribution: mode}), package: 'desktop-darwin-arm64.json', platform: 'desktop-darwin-arm64', size: v.size, shell_protocol: 1, installer: parsedInstaller};
   }
   return {...common, package: 'desktop-win32-x64.json', platform: 'desktop-win32-x64', size: v.size, shell_protocol: 1, installer: parsedInstaller};
 }

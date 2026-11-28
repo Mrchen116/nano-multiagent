@@ -6,7 +6,7 @@
 
 macOS（Apple Silicon `arm64`）与 Windows 10/11 x64 用户在电脑上打开 IM 的 `/onboarding` 或“电脑”页，可按使用方式二选一：
 
-- **下载完整 Desktop 客户端（日常高频推荐）**：macOS 下载 `Crewden-Desktop-arm64.dmg` 拖入 `Applications`，Windows 10/11 x64 下载 `Crewden-Desktop-Setup-x64.exe` 双击完成当前用户安装（无需管理员提权或预装 Node.js / WSL，Windows 10 若缺少 WebView2 会自动引导补齐）。打开 Crewden Desktop 确认 IM 服务地址并登录账号，即可在应用内一键绑定或无损接管本机已有同账号后台节点，默认开启开机静默登录自启（macOS 菜单栏 / Windows 系统托盘常驻），并在 `/settings/nodes` 置顶的「这台电脑」卡片中图形化管理启停、自启、Worker 运行时、HTTP(S) 代理、环境变量、专用审批模型与运行日志，无需终端命令或手改 YAML。Intel Mac 用户请选用右侧轻量后台节点。
+- **下载完整 Desktop 客户端（日常高频推荐）**：macOS 15.0 及以上的 Apple Silicon Mac 下载 `Crewden-Desktop-arm64.dmg` 拖入 `Applications`，Windows 10/11 x64 下载 `Crewden-Desktop-Setup-x64.exe` 双击完成当前用户安装（无需管理员提权或预装 Node.js / WSL，Windows 10 若缺少 WebView2 会自动引导补齐）。打开 Crewden Desktop 确认 IM 服务地址并登录账号，即可在应用内一键绑定或无损接管本机已有同账号后台节点，默认开启开机静默登录自启（macOS 菜单栏 / Windows 系统托盘常驻），并在 `/settings/nodes` 置顶的「这台电脑」卡片中图形化管理启停、自启、Worker 运行时、HTTP(S) 代理、环境变量、专用审批模型与运行日志，无需终端命令或手改 YAML。Intel Mac 用户请选用右侧轻量后台节点。
 - **仅装轻量后台节点**：Windows 10/11 x64 下载 `Crewden-Setup-x64.exe` 双击安装，回到网页点击「连接这台电脑」，在本机窗口核对 IM 域名并等待下载完成，在浏览器中确认绑定后继续设置模型并测试回复，日后可从开始菜单打开 `Crewden` 管理启停与自启（与 `Crewden Desktop` 独立目录和开始菜单入口无损并存）。macOS 和 Linux 用户复制“交给本机 Agent”的完整说明，或执行页面给出的手动安装命令。所有路径均使用同一 IM 指定的固定版本程序包：IM 提供安装脚本和清单，包体直接从 GitHub Release 下载，发布与清单部署见 [安装入口准备](local-stack.md#发布首次安装包)。
 
 默认安装根为 `~/.nanoassistant`，每个 IM origin 的配置放在 `connections/<origin-hash>/config.yaml`，workspace 与运行状态跟随该连接目录。同一账号在 Crewden Desktop 中接管已由 CLI 或 Windows 轻量节点绑定的电脑时，会在同一配置锁下先平滑停止旧入口进程并停用原独立自启触发器，再写入 `.desktop-active.json` 启动唯一受管节点，完整保留 `node_id`、助手、workspace 与历史记忆。页面默认引导选择 API 服务商或自定义 API，真实测试成功后定义助手并开始聊天。原生 Codex 订阅连接是可选路径，需要为 Nano 完成一次登录，不复制 Codex CLI 的刷新凭据；已有兼容代理可作为自定义 API 手动填写地址和模型，页面不扫描开发者代理配置。

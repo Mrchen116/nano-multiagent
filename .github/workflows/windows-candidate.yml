@@ -9,6 +9,7 @@ on:
       - 'scripts/build-windows-*'
       - 'scripts/publish-node-release.mjs'
       - 'apps/node/**'
+      - 'tests/integration/windows-worker-launch.test.mjs'
       - 'packages/channels/**'
       - 'packages/dsh-integration/**'
       - 'packages/personal-assistant/**'
@@ -57,6 +58,9 @@ jobs:
           pnpm install --frozen-lockfile
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           pnpm --filter '@nano/node...' -r --if-present build
+      - name: Exercise desktop-discovered CLI workers
+        working-directory: src
+        run: node --test tests/integration/windows-worker-launch.test.mjs
       - name: Build installer and locked archives
         working-directory: src
         run: ./scripts/build-windows-installer.ps1

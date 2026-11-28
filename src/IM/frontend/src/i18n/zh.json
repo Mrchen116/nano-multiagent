@@ -77,8 +77,9 @@
     "userMenu": {
       "newAgent": "新建 Agent",
       "nodes": "节点",
+      "models": "AI 模型与 API",
       "account": "账号",
-      "policies": "策略",
+      "policies": "用量与团队规则",
       "language": "语言",
       "downloadApps": "下载客户端",
       "signOut": "退出登录"
@@ -109,7 +110,14 @@
       "account": "账号",
       "accountSubtitle": "个人资料与空间",
       "nodes": "节点",
-      "nodesSubtitle": "资料与网关",
+      "nodesSubtitle": "运行助手的电脑与服务器",
+      "nodesConnectedPrefix": "运行助手的电脑与服务器",
+      "models": "AI 模型与 API",
+      "modelsSubtitle": "模型接入与 API 密钥配置",
+      "policies": "用量与团队规则",
+      "policiesSubtitle": "附件存储用量与团队运行预设",
+      "companySubtitle": "成员审批与团队访问权限",
+      "downloadAppsSubtitle": "获取 macOS、Windows 与手机客户端",
       "language": "语言",
       "notifications": "通知",
       "signOut": "退出登录"
@@ -143,11 +151,16 @@
     "nav": {
       "agents": "智能体",
       "nodes": "节点",
-      "account": "账户"
+      "account": "账号"
+    },
+    "models": {
+      "title": "AI 模型与 API",
+      "subtitle": "配置助手使用的 AI 模型与 API 密钥。",
+      "backToModels": "← AI 模型与 API"
     },
     "nodes": {
-      "title": "电脑",
-      "subtitle": "管理已连接的电脑和电脑端更新。",
+      "title": "节点",
+      "subtitle": "管理已连接的节点（电脑与服务器）及更新。",
       "loading": "节点加载中…",
       "empty": "还没有绑定设备",
       "emptyBody": "绑定设备后，就可以在上面运行和管理自己的 Agent。",
@@ -277,9 +290,9 @@
       }
     },
     "policies": {
-      "title": "策略",
-      "subtitle": "查看实际存储状态，维护团队策略预设。",
-      "loading": "加载策略中…",
+      "title": "用量与团队规则",
+      "subtitle": "查看实际附件存储用量，维护团队运行与安全策略预设。",
+      "loading": "加载中…",
       "fields": {
         "defaultModel": "默认模型",
         "defaultModelHint": "未设置 agent 级覆盖时使用的模型。",
@@ -307,7 +320,7 @@
       "presetsSubtitle": "保存的是预设值，尚未接入执行。",
       "notAppliedTitle": "这些预设目前不会改变实际运行",
       "notAppliedHint": "模型、轮次、审计、限流、附件大小和留存预设目前仅保存记录。实际模型在助手设置中管理；实际附件限制以服务端为准。",
-      "manageModels": "管理模型服务",
+      "manageModels": "管理 AI 模型与 API",
       "groups": {
         "runtime": {
           "title": "运行预设",
@@ -386,7 +399,7 @@
     "openNodes": "前往节点",
     "empty": {
       "title": "还没有 Agent",
-      "body": "前往节点页,在在线的已绑定节点上创建第一个运行时配置。"
+      "body": "前往节点页，在已连接且在线的节点上创建第一个助手。"
     },
     "rowStatus": {
       "online": "{{id}} 在线",
@@ -1528,7 +1541,8 @@
     },
     "proactive_planning": {
       "label": "主动筹划",
-      "help": "在对话安静后静默记账目标进展，并在凌晨 03:00 Dreaming 整理记忆后筹划备好次日要点、早报交接与「待拍板」提议卡。关闭后停止自动安静记账与夜间筹划唤醒；你手动维护的任务图、明确交办的任务与自行设定的定时提醒照常运行。"
+      "help": "在对话安静后静默记账目标进展，并在凌晨 03:00 Dreaming 整理记忆后筹划备好次日要点、早报交接与「待拍板」提议卡。关闭后停止自动安静记账与夜间筹划唤醒；你手动维护的任务图、明确交办的任务与自行设定的定时提醒照常运行。",
+      "globalHelp": "在各协作会话安静后原位记账任务进展，并在凌晨 03:00 Dreaming 整理记忆后结合 ROLE.md 与活跃目标在原群或 1 对 1 会话面板挂出有界「待拍板」提议卡（常规提议静默挂板不发早安问候，仅对急需备料或职责内时效风险发送工作时段提醒）。关闭后停止自动安静记账与夜间筹划唤醒；明确交办的任务与既有定时安排照常运行。"
     },
     "heartbeat": {
       "label": "定期汇报（Heartbeat）",
@@ -1859,7 +1873,7 @@
   },
   "company": {
     "suspendAction": "停用",
-    "subtitle": "审核新成员加入，管理公司工作区的访问权限。",
+    "subtitle": "审核新成员加入，管理团队工作区的访问权限。",
     "refreshList": "刷新",
     "member": "成员",
     "role": "角色",
@@ -1878,7 +1892,7 @@
       "active": "已加入",
       "suspended": "已停用"
     },
-    "title": "公司成员",
+    "title": "成员管理",
     "pending": "等待管理员批准",
     "pendingHint": "注册成功。管理员批准后即可进入公司工作区。",
     "suspended": "成员资格已停用",
@@ -2407,12 +2421,18 @@
     "definition": "人和 AI 一起工作的聊天空间。"
   },
   "crewdenDownload": {
-    "heroMac": "下载 macOS 客户端",
+    "macUnnotarized": "未经 Apple 公证",
+    "macNotarized": "已通过 Apple 公证",
+    "macTestPackage": "测试包 · 未经 Apple 公证",
+    "installGuide": "安装说明",
+    "macInstallTitle": "Mac 安装说明",
+    "macInstallSteps": "打开下载的 DMG，将 Crewden Desktop 拖到「应用程序」，再从那里打开。",
+    "macFirstOpen": "首次打开时，macOS 可能提示无法验证开发者。如果你确认安装包来自 Crewden 官方下载页，可以在「系统设置 → 隐私与安全性」中选择「仍要打开」。",
     "heroWindows": "下载 Windows 客户端",
     "heroIos": "获取 iOS 客户端",
     "useInBrowser": "网页版直接使用",
     "openWorkspace": "进入工作空间",
-    "heroMetaMac": "适配 Apple Silicon (.dmg) · 零命令行开箱即用",
+    "heroMetaMac": "macOS 15.0+ · Apple Silicon",
     "heroMetaWindows": "适配 Windows 10 / 11 x64 (.exe) · 零命令行开箱即用",
     "heroMetaIos": "适配 iPhone (iOS 17+) · 原生流畅体验",
     "iosSoonHeroHint": "iOS 客户端即将上线 · 现可直接用网页版",
@@ -2423,9 +2443,9 @@
     "sectionTitle": "装进你的常用设备",
     "sectionSubtitle": "桌面端内置聊天工作台与常驻节点；手机端随时查看进展、审批操作与接续对话。",
     "currentDevice": "当前设备",
-    "macosReq": "Apple Silicon (M 系列) · DMG",
+    "macosReq": "macOS 15.0+ · Apple Silicon (M 系列) · DMG",
     "macosDesc": "自带本机节点与菜单栏常驻，工作区文件与轨迹直读秒开。",
-    "macosAction": "下载 macOS 版",
+    "macosAction": "下载 Mac 版",
     "windowsReq": "Windows 10 / 11 (x64) · EXE",
     "windowsDesc": "免装命令行环境点开即用，支持系统托盘常驻、开机自启与弹窗提醒。",
     "windowsAction": "下载 Windows 版",

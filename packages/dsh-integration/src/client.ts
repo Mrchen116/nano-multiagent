@@ -12,6 +12,8 @@ import {load as loadYaml} from 'js-yaml';
 import {ConfigurationInspector, type ConfigurationInspection} from './configuration-inspector.js';
 export {ConfigurationInspector, InspectionError, type ConfigurationInspection} from './configuration-inspector.js';
 
+export { findWindowsWorker } from './local-workers/worker-executable.js';
+
 const require = createRequire(import.meta.url);
 const integrationRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 

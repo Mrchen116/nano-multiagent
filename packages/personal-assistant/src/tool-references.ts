@@ -29,6 +29,8 @@ function stripVisualActorFields(value: unknown): unknown {
   }
   return changed ? out : value;
 }
+
+/** Hard upper bound for every atomic identifier an Agent must pass into tool arguments. */
 export const MAX_AGENT_ID_LENGTH = 8;
 
 const SUPPORTED_METHODS = new Set([
@@ -201,18 +203,41 @@ export class ToolReferences {
     return this.resolveOptional(agent, 'user', value) ?? value;
   }
 
-  /** Compact any `> 8`-char `<mention type="user" target_id="..."/>` IDs in incoming message text. */
-  projectMentions(agent: string, text: string): string {
-    return text.replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
-      (_full, targetId: string) => `<mention type="user" target_id="${this.userRef(agent, targetId)}"/>`);
+  private resolveUserRefInput(agent: string, value: string): string {
+    const clean = value.startsWith('user:') ? value.slice(5) : value;
+    return this.resolveUserId(agent, clean);
   }
 
-  /** Resolve short `<mention type="user" target_id="..."/>` references in outgoing message text. */
+  private resolveTaskActorInput(agent: string, actor: unknown): unknown {
+    if (!actor || typeof actor !== 'object' || Array.isArray(actor)) return actor;
+    const obj = actor as ObjectValue;
+    if (obj.type === 'user' && typeof obj.id === 'string') {
+      return { ...obj, id: this.resolveUserRefInput(agent, obj.id) };
+    }
+    return actor;
+  }
+
+  private resolveTaskWaitInput(agent: string, wait: unknown): unknown {
+    if (!wait || typeof wait !== 'object' || Array.isArray(wait)) return wait;
+    const obj = wait as ObjectValue;
+    if (typeof obj.asked_user_id === 'string') {
+      return { ...obj, asked_user_id: this.resolveUserRefInput(agent, obj.asked_user_id) };
+    }
+    return wait;
+  }
+
+  /** Compact any `> 8`-char `<mention type="user" target_id="..."/>` or `<mention ...>...</mention>` IDs in incoming message text. */
+  projectMentions(agent: string, text: string): string {
+    return text.replace(/<mention(\s+type="user"\s+target_id=")([^"]+)("(?:\s*\/?>))/g,
+      (_full, prefix: string, targetId: string, suffix: string) => `<mention${prefix}${this.userRef(agent, targetId)}${suffix}`);
+  }
+
+  /** Resolve short `<mention type="user" target_id="..."/>` or `<mention ...>...</mention>` references in outgoing message text. */
   resolveMentions(agent: string, text: string): string {
-    return text.replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
-      (full, targetId: string) => {
+    return text.replace(/<mention(\s+type="user"\s+target_id=")([^"]+)("(?:\s*\/?>))/g,
+      (full, prefix: string, targetId: string, suffix: string) => {
         const resolved = this.resolveOptional(agent, 'user', targetId);
-        return resolved ? `<mention type="user" target_id="${resolved}"/>` : full;
+        return resolved ? `<mention${prefix}${resolved}${suffix}` : full;
       });
   }
 
@@ -290,7 +315,123 @@ export class ToolReferences {
         next.interactive = { ...interactive, supersedes_message_id: this.resolveMessageId(agent, interactive.supersedes_message_id) };
       }
     }
+    if (method === 'task_graph') {
+      if (typeof args.proposed_for_user_id === 'string') {
+        next.proposed_for_user_id = this.resolveUserRefInput(agent, args.proposed_for_user_id);
+      }
+      if (args.assignee !== undefined) {
+        next.assignee = this.resolveTaskActorInput(agent, args.assignee);
+      }
+      if (args.assignee_type === 'user' && typeof args.assignee_id === 'string') {
+        next.assignee_id = this.resolveUserRefInput(agent, args.assignee_id);
+      }
+      if (args.wait !== undefined) {
+        next.wait = this.resolveTaskWaitInput(agent, args.wait);
+      }
+      if (Array.isArray(args.operations)) {
+        next.operations = args.operations.map(item => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+          const entry: ObjectValue = { ...(item as ObjectValue) };
+          if (typeof entry.proposed_for_user_id === 'string') {
+            entry.proposed_for_user_id = this.resolveUserRefInput(agent, entry.proposed_for_user_id);
+          }
+          if (entry.assignee !== undefined) {
+            entry.assignee = this.resolveTaskActorInput(agent, entry.assignee);
+          }
+          if (entry.assignee_type === 'user' && typeof entry.assignee_id === 'string') {
+            entry.assignee_id = this.resolveUserRefInput(agent, entry.assignee_id);
+          }
+          if (entry.wait !== undefined) {
+            entry.wait = this.resolveTaskWaitInput(agent, entry.wait);
+          }
+          if (entry.patch && typeof entry.patch === 'object' && !Array.isArray(entry.patch)) {
+            const patch: ObjectValue = { ...(entry.patch as ObjectValue) };
+            if (typeof patch.proposed_for_user_id === 'string') {
+              patch.proposed_for_user_id = this.resolveUserRefInput(agent, patch.proposed_for_user_id);
+            }
+            if (patch.assignee !== undefined) {
+              patch.assignee = this.resolveTaskActorInput(agent, patch.assignee);
+            }
+            if (patch.wait !== undefined) {
+              patch.wait = this.resolveTaskWaitInput(agent, patch.wait);
+            }
+            entry.patch = patch;
+          }
+          return entry;
+        });
+      }
+    }
     return next;
+  }
+
+  private projectTaskActor(agent: string, actor: unknown): unknown {
+    if (!actor || typeof actor !== 'object' || Array.isArray(actor)) return actor;
+    const out: ObjectValue = { ...(actor as ObjectValue) };
+    if (out.type === 'user' && typeof out.id === 'string') out.id = this.userRef(agent, out.id);
+    if (typeof out.user_id === 'string') out.user_id = this.userRef(agent, out.user_id);
+    if (typeof out.authorized_by === 'string') out.authorized_by = this.userRef(agent, out.authorized_by);
+    return out;
+  }
+
+  private projectTaskGraphObject(agent: string, raw: ObjectValue, cursor: (object: ObjectValue) => ObjectValue): ObjectValue {
+    const out: ObjectValue = { ...raw };
+    if (typeof out.conversation_id === 'string') out.conversation_id = this.conversationRef(agent, out.conversation_id);
+    if (typeof out.last_chat_id === 'string') out.last_chat_id = this.conversationRef(agent, out.last_chat_id);
+    if (typeof out.proposed_for_user_id === 'string') out.proposed_for_user_id = this.userRef(agent, out.proposed_for_user_id);
+    if (out.conversation && typeof out.conversation === 'object' && !Array.isArray(out.conversation)) {
+      const conv: ObjectValue = { ...(out.conversation as ObjectValue) };
+      if (typeof conv.id === 'string') conv.id = this.conversationRef(agent, conv.id);
+      out.conversation = conv;
+    }
+    for (const actorField of ['created_by', 'updated_by_actor', 'assignee'] as const) {
+      if (out[actorField] !== undefined) out[actorField] = this.projectTaskActor(agent, out[actorField]);
+    }
+    if (out.wait && typeof out.wait === 'object' && !Array.isArray(out.wait)) {
+      const w: ObjectValue = { ...(out.wait as ObjectValue) };
+      if (typeof w.asked_user_id === 'string') w.asked_user_id = this.userRef(agent, w.asked_user_id);
+      out.wait = w;
+    }
+    if (out.resume_request && typeof out.resume_request === 'object' && !Array.isArray(out.resume_request)) {
+      const rr: ObjectValue = { ...(out.resume_request as ObjectValue) };
+      if (typeof rr.actor_id === 'string') rr.actor_id = this.userRef(agent, rr.actor_id);
+      out.resume_request = rr;
+    }
+    if (out.doing_wake && typeof out.doing_wake === 'object' && !Array.isArray(out.doing_wake)) {
+      const dw: ObjectValue = { ...(out.doing_wake as ObjectValue) };
+      if (dw.actor !== undefined) dw.actor = this.projectTaskActor(agent, dw.actor);
+      out.doing_wake = dw;
+    }
+    if (out.provenance && typeof out.provenance === 'object' && !Array.isArray(out.provenance)) {
+      const prov: ObjectValue = { ...(out.provenance as ObjectValue) };
+      if (typeof prov.source_message_id === 'string') prov.source_message_id = this.messageRef(agent, prov.source_message_id);
+      if (typeof prov.source_chat_id === 'string') prov.source_chat_id = this.conversationRef(agent, prov.source_chat_id);
+      if (typeof prov.initiator_id === 'string') {
+        prov.initiator_id = prov.channel ? this.senderSourceRef(agent, prov.initiator_id) : this.userRef(agent, prov.initiator_id);
+      }
+      out.provenance = prov;
+    }
+    if (out.feedback && typeof out.feedback === 'object' && !Array.isArray(out.feedback)) {
+      const fb: ObjectValue = { ...(out.feedback as ObjectValue) };
+      if (typeof fb.conversation_id === 'string') fb.conversation_id = this.conversationRef(agent, fb.conversation_id);
+      if (Array.isArray(fb.tasks)) {
+        fb.tasks = fb.tasks.map(t => (t && typeof t === 'object' && !Array.isArray(t) ? this.projectTaskGraphObject(agent, t as ObjectValue, cursor) : t));
+      }
+      out.feedback = fb;
+    }
+    if (Array.isArray(out.nodes)) {
+      out.nodes = out.nodes.map(n => (n && typeof n === 'object' && !Array.isArray(n) ? this.projectTaskGraphObject(agent, n as ObjectValue, cursor) : n));
+    }
+    if (Array.isArray(out.items)) {
+      out.items = out.items.map(n => (n && typeof n === 'object' && !Array.isArray(n) ? this.projectTaskGraphObject(agent, n as ObjectValue, cursor) : n));
+    }
+    for (const section of ['needs_you', 'stashed', 'active', 'goals', 'completed'] as const) {
+      if (Array.isArray(out[section])) {
+        out[section] = (out[section] as unknown[]).map(n => (n && typeof n === 'object' && !Array.isArray(n) ? this.projectTaskGraphObject(agent, n as ObjectValue, cursor) : n));
+      } else if (out[section] && typeof out[section] === 'object') {
+        out[section] = this.projectTaskGraphObject(agent, out[section] as ObjectValue, cursor);
+      }
+    }
+    return cursor(out);
   }
 
   private projectSender(agent: string, sender: unknown): unknown {
@@ -570,7 +711,12 @@ export class ToolReferences {
       }
       return body;
     }
-    if (method === 'task_graph' && body.result && typeof body.result === 'object') return { ...body, result: cursor(body.result as ObjectValue) };
+    if (method === 'task_graph') {
+      if (body.result && typeof body.result === 'object' && !Array.isArray(body.result)) {
+        return { ...body, result: this.projectTaskGraphObject(agent, body.result as ObjectValue, cursor) };
+      }
+      return this.projectTaskGraphObject(agent, body, cursor);
+    }
     if (method === 'send_message' || method === 'send_user_message') {
       if ('target' in body) body.target = this.targetRef(agent, body.target);
       if ('conversation_id' in body) body.conversation_id = this.conversationRef(agent, String(body.conversation_id));

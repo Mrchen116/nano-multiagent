@@ -43,7 +43,7 @@ export class PersonalAgentCreation {
       const nodes=all(ctx.db,'SELECT node_id,node_name,alias,status FROM nodes WHERE owner_id=? ORDER BY node_id',binding.owner_id);
       const capabilities=await readNodeCreationCapabilities(ctx,id,binding.owner_id);
       // Recommend a valid dependency closure, using this computer's actual catalog.
-      const roleFeatures=definitionsForRole(false);
+      const roleFeatures=definitionsForRole(false, undefined, 'global');
       const features=featureClosure(Object.fromEntries(roleFeatures.map(feature=>{
         const available=capabilities.features.find((entry:Row)=>entry.key===feature.key);
         return [feature.key,!!available?.default_on && available.available!==false];

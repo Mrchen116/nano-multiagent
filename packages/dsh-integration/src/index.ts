@@ -338,7 +338,13 @@ export default class NanoRuntime {
       recordOwner: deletion ? (parent, child) => deletion.rememberReviewer(parent, child) : undefined,
     });
     const codex = new Promise<CodexApproval>(resolve => { ctx.inject(['codexApproval'], child => { resolve(child.codexApproval); }); });
-    const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
+    const approvalFiber = ctx.plugin(NanoApproval, {
+      configOf: (agent: Agent) => configurationService.forAgent(agent),
+      readRole: async (cfg: AgentConfiguration) => {
+        const role = await (await knowledge).documents.readRole(cfg);
+        return role && 'content' in role && role.content && role.content.length <= 2000 ? role.content : undefined;
+      },
+    });
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
     ctx.on('tools/pre-execute', async (exec, next) => {
@@ -358,7 +364,7 @@ export default class NanoRuntime {
     ctx.on('agent/pre-step', async ({ agent, messages, turn }, next) => {
       const binding = this.bindings.get(agent.id);
       const config = binding && configurationService.forAgent(agent);
-      if (binding && config?.personal && messages.some(m => m.source.kind === 'schedule') && this.syncedScheduleTurns.get(agent.id) !== turn) {
+      if (binding && config?.mode === 'global' && messages.some(m => m.source.kind === 'schedule') && this.syncedScheduleTurns.get(agent.id) !== turn) {
         this.syncedScheduleTurns.set(agent.id, turn);
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -600,7 +606,7 @@ export default class NanoRuntime {
         component:'dsh.configuration-inspection',event,refresh_id:inspection,request_id:process.env.NANO_CONFIGURATION_INSPECTION_REQUEST,
         preview_id:previewId,agent_id:requested.agentId,elapsed_ms:Date.now()-started,...fields,
       })}\n`);
-      const config = { ...requested, agentId: previewId, ...(catalogOnly ? { features: { task_graph: true, memory_curation: true, skill_creation: true, cron_scheduling: true, heartbeat: true } } : {}) };
+      const config = { ...requested, agentId: previewId, ...(catalogOnly ? { features: { task_graph: true, proactive_planning: true, memory_curation: true, skill_creation: true, cron_scheduling: true, heartbeat: true } } : {}) };
       const preset = `nano:${previewId}:preview`;
       let unregister: (() => Promise<void>) | undefined;
       let handle: AgentHandle | undefined;
@@ -797,8 +803,8 @@ export default class NanoRuntime {
       const metadataOnly = previous && scopes.applyRevisionOnly(next);
       if (metadataOnly) await modelPolicy.advanceRevision(next);
       if (previous && !metadataOnly) {
-        if (next.personal) {
-          const nextEffective = effectiveFeatures(next.features, definitionsForRole(true), capabilityDraft(next));
+        if (next.personal || next.mode === 'global') {
+          const nextEffective = effectiveFeatures(next.features, definitionsForRole(Boolean(next.personal), undefined, 'global'), capabilityDraft(next));
           if (nextEffective.proactive_planning !== true) {
             for (const binding of this.bindings.values()) {
               if (binding.agentId !== next.agentId) continue;
@@ -1203,7 +1209,7 @@ export default class NanoRuntime {
         if(this.bindings.get(sessionId)?.agentId!==agentId)throw new RpcError(-32602,'Invalid Task context identity');
         this.lifecycle.assertEnabled(agentId);const agent=await this.agent(sessionId);
         for(const id of revoked)agent.inbox.remove(MessageId(id));
-        for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
+        for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationRef??message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
         await this.ctx.sessions.flush(agent.session);return {durable:true};
       },
       'runtime.timezone': value => {
@@ -1510,8 +1516,8 @@ export default class NanoRuntime {
       if (input.source.channel === 'heartbeat' && config && this.capabilities.held(config.agentId, {kind: 'feature', name: 'heartbeat'})) return {accepted: false, busy: true};
       const isProactiveWake = input.source.kind === 'system' && (input.source.channel === 'proactive_review' || input.source.channel === 'proactive_nightly');
       if (isProactiveWake && config) {
-        const eff = effectiveFeatures(config.features, definitionsForRole(Boolean(config.personal)), capabilityDraft(config));
-        if (!config.personal || eff.proactive_planning !== true || eff.task_graph === false) {
+        const eff = effectiveFeatures(config.features, definitionsForRole(Boolean(config.personal), undefined, config.mode === 'global' ? 'global' : 'single_thread'), capabilityDraft(config));
+        if (config.mode !== 'global' || eff.proactive_planning !== true || eff.task_graph === false) {
           return { accepted: false, withdrawn: true, durable: true };
         }
         if (this.capabilities.held(config.agentId, { kind: 'feature', name: 'proactive_planning' })) {

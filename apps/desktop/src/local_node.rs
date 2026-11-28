@@ -1,4 +1,7 @@
-use crate::config::{append_private_jsonl, write_private_json, DesktopPaths, StoredSessionsFile};
+use crate::config::{
+    append_host_log, append_private_jsonl, sha256_hex, write_private_json, DesktopPaths,
+    StoredSessionsFile,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -33,6 +36,339 @@ struct DesktopActivePointer {
     ui_root: Option<String>,
     version: Option<String>,
     sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct WebviewUiCacheMarker {
+    bundle_fingerprint: String,
+    version: String,
+    updated_at_epoch: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedErrorKind {
+    DiskFull,
+    PermissionOrLocked,
+    CorruptArchive,
+    Other,
+}
+
+/// Return concise, non-misleading user guidance matching a seed preparation failure category.
+pub fn seed_error_guidance(err: &str) -> &'static str {
+    match classify_seed_error(err) {
+        SeedErrorKind::DiskFull => {
+            "释放本机应用数据所在分区的可用磁盘空间后即可继续，已有账号与本地数据未受影响。"
+        }
+        SeedErrorKind::PermissionOrLocked => {
+            "请确认当前系统账号对本机数据目录具有读写权限，或排查安全软件的文件占用与拦截。"
+        }
+        SeedErrorKind::CorruptArchive => {
+            "内置运行环境归档校验未通过，建议重新下载官方安装包覆盖安装。"
+        }
+        SeedErrorKind::Other => {
+            "请根据下方诊断详情排查，已有账号与本地数据未受影响。"
+        }
+    }
+}
+
+fn extract_os_error_code(lower: &str) -> Option<i32> {
+    let needle = "os error ";
+    let idx = lower.find(needle)?;
+    let rest = &lower[idx + needle.len()..];
+    let digits: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '-')
+        .collect();
+    if digits.is_empty() {
+        return None;
+    }
+    if rest[digits.len()..]
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    digits.parse::<i32>().ok()
+}
+
+/// Classify a seed bundle preparation failure so the host and preparation page surface accurate remediation.
+pub fn classify_seed_error(err: &str) -> SeedErrorKind {
+    classify_seed_error_for_os(err, cfg!(windows))
+}
+
+pub(crate) fn classify_seed_error_for_os(err: &str, is_windows: bool) -> SeedErrorKind {
+    let lower = err.to_ascii_lowercase();
+    let os_code = extract_os_error_code(&lower);
+    let os_disk_full = if is_windows {
+        matches!(os_code, Some(112 | 39))
+    } else {
+        matches!(os_code, Some(28 | 69 | 122))
+    };
+    if os_disk_full
+        || err.contains("磁盘可用空间不足")
+        || err.contains("磁盘空间不足")
+        || err.contains("磁盘空间已满")
+        || lower.contains("no space left on device")
+        || lower.contains("enospc")
+        || lower.contains("disk full")
+        || lower.contains("not enough space")
+    {
+        return SeedErrorKind::DiskFull;
+    }
+    let os_perm_or_locked = if is_windows {
+        matches!(os_code, Some(5 | 32 | 33))
+    } else {
+        matches!(os_code, Some(13 | 1))
+    };
+    if os_perm_or_locked
+        || err.contains("目录访问被拒绝")
+        || lower.contains("access is denied")
+        || lower.contains("permission denied")
+        || lower.contains("operation not permitted")
+        || lower.contains("eacces")
+        || lower.contains("eperm")
+    {
+        return SeedErrorKind::PermissionOrLocked;
+    }
+    if lower.contains("sha-256 mismatch")
+        || lower.contains("unrecognized archive")
+        || lower.contains("unexpected end of file")
+        || lower.contains("corrupt")
+    {
+        return SeedErrorKind::CorruptArchive;
+    }
+    SeedErrorKind::Other
+}
+
+fn annotate_seed_error(raw: String) -> String {
+    match classify_seed_error(&raw) {
+        SeedErrorKind::DiskFull if !raw.starts_with("磁盘") => {
+            format!("解压写入时磁盘空间已满：{}", raw)
+        }
+        _ => raw,
+    }
+}
+
+fn existing_ancestor(path: &Path) -> PathBuf {
+    for ancestor in path.ancestors() {
+        if ancestor.exists() {
+            return ancestor.to_path_buf();
+        }
+    }
+    std::env::temp_dir()
+}
+
+/// Query free bytes available to the current user on the filesystem backing `path`.
+pub fn query_available_disk_bytes(path: &Path) -> Option<u64> {
+    let target = existing_ancestor(path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetDiskFreeSpaceExW(
+                lp_directory_name: *const u16,
+                lp_free_bytes_available_to_caller: *mut u64,
+                lp_total_number_of_bytes: *mut u64,
+                lp_total_number_of_free_bytes: *mut u64,
+            ) -> i32;
+        }
+        let mut wide: Vec<u16> = target.as_os_str().encode_wide().collect();
+        wide.push(0);
+        let mut free_to_caller = 0u64;
+        let mut total = 0u64;
+        let mut total_free = 0u64;
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut free_to_caller,
+                &mut total,
+                &mut total_free,
+            )
+        };
+        return if ok != 0 { Some(free_to_caller) } else { None };
+    }
+    #[cfg(unix)]
+    {
+        let out = Command::new("/bin/df")
+            .args(["-Pk"])
+            .arg(&target)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let avail_kib: u64 = text
+            .lines()
+            .nth(1)?
+            .split_whitespace()
+            .nth(3)?
+            .parse()
+            .ok()?;
+        return Some(avail_kib.saturating_mul(1024));
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn estimate_seed_required_bytes(
+    rt_bytes: u64,
+    app_bytes: u64,
+    runtime_ready: bool,
+    rt_cached: bool,
+    app_cached: bool,
+) -> u64 {
+    let rt_cache_need = if runtime_ready || rt_cached { 0 } else { rt_bytes };
+    let rt_unpack_need = if runtime_ready {
+        0
+    } else {
+        rt_bytes.saturating_mul(5)
+    };
+    let app_cache_need = if app_cached { 0 } else { app_bytes };
+    let app_unpack_need = app_bytes.saturating_mul(5);
+    let headroom = if !runtime_ready && rt_bytes >= 32 * 1024 * 1024 {
+        384 * 1024 * 1024
+    } else if app_bytes >= 8 * 1024 * 1024 {
+        64 * 1024 * 1024
+    } else {
+        4 * 1024 * 1024
+    };
+    rt_cache_need
+        .saturating_add(rt_unpack_need)
+        .saturating_add(app_cache_need)
+        .saturating_add(app_unpack_need)
+        .saturating_add(headroom)
+}
+
+fn format_insufficient_disk_space_error(required_bytes: u64, available_bytes: u64) -> String {
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    if required_bytes >= 100 * 1024 * 1024 {
+        let mut req_gb = ((required_bytes as f64 / GIB) * 10.0).ceil() / 10.0;
+        let avail_gb = ((available_bytes as f64 / GIB) * 10.0).round() / 10.0;
+        if req_gb <= avail_gb {
+            req_gb = avail_gb + 0.1;
+        }
+        format!(
+            "磁盘可用空间不足：初始化运行环境需要约 {:.1} GB，当前仅剩 {:.1} GB。",
+            req_gb, avail_gb
+        )
+    } else {
+        let mut req_mb = ((required_bytes as f64 / MIB) * 10.0).ceil() / 10.0;
+        let avail_mb = ((available_bytes as f64 / MIB) * 10.0).round() / 10.0;
+        if req_mb <= avail_mb {
+            req_mb = avail_mb + 0.1;
+        }
+        format!(
+            "磁盘可用空间不足：初始化运行环境需要约 {:.1} MB，当前仅剩 {:.1} MB。",
+            req_mb, avail_mb
+        )
+    }
+}
+
+/// Remove only WebView HTTP/code/GPU cache directories while preserving Cookies, Local Storage, and IndexedDB.
+pub fn purge_webview_http_caches(webview_data_dir: &Path) -> usize {
+    let mut removed = 0usize;
+    let eb_roots = [webview_data_dir.join("EBWebView"), webview_data_dir.to_path_buf()];
+    for root in &eb_roots {
+        for rel in [
+            "Default/Cache",
+            "Default/Code Cache",
+            "Default/GPUCache",
+            "GrShaderCache",
+            "GraphiteDawnCache",
+            "ShaderCache",
+        ] {
+            let candidate = root.join(rel);
+            if candidate.exists() && fs::remove_dir_all(&candidate).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    for mac_rel in ["WebKit/NetworkCache", "WebKit/OfflineWebApplicationCache"] {
+        let candidate = webview_data_dir.join(mac_rel);
+        if candidate.exists() && fs::remove_dir_all(&candidate).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+fn current_ui_bundle_fingerprint(
+    paths: &DesktopPaths,
+    im_origin: &str,
+    dev_repo_root: Option<&Path>,
+    seed_archives_dir: Option<&Path>,
+) -> (String, String) {
+    if let Ok(bundle) = resolve_active_bundle(paths, im_origin, dev_repo_root) {
+        let index_sha = fs::read(bundle.ui_frontend.join("index.html"))
+            .map(|bytes| sha256_hex(&bytes))
+            .unwrap_or_else(|_| "missing-index".to_string());
+        let raw = format!(
+            "ready|{}|{}|{}|{}",
+            bundle.version,
+            bundle.sha256.as_deref().unwrap_or(""),
+            bundle.ui_frontend.to_string_lossy(),
+            index_sha
+        );
+        return (sha256_hex(raw.as_bytes()), bundle.version);
+    }
+    let pending_seed = default_seed_archives_dir(seed_archives_dir)
+        .and_then(|dir| fs::read_to_string(dir.join(seed_manifest_filename())).ok())
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    let sha = pending_seed
+        .as_ref()
+        .and_then(|v| v["sha256"].as_str())
+        .unwrap_or("pending");
+    let ver = pending_seed
+        .as_ref()
+        .and_then(|v| v["version"].as_str())
+        .unwrap_or("preparing")
+        .to_string();
+    (format!("preparing:{sha}"), ver)
+}
+
+/// Purge stale WebView HTTP/code caches when first upgrading to cache-hygiene tracking or when the active UI bundle changes.
+pub fn reconcile_webview_ui_cache(
+    paths: &DesktopPaths,
+    im_origin: &str,
+    dev_repo_root: Option<&Path>,
+    seed_archives_dir: Option<&Path>,
+) -> bool {
+    let (fingerprint, version) =
+        current_ui_bundle_fingerprint(paths, im_origin, dev_repo_root, seed_archives_dir);
+    let marker_path = paths.webview_ui_cache_marker_path();
+    if let Ok(raw) = fs::read_to_string(&marker_path) {
+        if let Ok(existing) = serde_json::from_str::<WebviewUiCacheMarker>(&raw) {
+            if existing.bundle_fingerprint == fingerprint {
+                return false;
+            }
+        }
+    }
+    let purged = purge_webview_http_caches(&paths.webview_data_dir);
+    let now_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = write_private_json(
+        &marker_path,
+        &WebviewUiCacheMarker {
+            bundle_fingerprint: fingerprint,
+            version: version.clone(),
+            updated_at_epoch: now_epoch,
+        },
+    );
+    append_host_log(
+        Some(paths),
+        "INFO",
+        &format!(
+            "Reconciled WebView HTTP/code cache for UI bundle '{}' (purged {} cache directories)",
+            version, purged
+        ),
+    );
+    true
 }
 
 fn configure_hidden_command(cmd: &mut Command) {
@@ -359,6 +695,23 @@ pub fn ensure_seed_bundle_installed(
     paths: &DesktopPaths,
     seed_archives_dir: Option<&Path>,
 ) -> Result<Option<PathBuf>, String> {
+    ensure_seed_bundle_installed_with_available_bytes(paths, seed_archives_dir, None)
+}
+
+pub(crate) fn ensure_seed_bundle_installed_with_available_bytes(
+    paths: &DesktopPaths,
+    seed_archives_dir: Option<&Path>,
+    override_available_bytes: Option<u64>,
+) -> Result<Option<PathBuf>, String> {
+    ensure_seed_bundle_installed_inner(paths, seed_archives_dir, override_available_bytes)
+        .map_err(annotate_seed_error)
+}
+
+fn ensure_seed_bundle_installed_inner(
+    paths: &DesktopPaths,
+    seed_archives_dir: Option<&Path>,
+    override_available_bytes: Option<u64>,
+) -> Result<Option<PathBuf>, String> {
     let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
         return Ok(None);
     };
@@ -382,6 +735,54 @@ pub fn ensure_seed_bundle_installed(
     if final_version_root.join(".ready").is_file() {
         reconcile_ready_seed_bundle(paths, Some(&seed_dir))?;
         return Ok(Some(final_version_root));
+    }
+
+    // Preflight available disk space against archive + extraction peak before copying or extracting bytes.
+    if let Ok(src_desc_raw) = fs::read_to_string(seed_dir.join(pkg_name)) {
+        if let Ok(src_desc) = serde_json::from_str::<Value>(&src_desc_raw) {
+            let rt_name = src_desc["runtime"]["name"].as_str().unwrap_or("");
+            let rt_sha = src_desc["runtime"]["sha256"].as_str().unwrap_or("");
+            let app_name = src_desc["app"]["name"].as_str().unwrap_or("");
+            let app_sha = src_desc["app"]["sha256"].as_str().unwrap_or("");
+            let rt_bytes = src_desc["runtime"]["size"]
+                .as_u64()
+                .unwrap_or(0)
+                .max(fs::metadata(seed_dir.join(rt_name)).map(|m| m.len()).unwrap_or(0));
+            let app_bytes = src_desc["app"]["size"]
+                .as_u64()
+                .unwrap_or(0)
+                .max(fs::metadata(seed_dir.join(app_name)).map(|m| m.len()).unwrap_or(0));
+            let runtime_ready = !rt_sha.is_empty()
+                && paths
+                    .desktop_home
+                    .join("runtimes")
+                    .join(rt_sha)
+                    .join(".ready")
+                    .is_file();
+            let cache_dir_probe = paths.desktop_home.join("cache");
+            let rt_cached = !rt_sha.is_empty()
+                && fs::metadata(cache_dir_probe.join(format!("{rt_sha}-{rt_name}")))
+                    .map(|m| rt_bytes > 0 && m.len() == rt_bytes)
+                    .unwrap_or(false);
+            let app_cached = !app_sha.is_empty()
+                && fs::metadata(cache_dir_probe.join(format!("{app_sha}-{app_name}")))
+                    .map(|m| app_bytes > 0 && m.len() == app_bytes)
+                    .unwrap_or(false);
+            let required = estimate_seed_required_bytes(
+                rt_bytes,
+                app_bytes,
+                runtime_ready,
+                rt_cached,
+                app_cached,
+            );
+            if let Some(avail) =
+                override_available_bytes.or_else(|| query_available_disk_bytes(&paths.desktop_home))
+            {
+                if avail < required {
+                    return Err(format_insufficient_disk_space_error(required, avail));
+                }
+            }
+        }
     }
 
     let cache_dir = paths.desktop_home.join("cache");

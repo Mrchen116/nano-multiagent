@@ -301,7 +301,7 @@ function BehaviorCard({
                   <div className="min-w-0">
                     {/* label_i18n / help_i18n are i18n keys provided by the backend registry */}
                     <p id={`feature-${feat.key}-label`} className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
-                    <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.help_i18n, "")}</p>
+                    <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.key === "proactive_planning" && !personal ? "feature.proactive_planning.globalHelp" : feat.help_i18n, "")}</p>
                     {feat.key === "dreaming" && feat.missing_tools?.length ? <p className="im-settings-feature-help">{t("feature.dreaming.unavailable", {tools: feat.missing_tools.join(", ")})}</p> : null}
                     {unknownFeatures.includes(feat.key) && <p id={`feature-${feat.key}-state`} className="im-settings-feature-state">{t("agents.settings.featureUnknown")}</p>}
                   </div>
@@ -1969,7 +1969,9 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
           catalog={catalog}
           roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}
           inheritedRules={capabilities.inherited_approval_rules}
-          capabilityFeatures={(capabilities.features ?? []).filter(feat => personal || feat.key !== "proactive_planning")}
+          capabilityFeatures={(capabilities.features ?? []).filter(feat =>
+            personal || (feat.modes ? feat.modes.includes(draft.work_mode === "single_thread" ? "single_thread" : "global") : (draft.work_mode === "global" || feat.key !== "proactive_planning")),
+          )}
           capabilitiesKnown={detailQuery.data?.liveCapabilities === true}
           readOnly={readOnly}
           unknownFeatures={detailQuery.data?.display.data?.features.filter(feature => feature.enabled === null).map(feature => feature.key)}

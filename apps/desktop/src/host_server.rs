@@ -7,8 +7,9 @@ use crate::config::{
 };
 use crate::local_node::{
     ensure_seed_bundle_installed, has_pending_seed_bundle, open_external_url,
-    open_or_reveal_workspace_path, reconcile_ready_seed_bundle, resolve_active_bundle,
-    ActiveBundlePaths, LocalAdminResult, run_local_admin_sync, stop_all_managed_local_nodes, sync_seed_desktop_defaults,
+    open_or_reveal_workspace_path, reconcile_ready_seed_bundle, reconcile_webview_ui_cache,
+    resolve_active_bundle, run_local_admin_sync, seed_error_guidance,
+    stop_all_managed_local_nodes, sync_seed_desktop_defaults, ActiveBundlePaths, LocalAdminResult,
 };
 use crate::notifications::{
     clear_stale_notifications, spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
@@ -231,6 +232,13 @@ pub fn spawn_seed_unpack_worker(state: Arc<HostSharedState>) {
         match ensure_seed_bundle_installed(&state.paths, state.seed_archives_dir.as_deref()) {
             Ok(_) => {
                 *state.seed_status.write().unwrap() = SeedPreparationState::Ready;
+                let im_origin = state.host_config.read().unwrap().im_origin.clone();
+                let _ = reconcile_webview_ui_cache(
+                    &state.paths,
+                    &im_origin,
+                    state.dev_repo_root.as_deref(),
+                    state.seed_archives_dir.as_deref(),
+                );
                 let _ = write_host_state_snapshot(&state);
                 state.ui_bridge.reload_webview(None);
             }
@@ -341,6 +349,12 @@ pub async fn start_host_server_full(
     sync_seed_desktop_defaults(&paths, seed_archives_dir.as_deref());
     reconcile_ready_seed_bundle(&paths, seed_archives_dir.as_deref())?;
     let mut host_cfg = load_or_init_host_config(&paths, seed_archives_dir.as_deref(), override_origin);
+    let _ = reconcile_webview_ui_cache(
+        &paths,
+        &host_cfg.im_origin,
+        dev_repo_root.as_deref(),
+        seed_archives_dir.as_deref(),
+    );
     let (listener, port) = bind_persisted_loopback(host_cfg.persisted_port).await?;
     host_cfg.persisted_port = port;
     write_private_json(&paths.host_config_path(), &host_cfg)?;
@@ -633,6 +647,10 @@ async fn handle_bootstrap(
     if let Ok(val) = HeaderValue::from_str(&cookie) {
         res.headers_mut().insert(axum::http::header::SET_COOKIE, val);
     }
+    res.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
     res
 }
 
@@ -679,6 +697,13 @@ async fn handle_internal_reload(
     if let Err(err) = verify_reload_token(&state, &headers) {
         return err;
     }
+    let im_origin = state.host_config.read().unwrap().im_origin.clone();
+    let _ = reconcile_webview_ui_cache(
+        &state.paths,
+        &im_origin,
+        state.dev_repo_root.as_deref(),
+        state.seed_archives_dir.as_deref(),
+    );
     state.ui_bridge.reload_webview(None);
     Json(json!({ "ok": true })).into_response()
 }
@@ -770,12 +795,15 @@ async fn handle_internal_shutdown(
 
 fn build_context_payload(state: &HostSharedState) -> Value {
     let cfg = state.host_config.read().unwrap().clone();
+    let seed_err = state.seed_error();
+    let seed_guidance = seed_err.as_deref().map(seed_error_guidance);
     json!({
         "im_origin": cfg.im_origin,
         "context_epoch": cfg.context_epoch,
         "platform": current_desktop_platform_id(),
         "seed_ready": state.is_seed_ready(),
-        "seed_error": state.seed_error(),
+        "seed_error": seed_err,
+        "seed_error_guidance": seed_guidance,
         "host_log_path": state.paths.host_log_path().to_string_lossy(),
         "pending_server_switch": state.pending_server_switch.lock().unwrap().clone(),
         "deep_link_error": state.deep_link_error.lock().unwrap().clone(),
@@ -1069,7 +1097,7 @@ async fn handle_local_probe_workers(
         Ok(v) => v,
         Err(err) => return err,
     };
-    let candidate = body.extra_path.or(body.path).unwrap_or_default();
+    let candidate = body.extra_path.or(body.path);
     invoke_local_admin(
         state,
         "probe-workers",
@@ -2266,8 +2294,11 @@ fn inject_desktop_boot_script(html: &str, state: &HostSharedState, cfg: &Persist
 }
 
 fn render_seed_preparation_html(state: &HostSharedState) -> String {
+    let seed_err = state.seed_error();
+    let seed_guidance = seed_err.as_deref().map(seed_error_guidance);
     let init = json!({
-        "seedError": state.seed_error(),
+        "seedError": seed_err,
+        "seedErrorGuidance": seed_guidance,
         "hostLogPath": state.paths.host_log_path().to_string_lossy(),
     });
     let template = r##"<!doctype html>
@@ -2316,10 +2347,11 @@ fn render_seed_preparation_html(state: &HostSharedState) -> String {
   .error-box {
     display: none; margin-top: 18px; padding: 12px 14px; border-radius: 12px;
     background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; font-size: 12.5px; line-height: 1.5;
+    overflow-wrap: anywhere;
   }
   .log-path {
     margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 11.5px; color: #655D77; word-break: break-all;
+    font-size: 11.5px; color: #655D77; overflow-wrap: anywhere;
   }
   .actions { display: none; margin-top: 18px; gap: 10px; }
   button {
@@ -2356,13 +2388,13 @@ fn render_seed_preparation_html(state: &HostSharedState) -> String {
   </main>
 <script>
   const INIT = __CREWDEN_SEED_INIT__;
-  function applyState(err, logPath) {
+  function applyState(err, guidance, logPath) {
     const progress = document.getElementById("progress");
     const errBox = document.getElementById("error-box");
     const actions = document.getElementById("actions");
     if (err) {
       document.getElementById("heading").textContent = "运行环境初始化未完成";
-      document.getElementById("desc").textContent = "请检查本机磁盘空间或防病毒拦截情况后点击重试。";
+      document.getElementById("desc").textContent = guidance || "初始化过程中遇到异常，请根据下方错误说明排查后点击重试。";
       progress.style.display = "none";
       errBox.style.display = "block";
       actions.style.display = "flex";
@@ -2376,9 +2408,9 @@ fn render_seed_preparation_html(state: &HostSharedState) -> String {
       actions.style.display = "none";
     }
   }
-  applyState(INIT.seedError, INIT.hostLogPath);
+  applyState(INIT.seedError, INIT.seedErrorGuidance, INIT.hostLogPath);
   document.getElementById("retry-btn").addEventListener("click", async () => {
-    applyState(null, INIT.hostLogPath);
+    applyState(null, null, INIT.hostLogPath);
     try { await fetch("/desktop/v1/seed/retry", { method: "POST" }); } catch {}
   });
   setInterval(async () => {
@@ -2390,7 +2422,7 @@ fn render_seed_preparation_html(state: &HostSharedState) -> String {
         window.location.reload();
         return;
       }
-      applyState(ctx.seed_error, ctx.host_log_path);
+      applyState(ctx.seed_error, ctx.seed_error_guidance, ctx.host_log_path);
     } catch {}
   }, 600);
 </script>
@@ -2458,6 +2490,8 @@ async fn handle_static_or_spa(
                         return Response::builder()
                             .status(StatusCode::OK)
                             .header("content-type", mime_for_path(&candidate))
+                            .header("cache-control", "no-store")
+                            .header("x-content-type-options", "nosniff")
                             .body(Body::from(bytes))
                             .unwrap();
                     }
@@ -2983,5 +3017,169 @@ mod tests {
         assert_eq!(local_gate.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
         let gate_json: Value = local_gate.json().await.unwrap();
         assert_eq!(gate_json["code"], "seed_preparing");
+    }
+
+    #[tokio::test]
+    async fn serves_no_store_on_frontend_static_assets_and_differentiates_seed_error_guidance() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake_repo = tmp.path().join("repo");
+        fs::create_dir_all(fake_repo.join("src/IM/frontend/dist/assets")).unwrap();
+        fs::create_dir_all(fake_repo.join("packages/dsh-trajectory-viewer/dist")).unwrap();
+        fs::create_dir_all(fake_repo.join("apps/node/lib")).unwrap();
+        fs::write(
+            fake_repo.join("src/IM/frontend/dist/index.html"),
+            "<!doctype html><html><head></head><body>app-v1</body></html>",
+        )
+        .unwrap();
+        fs::write(
+            fake_repo.join("src/IM/frontend/dist/assets/account-entry.js"),
+            "window.__ACCOUNT_ENTRY__ = 'v1';",
+        )
+        .unwrap();
+        fs::write(
+            fake_repo.join("packages/dsh-trajectory-viewer/dist/index.html"),
+            "<!doctype html><html><body>traj</body></html>",
+        )
+        .unwrap();
+        fs::write(fake_repo.join("apps/node/lib/cli.js"), "").unwrap();
+
+        let cli = DesktopCliOptions {
+            isolated_root: Some(tmp.path().join("iso")),
+            dev_repo_root: Some(fake_repo.clone()),
+            ..Default::default()
+        };
+        let paths = DesktopPaths::resolve(&cli).unwrap();
+
+        // Populate simulated Windows EBWebView caches AND user state BEFORE first host startup (upgrade from pre-819).
+        let eb_default = paths.webview_data_dir.join("EBWebView/Default");
+        fs::create_dir_all(eb_default.join("Cache/Cache_Data")).unwrap();
+        fs::create_dir_all(eb_default.join("Code Cache/js")).unwrap();
+        fs::create_dir_all(eb_default.join("GPUCache")).unwrap();
+        fs::create_dir_all(eb_default.join("Network")).unwrap();
+        fs::create_dir_all(eb_default.join("Local Storage/leveldb")).unwrap();
+        fs::create_dir_all(eb_default.join("IndexedDB/http_127.0.0.1.indexeddb.leveldb")).unwrap();
+        fs::write(eb_default.join("Cache/Cache_Data/f_0001"), b"stale-chunk").unwrap();
+        fs::write(eb_default.join("Code Cache/js/old_bytecode"), b"stale-v8").unwrap();
+        fs::write(eb_default.join("GPUCache/data_0"), b"stale-gpu").unwrap();
+        fs::write(eb_default.join("Cookies"), b"cookie-db").unwrap();
+        fs::write(eb_default.join("Network/Cookies"), b"net-cookie-db").unwrap();
+        fs::write(eb_default.join("Local Storage/leveldb/0001.ldb"), b"draft-state").unwrap();
+        fs::write(
+            eb_default.join("IndexedDB/http_127.0.0.1.indexeddb.leveldb/CURRENT"),
+            b"idb-state",
+        )
+        .unwrap();
+
+        let ui = Arc::new(NoopUiBridge::default());
+        let host = start_host_server(paths.clone(), Some("https://im.crewden.work"), Some(fake_repo.clone()), ui)
+            .await
+            .unwrap();
+
+        // Upgrade without marker purges Cache / Code Cache / GPUCache while keeping Cookies, Local Storage & IndexedDB!
+        assert!(!eb_default.join("Cache").exists());
+        assert!(!eb_default.join("Code Cache").exists());
+        assert!(!eb_default.join("GPUCache").exists());
+        assert_eq!(fs::read(eb_default.join("Cookies")).unwrap(), b"cookie-db");
+        assert_eq!(
+            fs::read(eb_default.join("Network/Cookies")).unwrap(),
+            b"net-cookie-db"
+        );
+        assert_eq!(
+            fs::read(eb_default.join("Local Storage/leveldb/0001.ldb")).unwrap(),
+            b"draft-state"
+        );
+        assert_eq!(
+            fs::read(eb_default.join("IndexedDB/http_127.0.0.1.indexeddb.leveldb/CURRENT"))
+                .unwrap(),
+            b"idb-state"
+        );
+
+        // Same UI bundle fingerprint does NOT redundantly wipe newly created cache directories;
+        // modifying `ui/frontend/index.html` in-place DOES purge HTTP/code caches again while preserving user storage!
+        fs::create_dir_all(eb_default.join("Cache")).unwrap();
+        fs::write(eb_default.join("Cache/fresh"), b"v1").unwrap();
+        assert!(!reconcile_webview_ui_cache(
+            &paths,
+            "https://im.crewden.work",
+            Some(&fake_repo),
+            None
+        ));
+        assert!(eb_default.join("Cache/fresh").is_file());
+
+        fs::write(
+            fake_repo.join("src/IM/frontend/dist/index.html"),
+            "<!doctype html><html><head></head><body>app-v2-replaced</body></html>",
+        )
+        .unwrap();
+        assert!(reconcile_webview_ui_cache(
+            &paths,
+            "https://im.crewden.work",
+            Some(&fake_repo),
+            None
+        ));
+        assert!(!eb_default.join("Cache").exists());
+        assert_eq!(
+            fs::read(eb_default.join("Local Storage/leveldb/0001.ldb")).unwrap(),
+            b"draft-state"
+        );
+
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let boot_res = client.get(&host.bootstrap_url).send().await.unwrap();
+        let cap_pair = boot_res.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+
+        let asset_res = client
+            .get(format!("http://127.0.0.1:{}/assets/account-entry.js", host.port))
+            .header("Cookie", &cap_pair)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(asset_res.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            asset_res
+                .headers()
+                .get("cache-control")
+                .and_then(|v| v.to_str().ok()),
+            Some("no-store"),
+            "Loopback frontend static assets must set Cache-Control: no-store to prevent WebView2 heuristic caching across port reuse"
+        );
+
+        // Disk-space error on seed preparation page must NOT mislead users toward antivirus checks.
+        *host.state.seed_status.write().unwrap() = SeedPreparationState::Failed(
+            "磁盘可用空间不足：初始化运行环境需要约 1.6 GB，当前仅剩 1.1 GB，请清理磁盘空间后重试。".to_string(),
+        );
+        let disk_html = client
+            .get(format!("http://127.0.0.1:{}/chat", host.port))
+            .header("Cookie", &cap_pair)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(!disk_html.contains("防病毒"), "Disk-full error page must not blame antivirus: {disk_html}");
+
+        // Permission error (os error 5) must NOT blame disk space.
+        *host.state.seed_status.write().unwrap() = SeedPreparationState::Failed(
+            "Create runtime directory C:\\test: Access is denied. (os error 5)".to_string(),
+        );
+        let acl_html = client
+            .get(format!("http://127.0.0.1:{}/chat", host.port))
+            .header("Cookie", &cap_pair)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(!acl_html.contains("磁盘空间"), "Permission-denied error page must not blame disk space: {acl_html}");
     }
 }

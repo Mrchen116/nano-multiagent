@@ -67,19 +67,27 @@ export function projectCapabilities(
           }
         : {}),
     })),
-    skills: catalog.skills.filter(skill => skill.name !== 'skill-creator').map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      location: skill.path,
-      source_group: skill.source === "compat" ? "compatibility" : skill.source,
-      default_on: skill.source === "global" || (skill.source === "builtin" && (
-        skill.name === "nano-memory" || skill.name === "nano-role-agreement" && agent?.knowledge?.memoryMode !== "legacy"
-        || skill.name === "tripai-skill" && !!agent?.personal)),
-    })),
+    skills: catalog.skills
+      .filter(skill => skill.name !== 'skill-creator' && (skill.name !== 'nano-proactive-care' || !agent || agent.mode === 'global'))
+      .map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        location: skill.path,
+        source_group: skill.source === "compat" ? "compatibility" : skill.source,
+        default_on: skill.source === "global" || (skill.source === "builtin" && (
+          skill.name === "nano-memory"
+          || (skill.name === "nano-role-agreement" && agent?.knowledge?.memoryMode !== "legacy")
+          || (skill.name === "nano-proactive-care" && (!agent || agent.mode === "global"))
+          || (skill.name === "tripai-skill" && !!agent?.personal))),
+      })),
     fixed_tools: fixedTools(agent?.mode, agent?.personal ? 'personal' : 'root', catalog.tools.some(tool => tool.name === 'new_context')),
     memory_mode: agent?.knowledge?.memoryMode ?? 'document',
     features: (() => {
-      const roleFeatures = definitionsForRole(Boolean(agent?.personal));
+      const roleFeatures = definitionsForRole(
+        Boolean(agent?.personal),
+        undefined,
+        agent ? (agent.mode === 'global' ? 'global' : 'single_thread') : 'global',
+      );
       return roleFeatures.filter(feature => feature.key !== 'dreaming' || agent?.knowledge?.memoryMode !== 'legacy').map((feature) => {
         const closure = featureClosure(Object.fromEntries(roleFeatures.map(item => [item.key, item.key === feature.key])), roleFeatures);
         const available = roleFeatures.filter(item => closure[item.key]).every(item =>

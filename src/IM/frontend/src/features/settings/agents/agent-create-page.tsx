@@ -277,7 +277,7 @@ function CreateBehaviorCard({
                   />
                   <div className="min-w-0">
                     <p id={`feature-${feat.key}-label`} className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
-                    <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.help_i18n, "")}</p>
+                    <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.key === "proactive_planning" ? "feature.proactive_planning.globalHelp" : feat.help_i18n, "")}</p>
                     {feat.key === "dreaming" && feat.missing_tools?.length ? <p className="im-settings-feature-help">{t("feature.dreaming.unavailable", {tools: feat.missing_tools.join(", ")})}</p> : null}
                   </div>
                 </label>
@@ -496,6 +496,8 @@ export function AgentCreatePage() {
       ? createStateQuery.error.message.split(" failed: ").at(-1) ?? createStateQuery.error.message
       : "Unable to load this node.";
 
+  const proactiveDisabledInGlobalRef = useRef(false);
+
   useEffect(() => {
     if (!capabilities) return;
 
@@ -509,8 +511,9 @@ export function AgentCreatePage() {
         ) {
           return current;
         }
-        let next = { ...current, features: Object.fromEntries((capabilities.features ?? []).map(f => [f.key, f.default_on])), tool_allowlist: toolDefaults };
-        for (const feature of capabilities.features ?? []) {
+        const modeFeatures = capabilityCatalog(capabilities, current.work_mode, false, current).features ?? [];
+        let next = { ...current, features: Object.fromEntries(modeFeatures.map(f => [f.key, f.default_on])), tool_allowlist: toolDefaults };
+        for (const feature of modeFeatures) {
           if (feature.default_on) next = changeCapability(next, { kind: "feature", name: feature.key, enabled: true }, capabilityCatalog(capabilities, next.work_mode, false, next)).draft;
         }
         const cleaned = sanitizeStaticToolAllowlist(next.tool_allowlist, next.work_mode, "root", workspaceNames);
@@ -819,14 +822,29 @@ export function AgentCreatePage() {
                 onChange={() => {
                   setDraft((current) => {
                     let next = { ...current, work_mode: mode };
+                    if (mode === "single_thread" && next.features && "proactive_planning" in next.features) {
+                      const { proactive_planning: _ignored, ...restFeatures } = next.features;
+                      next = { ...next, features: restFeatures };
+                    } else if (mode === "global" && proactiveDisabledInGlobalRef.current) {
+                      next = { ...next, features: { ...(next.features ?? {}), proactive_planning: false } };
+                    }
                     if (capabilities) {
                       const workspaceNames = capabilities.tools.filter((tool) => tool.source_group === "workspace").map((tool) => tool.name);
                       const modeCatalog = capabilityCatalog(capabilities, mode, false, next);
-                      const activeFeatures = effectiveCapabilityFeatures(next, capabilities.features ?? [], modeCatalog);
-                      for (const feat of capabilities.features ?? []) {
+                      const modeFeatures = modeCatalog.features ?? [];
+                      const activeFeatures = effectiveCapabilityFeatures(next, modeFeatures, modeCatalog);
+                      for (const feat of modeFeatures) {
                         if (activeFeatures[feat.key]) {
                           next = changeCapability(next, { kind: "feature", name: feat.key, enabled: true }, capabilityCatalog(capabilities, mode, false, next)).draft;
                         }
+                      }
+                      if (
+                        mode === "global" &&
+                        !proactiveDisabledInGlobalRef.current &&
+                        modeFeatures.some(f => f.key === "proactive_planning") &&
+                        effectiveCapabilityFeatures(next, modeFeatures, modeCatalog).task_graph !== false
+                      ) {
+                        next = changeCapability(next, { kind: "feature", name: "proactive_planning", enabled: true }, capabilityCatalog(capabilities, mode, false, next)).draft;
                       }
                       next = { ...next, tool_allowlist: sanitizeStaticToolAllowlist(next.tool_allowlist, mode, "root", workspaceNames) };
                     }
@@ -1017,7 +1035,7 @@ export function AgentCreatePage() {
           draft={draft}
           catalog={catalog}
           inheritedRules={inheritedApprovalRules}
-          capabilityFeatures={capabilities.features ?? []}
+          capabilityFeatures={(catalog.features ?? []) as AgentFeature[]}
           selectedNodeId={selectedNodeId}
           workspaceMode={workspaceMode}
           workspaceRoot={normalizedDraft.workspace_root}
@@ -1034,6 +1052,9 @@ export function AgentCreatePage() {
           onFeatureToggle={(key, value) => {
             setErrorMessage(null);
             setIsDirty(true);
+            if ((draft.work_mode ?? "global") === "global" && key === "proactive_planning") {
+              proactiveDisabledInGlobalRef.current = !value;
+            }
             void capabilityEditor.apply([{ kind: "feature", name: key, enabled: value }]);
           }}
           onScopeChange={(value) => {
@@ -1053,7 +1074,9 @@ export function AgentCreatePage() {
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               selectionMode={draft.skills_selection_mode ?? "explicit_denylist"}
-              options={capabilities.skills}
+              options={capabilities.skills.filter(
+                (skill) => skill.name !== "nano-proactive-care" || (draft.work_mode ?? "global") === "global"
+              )}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}

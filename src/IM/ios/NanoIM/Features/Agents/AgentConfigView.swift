@@ -410,17 +410,21 @@ struct AgentEditorFields: View {
             DisclosureGroup("Skills") {
                 Text(L("新技能默认启用；取消勾选的技能保持禁用。", "New skills are enabled by default; unchecked skills stay disabled.")).font(.caption).foregroundStyle(.secondary)
                 if let capabilities {
+                    let availableSkills = capabilities.skills.filter {
+                        $0.name != "skill-creator" && ($0.name != "nano-proactive-care" || personal || draft.work_mode == "global")
+                    }
+                    let candidateNames = availableSkills.map(\.name)
                     ForEach(["workspace", "global", "compatibility"], id: \.self) { group in
-                        let options = capabilities.skills.filter { $0.name != "skill-creator" && $0.skillGroup(workspaceRoot: draft.workspace_root) == group }
+                        let options = availableSkills.filter { $0.skillGroup(workspaceRoot: draft.workspace_root) == group }
                         if !options.isEmpty {
                             DisclosureGroup(agentSkillGroupName(group)) {
-                                let enabled = Set(draft.enabledSkills(candidates: capabilities.skills.map(\.name)))
+                                let enabled = Set(draft.enabledSkills(candidates: candidateNames))
                                 let enable = !options.allSatisfy { enabled.contains($0.name) }
                                 Button(enable ? L("启用本组全部", "Enable group") : L("禁用本组全部", "Disable group")) {
                                     onCapabilityChange?(options.filter { enabled.contains($0.name) != enable }.map { CapabilityAction(kind: "skill", name: $0.name, enabled: enable) })
                                 }
                                 ForEach(options) { option in
-                                    Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: capabilities.skills.map(\.name)).contains(option.name) }, set: { change(.init(kind: "skill", name: option.name, enabled: $0)) })) {
+                                    Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: candidateNames).contains(option.name) }, set: { change(.init(kind: "skill", name: option.name, enabled: $0)) })) {
                                         VStack(alignment: .leading) { Text(option.name); if let location = option.location { Text(location).font(.caption).foregroundStyle(.secondary) }; if let description = option.description { Text(description).font(.caption) } }
                                     }.capabilityAnchor("skill:" + option.name)
                                 }
@@ -428,17 +432,17 @@ struct AgentEditorFields: View {
                         }
                     }
                 }
-                ForEach(draft.skills.filter { skill in skill != "skill-creator" && !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
+                ForEach(draft.skills.filter { skill in skill != "skill-creator" && (skill != "nano-proactive-care" || personal || draft.work_mode == "global") && !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
             }
         }
         Section {
-            let resolvedFeatures = draft.effectiveFeatures(capabilities: capabilities)
+            let resolvedFeatures = draft.effectiveFeatures(capabilities: capabilities, personal: personal)
             DisclosureGroup(L("运行特性", "Runtime features")) {
-                ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) && (personal || $0.key != "proactive_planning") }) { feature in
+                ForEach((capabilities?.featuresForMode(mode: draft.work_mode, personal: personal) ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) }) { feature in
                     VStack(alignment: .leading, spacing: 5) {
                         Toggle(agentFeatureName(feature.key), isOn: Binding(get: { resolvedFeatures[feature.key] ?? draft.isFeatureEnabled(feature) }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
                             .capabilityAnchor("feature:" + feature.key)
-                        if let subtitle = agentFeatureSubtitle(feature.key, personal: personal) {
+                        if let subtitle = agentFeatureSubtitle(feature.key, personal: personal, workMode: draft.work_mode) {
                             Text(subtitle).font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -476,12 +480,15 @@ func agentFeatureName(_ key: String) -> String {
     }
 }
 
-func agentFeatureSubtitle(_ key: String, personal: Bool = false) -> String? {
+func agentFeatureSubtitle(_ key: String, personal: Bool = false, workMode: String = "global") -> String? {
     switch key {
-    case "proactive_planning":
+    case "proactive_planning" where personal:
         return L("在对话安静后静默复盘目标进展、建立「待拍板」提议卡，并在合适时机按需提供准备要点。关闭后停止自动复盘与提议立卡；你明确交办的任务与自行设定的定时提醒照常运行。",
                  "Silently reviews goal progress after quiet periods, proposes candidate cards, and prepares notes when helpful. Turning this off stops automatic quiet reviews and proposals; tasks and reminders you explicitly set continue to run.")
-    case "task_graph" where personal:
+    case "proactive_planning":
+        return L("在各协作会话安静后原位记账任务进展，并在凌晨 Dreaming 后结合 ROLE.md 在原群或 1 对 1 面板挂出有界「待拍板」提议卡（常规提议静默挂板不发早安问候，仅急需备料或时效风险发工作时段提醒）。关闭后停止自动记账与夜间唤醒；明确交办的任务与既有定时安排照常运行。",
+                 "Silently updates task progress in each originating chat after activity settles, then surfaces bounded Proposed cards on the originating group or 1-on-1 board after Dreaming (silent by default with no morning greetings; working-hours nudges only for urgent prep or role-scoped risks). Explicit tasks and schedules continue to run when off.")
+    case "task_graph" where personal || workMode == "global":
         return L("承载单卡事项与长线目标脉络（主动筹划开启时需保持启用）。",
                  "Powers single-card tasks and multi-stage goal graphs (required while Proactive planning is on).")
     case "dreaming":

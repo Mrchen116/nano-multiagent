@@ -9,7 +9,7 @@ export function capabilityDraft(config: AgentConfiguration) {
 }
 /** Validate capabilities in the active memory mode. */
 export function configurationBlocks(config: AgentConfiguration, catalog: CapabilityCatalog) {
-  const roleFeatures = definitionsForRole(Boolean(config.personal));
+  const roleFeatures = definitionsForRole(Boolean(config.personal), undefined, config.mode === 'global' ? 'global' : 'single_thread');
   return validateCapabilities(capabilityDraft(config), { ...catalog,
     features: (catalog.features ?? roleFeatures).filter(feature => feature.key !== 'dreaming' || config.knowledge?.memoryMode !== 'legacy') });
 }
@@ -58,8 +58,8 @@ export class CapabilityState {
     if (previous) {
       if (previous.knowledge?.memoryMode === 'legacy' && previous.knowledge.legacyMemory?.enabled !== false
         && (config.knowledge?.memoryMode !== 'legacy' || config.knowledge.legacyMemory?.enabled === false)) targets.push({kind:'feature',name:'memory_curation'});
-      const before = effectiveCapabilityFeatures(capabilityDraft(previous), definitionsForRole(Boolean(previous.personal)), catalog);
-      const after = effectiveCapabilityFeatures(capabilityDraft(config), definitionsForRole(Boolean(config.personal)), catalog);
+      const before = effectiveCapabilityFeatures(capabilityDraft(previous), definitionsForRole(Boolean(previous.personal), undefined, previous.mode === 'global' ? 'global' : 'single_thread'), catalog);
+      const after = effectiveCapabilityFeatures(capabilityDraft(config), definitionsForRole(Boolean(config.personal), undefined, config.mode === 'global' ? 'global' : 'single_thread'), catalog);
       for (const name of Object.keys(before)) if (before[name] && !after[name]) targets.push({kind: 'feature', name});
       const fixed = fixedTools(config.mode, config.personal ? 'personal' : 'root');
       const inspectableTools = [...new Set([...(catalog.tools ?? []), ...cordisInspectTools])];

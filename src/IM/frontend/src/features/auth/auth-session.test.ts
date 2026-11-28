@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { authFetch } from "./auth-fetch";
-import { ensureFreshSession, logout, login, adoptPageSession } from "./auth-session";
+import { AuthApiError } from "./auth-api";
+import { ensureFreshSession, logout, login, adoptPageSession, restoreSession } from "./auth-session";
 import { useAuthStore, type AuthUser } from "./auth-store";
 
 const USER_A: AuthUser = {
@@ -34,12 +35,18 @@ function session(user: AuthUser, access: string, _refresh: string): void {
 }
 
 describe("auth session readiness", () => {
+  const originalLocks = Object.getOwnPropertyDescriptor(window.navigator, "locks");
+  const originalBroadcastChannel = Object.getOwnPropertyDescriptor(globalThis, "BroadcastChannel");
+
   beforeEach(() => {
     localStorage.clear();
     useAuthStore.getState().clear();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
+    if (originalLocks) Object.defineProperty(window.navigator, "locks", originalLocks);
+    if (originalBroadcastChannel) Object.defineProperty(globalThis, "BroadcastChannel", originalBroadcastChannel);
     vi.restoreAllMocks();
     localStorage.clear();
   });
@@ -205,5 +212,149 @@ describe("auth session readiness", () => {
     other.postMessage("logout");
     expect(useAuthStore.getState().user).toBeNull();
     other.close();
+  });
+
+  it("aborts a stuck cross-tab Web Lock and degrades to refreshing once", async () => {
+    vi.useFakeTimers();
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+    let capturedSignal: AbortSignal | undefined;
+    let grantStuckLock: (() => void) | undefined;
+    Object.defineProperty(window.navigator, "locks", {
+      configurable: true,
+      value: {
+        request(_name: string, optionsOrOp: { signal?: AbortSignal } | (() => Promise<unknown>), maybeOp?: () => Promise<unknown>) {
+          const op = typeof optionsOrOp === "function" ? optionsOrOp : maybeOp!;
+          const signal = typeof optionsOrOp === "function" ? undefined : optionsOrOp?.signal;
+          capturedSignal = signal;
+          return new Promise((resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason ?? new DOMException("Aborted", "AbortError")), { once: true });
+            grantStuckLock = () => resolve(op());
+          });
+        }
+      }
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      response(200, { access_token: accessToken(120), user: USER_A })
+    );
+
+    const restoring = restoreSession();
+    await vi.advanceTimersByTimeAsync(8_000);
+    await restoring;
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(useAuthStore.getState().hydrated).toBe(true);
+    expect(useAuthStore.getState().user?.id).toBe(USER_A.id);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    grantStuckLock?.();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers even if a non-standard Web Lock ignores AbortSignal and never settles", async () => {
+    vi.useFakeTimers();
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+    let lateGrant: (() => Promise<unknown>) | undefined;
+    Object.defineProperty(window.navigator, "locks", {
+      configurable: true,
+      value: {
+        request(_name: string, optionsOrOp: unknown, maybeOp?: () => Promise<unknown>) {
+          const op = typeof optionsOrOp === "function" ? (optionsOrOp as () => Promise<unknown>) : maybeOp!;
+          lateGrant = op;
+          return new Promise(() => {});
+        }
+      }
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(401, { detail: "no session" }));
+
+    const restoring = restoreSession();
+    await vi.advanceTimersByTimeAsync(8_000);
+    await restoring;
+
+    expect(useAuthStore.getState().hydrated).toBe(true);
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await lateGrant?.();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay an operation that failed after acquiring the session lock", async () => {
+    Object.defineProperty(window.navigator, "locks", {
+      configurable: true,
+      value: {
+        request(_name: string, optionsOrOp: unknown, maybeOp?: () => Promise<unknown>) {
+          const op = typeof optionsOrOp === "function" ? (optionsOrOp as () => Promise<unknown>) : maybeOp!;
+          return op();
+        }
+      }
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(401, { detail: "invalid credentials" }));
+
+    await expect(login({ username: "alice", password: "wrong" })).rejects.toBeInstanceOf(AuthApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes restore, login, refresh, and logout when Web Locks and BroadcastChannel are unavailable", async () => {
+    Object.defineProperty(window.navigator, "locks", { configurable: true, value: undefined });
+    Object.defineProperty(globalThis, "BroadcastChannel", { configurable: true, value: undefined });
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(401, { detail: "no cookie" }))
+      .mockResolvedValueOnce(response(200, { access_token: accessToken(10), user: USER_A }))
+      .mockResolvedValueOnce(response(200, { access_token: accessToken(120), user: USER_A }))
+      .mockResolvedValueOnce(response(200, { ok: true }));
+
+    await restoreSession();
+    expect(useAuthStore.getState().hydrated).toBe(true);
+    expect(useAuthStore.getState().user).toBeNull();
+
+    await login({ username: "alice", password: "password" });
+    expect(useAuthStore.getState().user?.id).toBe(USER_A.id);
+
+    await expect(ensureFreshSession()).resolves.toMatchObject({ status: "ready", userId: USER_A.id });
+    await logout();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps revision protection when lock acquisition times out after a newer session arrives", async () => {
+    vi.useFakeTimers();
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+    Object.defineProperty(window.navigator, "locks", {
+      configurable: true,
+      value: { request: () => new Promise(() => {}) }
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(200, { ok: true }));
+
+    const staleRestore = restoreSession();
+    const staleLogout = logout();
+    useAuthStore.getState().setSession({ access_token: accessToken(120), user: USER_B }, true);
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    await Promise.all([staleRestore, staleLogout]);
+
+    expect(useAuthStore.getState().user?.id).toBe(USER_B.id);
+    expect(useAuthStore.getState().hydrationError).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("aborts a hung refresh request so hydration converges to hydrationError", async () => {
+    vi.useFakeTimers();
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+    let requestSignal: AbortSignal | null | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      requestSignal = init?.signal;
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new DOMException("Aborted", "AbortError")), { once: true });
+      });
+    });
+
+    const restoring = restoreSession();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await restoring;
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(useAuthStore.getState().hydrated).toBe(false);
+    expect(useAuthStore.getState().hydrationError).toBe(true);
   });
 });

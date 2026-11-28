@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DREAMING_SCHEDULE } from '@nano/product-contracts';
+import { definitionsForRole, effectiveCapabilityFeatures } from '@nano/product-contracts/capabilities';
 import { lstat, mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
@@ -8,6 +9,7 @@ import { SessionId, SessionSeq, snapshotSessionEvent } from '@deepseek-ai/dsh-se
 import { SUBAGENT_DESCRIPTOR_VERSION, type OneShotSubagentDescriptorData } from '@deepseek-ai/dsh-subagent';
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm';
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
+import { capabilityDraft } from '../capability-state.js';
 import { assembleAgentPrompt } from '../prompt-assembly.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
@@ -282,13 +284,28 @@ export class Dreaming {
     return this.start(parent, true);
   }
   private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal, includePendingTaskContext = false): Promise<DreamingPendingTaskContext[]> {
-    if (!config.personal) return [];
-    await this.documents.sourcesPending(config.agentId);
-    const response = await this.ctx.nanoProduct.call(
-      'memory.sources.refresh',
-      includePendingTaskContext ? { includePendingTaskContext: true } : {},
-      { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) },
-    ) as { pendingTaskContext?: unknown } | undefined;
+    const effectiveFeatures = effectiveCapabilityFeatures(
+      capabilityDraft(config),
+      definitionsForRole(Boolean(config.personal), undefined, config.mode === 'global' ? 'global' : 'single_thread'),
+    );
+    const canPrefetchGlobalTaskContext = config.mode === 'global'
+      && includePendingTaskContext
+      && effectiveFeatures.task_graph === true
+      && (!config.toolAllowlist || config.toolAllowlist.includes('task_graph'));
+    if (!config.personal && !canPrefetchGlobalTaskContext) return [];
+    if (config.personal) await this.documents.sourcesPending(config.agentId);
+    let response: { pendingTaskContext?: unknown } | undefined;
+    try {
+      response = await this.ctx.nanoProduct.call(
+        'memory.sources.refresh',
+        includePendingTaskContext ? { includePendingTaskContext: true } : {},
+        { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) },
+      ) as { pendingTaskContext?: unknown } | undefined;
+    } catch (error) {
+      // PA source eligibility is fail-closed; non-PA Global has no source ACL table and only prefetches unconsumed task-context when the host exposes memory.sources.refresh.
+      if (config.personal || signal.aborted) throw error;
+      return [];
+    }
     if (!includePendingTaskContext || !Array.isArray(response?.pendingTaskContext)) return [];
     return response.pendingTaskContext.filter((item): item is DreamingPendingTaskContext =>
       !!item && typeof item === 'object'
@@ -351,7 +368,7 @@ export class Dreaming {
           batch.conversations=[...new Set([
             ...baseConversations,
             ...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents])),
-            ...selectedPending.map(item=>item.conversationId),
+            ...selectedPending.map(item=>item.conversationRef ?? item.conversationId),
           ])];
           if(selectedPending.length){
             batch.cutoffs??={};
@@ -394,9 +411,14 @@ export class Dreaming {
         const systemRole=renderPrompt({...parentPrompt,sections:parentPrompt.sections.filter(section=>
           ['nano-product-identity','nano-global-mode','nano-communication','nano-personal-agent'].includes(section.name))});
         const role=await this.readRole?.(currentConfig);
+        const parentBinding=this.options.bindings.get(parent.id);
+        const boundAdmin=!currentConfig.personal&&currentConfig.mode==='global'
+          ? ((parentBinding as {ownerRef?:string}|undefined)?.ownerRef ?? parentBinding?.ownerId)
+          : undefined;
         const roleContext=[
           '<main_agent_background>',
           `<system_role>\n${systemRole}\n</system_role>`,
+          ...(boundAdmin?[`<bound_administrator>${boundAdmin}</bound_administrator>`]:[]),
           `<role_content>\n${role || 'No confirmed role text is available in this batch.'}\n</role_content>`,
           '</main_agent_background>',
         ];
@@ -537,7 +559,7 @@ export class Dreaming {
         const renderedPending=run.pendingTaskContext.map(item=>[
           `[task context] · ${item.timeMs>0?new Date(item.timeMs).toISOString():'unknown-time'}`,
           `messageId: ${item.messageId}`,
-          `conversationId: ${item.conversationId}`,
+          `conversationId: ${item.conversationRef ?? item.conversationId}`,
           item.text,
         ].join('\n')).join('\n\n');
         inputs.push(`## Unconsumed task context updates\n${renderedPending}`);
@@ -549,7 +571,7 @@ export class Dreaming {
       const entryIssue=await library.entryIssue();
       const entry=entryIssue?undefined:(await library.context()).entry;
       inputs.push(`Contents of ${join(library.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${entryIssue?`${entryIssue}. Restore a concise regular file from the current pages and this batch before completing.`:entry??'Read the complete entry at this path.'}\n</memory_content>`);
-      if(library.role==='personal'){
+      if(library.role==='personal' || library.role==='global_expert'){
         const signalsPath=join(library.root,'knowledge/proactivity-signals.md');
         const signalsBody=await lstat(signalsPath).then(
           info=>info.isFile()?readFile(signalsPath,'utf8'):undefined,
