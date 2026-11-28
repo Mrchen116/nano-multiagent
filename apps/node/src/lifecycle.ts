@@ -90,6 +90,13 @@ export async function gatewayState(
   }
 }
 let windowsBootFileTime: Promise<bigint> | undefined;
+async function currentWindowsBootFileTime(): Promise<bigint> {
+  windowsBootFileTime ??= windowsHost("boot-filetime").then(BigInt).catch(error => {
+    windowsBootFileTime = undefined;
+    throw error;
+  });
+  return windowsBootFileTime;
+}
 async function ownedState(config: string, observed?: GatewayState) {
   const state = observed ?? await gatewayState(config);
   if (!state) return;
@@ -99,11 +106,7 @@ async function ownedState(config: string, observed?: GatewayState) {
     );
   // A previous boot cannot own a live PID, even if Windows has reassigned it.
   if (process.platform === "win32" && /^[1-9]\d*$/.test(state.process_start)) {
-    windowsBootFileTime ??= windowsHost("boot-filetime").then(BigInt).catch(error => {
-      windowsBootFileTime = undefined;
-      throw error;
-    });
-    if (BigInt(state.process_start) < await windowsBootFileTime) return;
+    if (BigInt(state.process_start) < await currentWindowsBootFileTime()) return;
   }
   const birth = await processBirth(state.pid);
   if (!birth) return;
@@ -112,6 +115,137 @@ async function ownedState(config: string, observed?: GatewayState) {
       "Gateway PID identity changed; preserving evidence and refusing to signal it",
     );
   return state;
+}
+
+interface ProcessLockOwner {
+  pid: number;
+  process_start: string;
+  acquired_at: number;
+  lock_birthtime_ms?: number;
+}
+const ORPHAN_LOCK_WITHOUT_OWNER_MS = 3000;
+const lockOwnerPath = (lockDir: string) => `${lockDir}.owner.json`;
+
+async function evictStaleLockDirectory(
+  lockDir: string,
+  expectedMtimeMs: number,
+): Promise<boolean> {
+  const ownerPath = lockOwnerPath(lockDir);
+  const staleOwner = `${lockDir}.owner-stale-${randomUUID()}`;
+  await rename(ownerPath, staleOwner).catch(() => {});
+  try {
+    const current = await stat(lockDir).catch(() => undefined);
+    if (!current || current.mtimeMs !== expectedMtimeMs) {
+      return false;
+    }
+    const staleDir = `${lockDir}.stale-${randomUUID()}`;
+    await rename(lockDir, staleDir);
+    await rm(staleDir, { recursive: true, force: true }).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(staleOwner, { force: true }).catch(() => {});
+  }
+}
+
+/** Reap a proper-lockfile directory immediately when its sibling owner PID/birth is dead,
+ * or when a legacy/interrupted lock directory has no owner metadata and no heartbeat.
+ * Never mutates files inside `lockDir` so `proper-lockfile` mtime tracking stays intact.
+ */
+export async function reapDeadProcessLock(lockDir: string): Promise<boolean> {
+  let dirStat;
+  try {
+    dirStat = await stat(lockDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  const ownerPath = lockOwnerPath(lockDir);
+  try {
+    const raw = await readFile(ownerPath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<ProcessLockOwner>;
+    if (
+      typeof parsed.pid === "number" &&
+      parsed.pid > 0 &&
+      typeof parsed.process_start === "string" &&
+      parsed.process_start.length > 0
+    ) {
+      if (process.platform === "win32" && /^[1-9]\d*$/.test(parsed.process_start)) {
+        if (BigInt(parsed.process_start) < await currentWindowsBootFileTime()) {
+          return evictStaleLockDirectory(lockDir, dirStat.mtimeMs);
+        }
+      }
+      const liveBirth = await processBirth(parsed.pid);
+      if (liveBirth === parsed.process_start) return false;
+      return evictStaleLockDirectory(lockDir, dirStat.mtimeMs);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if (Date.now() - dirStat.mtimeMs > ORPHAN_LOCK_WITHOUT_OWNER_MS) {
+        return evictStaleLockDirectory(lockDir, dirStat.mtimeMs);
+      }
+      return false;
+    }
+  }
+  if (Date.now() - dirStat.mtimeMs <= ORPHAN_LOCK_WITHOUT_OWNER_MS) return false;
+  if (existsSync(ownerPath)) return false;
+  const recheck = await stat(lockDir).catch(() => undefined);
+  if (!recheck || Date.now() - recheck.mtimeMs <= ORPHAN_LOCK_WITHOUT_OWNER_MS) return false;
+  return evictStaleLockDirectory(lockDir, recheck.mtimeMs);
+}
+
+async function acquireProcessLock(
+  targetPath: string,
+  lockDir: string,
+  staleMs: number,
+  waitTimeoutMs: number,
+): Promise<{ process_start: string; release: () => Promise<void> }> {
+  const selfBirth = await processBirth(process.pid);
+  if (!selfBirth) {
+    throw new Error("Cannot establish Gateway process identity");
+  }
+  await mkdir(dirname(lockDir), { recursive: true });
+  const ownerPath = lockOwnerPath(lockDir);
+  const deadline = Date.now() + waitTimeoutMs;
+  for (;;) {
+    await reapDeadProcessLock(lockDir);
+    try {
+      const unlock = await lockfile.lock(targetPath, {
+        realpath: false,
+        lockfilePath: lockDir,
+        stale: staleMs,
+        update: 1000,
+        retries: 0,
+      });
+      const dirStat = await stat(lockDir).catch(() => undefined);
+      const ownerPayload: ProcessLockOwner = {
+        pid: process.pid,
+        process_start: selfBirth,
+        acquired_at: Date.now(),
+        ...(dirStat ? { lock_birthtime_ms: Math.floor(dirStat.birthtimeMs) } : {}),
+      };
+      try {
+        await atomicPrivate(ownerPath, ownerPayload);
+      } catch (writeError) {
+        await rm(ownerPath, { force: true }).catch(() => {});
+        await unlock().catch(() => {});
+        throw writeError;
+      }
+      return {
+        process_start: selfBirth,
+        async release() {
+          await rm(ownerPath, { force: true }).catch(() => {});
+          await unlock().catch(() => {});
+        },
+      };
+    } catch (error) {
+      if ((error as { code?: string }).code !== "ELOCKED" || Date.now() >= deadline) {
+        throw error;
+      }
+      await delay(150);
+    }
+  }
 }
 export function gatewayLabel(config: string) {
   return (
@@ -193,18 +327,12 @@ export function browserPairingFile(configPath: string, node: NodeConfigurationFi
 
 /** Runtime lease prevents duplicate foreground, background and launchd consumers. */
 export async function claimGateway(config: string) {
-  const release = await lockfile.lock(config, {
-    realpath: false,
-    lockfilePath: join(dirname(config), ".gateway-runtime.lock"),
-    stale: 10000,
-    update: 1000,
-    retries: { retries: 24, factor: 1, minTimeout: 500, maxTimeout: 500 },
-  });
-  const process_start = await processBirth(process.pid);
-  if (!process_start) {
-    await release();
-    throw new Error("Cannot establish Gateway process identity");
-  }
+  const { process_start, release } = await acquireProcessLock(
+    config,
+    join(dirname(config), ".gateway-runtime.lock"),
+    15000,
+    15000,
+  );
   const state: GatewayState = {
     pid: process.pid,
     config_path: config,
@@ -291,13 +419,12 @@ export async function manageGateway(
     )
   )
     throw new Error("Gateway lifecycle timing must be positive");
-  const release = await lockfile.lock(path, {
-    realpath: false,
-    lockfilePath: join(dirname(path), ".gateway-lifecycle.lock"),
-    stale: 120000,
-    update: 1000,
-    retries: { retries: 120, factor: 1, minTimeout: 250, maxTimeout: 250 },
-  });
+  const { release } = await acquireProcessLock(
+    path,
+    join(dirname(path), ".gateway-lifecycle.lock"),
+    120000,
+    Math.max(30000, Math.ceil((startup + grace + 10) * 1000)),
+  );
   try {
     if (action === "autostart-on" || action === "autostart-off" || action === "autostart-status") {
       if (process.platform === "win32") {

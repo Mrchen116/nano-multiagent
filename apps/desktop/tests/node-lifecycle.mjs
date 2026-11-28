@@ -119,7 +119,14 @@ try {
   assert.equal(await readFile(trace, 'utf8'), '', 'healthy ticks spawned local-admin or reread gateway.log');
   console.log('10s healthy: zero local-admin processes and zero gateway.log rereads');
   process.kill(online.pid, 'SIGKILL');
-  await waitFor('gateway crash recovery', async () => { const s = await gateway(); return s.ready && s.pid !== online.pid; });
+  // Simulate a force-killed lifecycle holder leaving `.gateway-lifecycle.lock` and sidecar behind; supervisor must still recover!
+  const staleLock = join(dir, '.gateway-lifecycle.lock');
+  const staleOwner = join(dir, '.gateway-lifecycle.lock.owner.json');
+  await mkdir(staleLock, { recursive: true });
+  await writeFile(staleOwner, JSON.stringify({ pid: 999999991, process_start: 'dead-holder', acquired_at: 1 }));
+  await waitFor('gateway crash recovery across stale lifecycle lock', async () => { const s = await gateway(); return s.ready && s.pid !== online.pid; });
+  assert.equal(await access(staleLock).then(() => true, () => false), false, 'stale .gateway-lifecycle.lock should be evicted');
+  assert.equal(await access(staleOwner).then(() => true, () => false), false, 'stale .gateway-lifecycle.lock.owner.json should be evicted');
   // Keep the gateway alive across a host restart with a newly selected bundle version.
   const recovered = await gateway();
   await closeHost();
