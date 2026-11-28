@@ -129,4 +129,5 @@ def test_desktop_smoke_scripts_wait_for_seed_ready_flag_in_host_state() -> None:
     )
     assert 'data.get("ready") is True' in mac_wf
     assert 'if [ -f "$ISO_ROOT/desktop/host-state.json" ]; then break; fi' not in mac_wf
-    assert "$candidate.ready -and $candidate.port" in win_smoke
+    assert "if ($status.seed_error) { throw" in win_smoke
+    assert "if ($status.seed_ready) { break }" in win_smoke

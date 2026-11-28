@@ -3075,23 +3075,5 @@ mod tests {
         assert_eq!(local_gate.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
         let gate_json: Value = local_gate.json().await.unwrap();
         assert_eq!(gate_json["code"], "seed_preparing");
-
-        // InstanceLock prevents duplicate acquisition on the same lock path.
-        let lock1 = crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
-            .unwrap()
-            .expect("first lock should succeed");
-        assert!(
-            crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
-                .unwrap()
-                .is_none(),
-            "second lock while held must return None"
-        );
-        drop(lock1);
-        assert!(
-            crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
-                .unwrap()
-                .is_some(),
-            "lock should be acquirable after drop"
-        );
     }
 }

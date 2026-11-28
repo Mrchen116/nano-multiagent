@@ -25,6 +25,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+tempfile = "3"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
@@ -37,6 +38,3 @@ objc2-foundation = { version = "0.3", features = ["NSBundle", "NSDictionary", "N
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = ["Data_Xml_Dom", "UI_Notifications"] }
 winreg = "0.52"
-
-[dev-dependencies]
-tempfile = "3"
