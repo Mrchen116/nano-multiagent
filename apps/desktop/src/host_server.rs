@@ -737,7 +737,9 @@ async fn handle_internal_reload(
         return err;
     }
     let origin = headers.get("x-crewden-im-origin").and_then(|header| header.to_str().ok());
-    crate::updater::on_internal_reload_assets(&state, origin);
+    if let Some(origin) = origin {
+        crate::updater::on_internal_reload_assets(&state, origin);
+    }
     Json(json!({ "ok": true })).into_response()
 }
 

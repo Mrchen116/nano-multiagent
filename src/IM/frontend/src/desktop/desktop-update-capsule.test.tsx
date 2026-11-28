@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto";
+import userEvent from "@testing-library/user-event";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UserMenu } from "../app/shell/user-menu";

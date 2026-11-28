@@ -1364,10 +1364,10 @@ pub fn rollback_startup_promotion_if_needed(state: &HostSharedState, im_origin: 
 }
 
 /// Synchronize `desktop-ui-active.json` when `update-worker.ts` completes or rolls back and hits `/desktop/internal/reload-assets`.
-pub fn on_internal_reload_assets(state: &HostSharedState, expected_origin: Option<&str>) {
+pub fn on_internal_reload_assets(state: &HostSharedState, expected_origin: &str) {
     let context = state.host_config.read().unwrap();
     let im_origin = context.im_origin.clone();
-    if expected_origin.is_some_and(|origin| origin != im_origin) { return; }
+    if expected_origin != im_origin { return; }
     let stored_owner = state
         .sessions
         .read()
@@ -2226,14 +2226,19 @@ fn spawn_online_node_update_poller(
                     let ui = read_ui_active_file(&state.paths);
                     if ui.origins.get(&im_origin).map(|p| &p.sha256) != Some(&target.sha256)
                         && ui.rollback_blocked.get(&im_origin) != Some(&target.sha256) {
-                        on_internal_reload_assets(&state, Some(&im_origin));
+                        on_internal_reload_assets(&state, &im_origin);
                     }
                     {
                         let mut map = state.updater.by_origin.lock().unwrap();
                         if let Some(rt) = map.get_mut(&im_origin) {
-                            rt.phase = "up_to_date".to_string();
-                            rt.mode = None;
-                            rt.target = None;
+                            if read_ui_active_file(&state.paths).rollback_blocked.get(&im_origin) == Some(&target.sha256) {
+                                rt.phase = "failed".to_string();
+                                rt.error_code = Some("switch_rolled_back".to_string());
+                            } else {
+                                rt.phase = "up_to_date".to_string();
+                                rt.mode = None;
+                                rt.target = None;
+                            }
                             rt.node_operation_id = None;
                         }
                     }
@@ -2347,8 +2352,11 @@ pub fn spawn_updater_daemon(state: Arc<HostSharedState>) {
             }
             if state.is_seed_ready() {
                 let _ = check_for_updates(state.clone(), false).await;
+                tokio::time::sleep(Duration::from_secs(30 * 60)).await;
+            } else {
+                // Initial seed extraction can outlast the startup delay.
+                tokio::time::sleep(Duration::from_secs(2)).await;
             }
-            tokio::time::sleep(Duration::from_secs(30 * 60)).await;
         }
     });
 }
@@ -2821,9 +2829,9 @@ mod tests {
         )
         .unwrap();
         let generation = server.state.updater.reload_generation.load(Ordering::SeqCst);
-        on_internal_reload_assets(&server.state, Some("https://previous.example"));
+        on_internal_reload_assets(&server.state, "https://previous.example");
         assert_eq!(server.state.updater.reload_generation.load(Ordering::SeqCst), generation);
-        on_internal_reload_assets(&server.state, Some(&im_origin));
+        on_internal_reload_assets(&server.state, &im_origin);
         assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.4.0");
         assert_eq!(build_updater_snapshot(&server.state).phase, "switching");
         finish_ui_boot(&server.state, &im_origin, &sha_v2, true);
@@ -2839,7 +2847,7 @@ mod tests {
             }),
         )
         .unwrap();
-        on_internal_reload_assets(&server.state, Some(&im_origin));
+        on_internal_reload_assets(&server.state, &im_origin);
         assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.3.2");
         assert_eq!(build_updater_snapshot(&server.state).just_updated_version, None);
 
