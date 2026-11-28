@@ -1,5 +1,5 @@
 import {globalWorkRole, isOrdinaryChild} from './child-role.js';
-import {effectiveSelectedTools, fixedTools} from '@nano/product-contracts/capabilities';
+import {definitionsForRole, effectiveFeatures, effectiveSelectedTools, fixedTools} from '@nano/product-contracts/capabilities';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
 import type {} from '@deepseek-ai/dsh-tool-skill';
@@ -22,6 +22,24 @@ const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode
 function allowsCordisInspect(config: AgentConfiguration, agent?: Agent): boolean {
   if (!config.workspace) return false;
   if (agent && (isOrdinaryChild(agent) || globalWorkRole(agent, config))) return false;
+  return true;
+}
+
+/** Check whether the builtin nano-proactive-care Skill is active for a root Global session. */
+export function allowsProactiveCareSkill(config: AgentConfiguration, isInternalOrWorker = false): boolean {
+  if (isInternalOrWorker || config.mode !== 'global') return false;
+  const eff = effectiveFeatures(config.features, definitionsForRole(Boolean(config.personal), undefined, 'global'), {
+    tool_allowlist: config.toolAllowlist,
+  });
+  if (eff.proactive_planning !== true || eff.task_graph === false || (config.toolAllowlist && !config.toolAllowlist.includes('task_graph'))) {
+    return false;
+  }
+  if (config.skillSelection?.mode === 'explicit_denylist') {
+    return !config.skillSelection.names.includes('nano-proactive-care');
+  }
+  if (config.skillSelection?.mode === 'explicit_allowlist') {
+    return config.skillSelection.names.includes('nano-proactive-care') || config.features?.proactive_planning === undefined;
+  }
   return true;
 }
 
@@ -53,7 +71,7 @@ export class ToolSelection {
     const allow = config.toolAllowlist;
     const inspectAllowed = allowsCordisInspect(config, agent);
     if (allow === undefined) return names.filter(name => cordisInspectSet.has(name) ? inspectAllowed : (agent && this.independentTool(agent, config, name) || !defaultOff.includes(name)));
-    const effectiveAllow = effectiveSelectedTools({ features: config.features, tool_allowlist: allow }, { tools: names });
+    const effectiveAllow = effectiveSelectedTools({ features: config.features, tool_allowlist: allow, work_mode: config.mode, personal_agent: config.personal }, { tools: names });
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
     const selected = new Set([...effectiveAllow, ...installed, ...contextTools]);
     return names.filter(name => cordisInspectSet.has(name) ? (inspectAllowed && selected.has(name)) : (selected.has(name) || agent && this.independentTool(agent, config, name)));
@@ -124,7 +142,11 @@ export async function skillCatalog(config: AgentConfiguration, cwd: string) {
   for (const provider of [...(providers.get(config) ?? [])].sort((a, b) => a.index - b.index)) {
     const result = await provider.native.list({ cwd });
     const candidates = (Array.isArray(result) ? result : result.candidates) as SkillCandidate[];
-    for (const skill of candidates) if (skill.name !== 'skill-creator' && !found.has(skill.name)) found.set(skill.name, { ...skill, rank: provider.index, source: provider.source });
+    for (const skill of candidates) {
+      if (skill.name === 'skill-creator') continue;
+      if (skill.name === 'nano-proactive-care' && (provider.source !== 'builtin' || config.mode !== 'global')) continue;
+      if (!found.has(skill.name)) found.set(skill.name, { ...skill, rank: provider.index, source: provider.source });
+    }
   }
   return [...found.values()];
 }
@@ -137,7 +159,7 @@ function skillGestures(inputs: { id: string; content: UserMessage['content'] }[]
   }));
 }
 /** Native file parsing and resource loading with one selected provider surface. */
-export function apply(ctx: Context, {config, isWorkWorker}: {config: AgentConfiguration; isWorkWorker: boolean}) {
+export function apply(ctx: Context, {config, isWorkWorker, isInternalChild = false}: {config: AgentConfiguration; isWorkWorker: boolean; isInternalChild?: boolean}) {
   const pending = new WeakMap<Agent, SkillGesture[]>();
   // Consume the complete host value once; later pruning may make its rendered JSON incomplete.
   ctx.on('tools/result', (exec, result) => {
@@ -177,6 +199,9 @@ export function apply(ctx: Context, {config, isWorkWorker}: {config: AgentConfig
   const allowed = (name: string, source: string) => {
     if (isWorkWorker && name === 'nano-memory') return false;
     if (name === 'skill-creator') return source === 'builtin';
+    if (name === 'nano-proactive-care') {
+      return source === 'builtin' && allowsProactiveCareSkill(config, isWorkWorker || isInternalChild);
+    }
     return config.skillSelection?.mode === 'explicit_denylist'
       ? !config.skillSelection.names.includes(name)
       : config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
@@ -196,7 +221,9 @@ export function apply(ctx: Context, {config, isWorkWorker}: {config: AgentConfig
           return { candidates: candidates.filter(candidate => allowed(candidate.name, root.source)).map(candidate => ({ ...candidate, rank: index, source: root.source })),
             complete: Array.isArray(found) || found.complete };
         },
-        async get(candidate, options) { return allowed(candidate.name, root.source) ? native.get(candidate, options) : undefined; },
+        async get(candidate, options) {
+          return allowed(candidate.name, root.source) ? native.get(candidate, options) : undefined;
+        },
       };
     });
     ctx.effect(() => async () => { await native.dispose(); });

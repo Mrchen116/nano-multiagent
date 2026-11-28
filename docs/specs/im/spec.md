@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-804
+> 对齐: feat-805
 >
 > 写法与归并规则见 [长青行为契约编写规范](../CONTRIBUTING.md)。
 
@@ -29,7 +29,7 @@
 | [Agent Work](agent-work.md) | 按团队公开/项目级/私有与主人权限控制的全局主工作轨迹、关联子执行、明细与持久回看、增量恢复、按 Agent 确认并刷新工作状态、只读原生轨迹及父子执行范围导航、独立 Dreaming 整理回执与历史复盘用途、卡片内关联入口、回复定位展开且保留完整列表、关联执行与轮次按需分页 | 20 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
-| [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与日常 Chrome 引导配对、首次助手引导与模型服务管理、Agent 配置与独立停用/重新启用、已停止 Agent 永久删除、创建工作模式与团队公开/项目级/私有权限档位、Feature依赖联动与轻提示、Dreaming 自动整理控制、能力选择、公开/项目级联系人发现与私有助手隐藏、停用摘要与管理入口、节点绑定、设备归属标注、Workflow tool pill、Goal 显式开启、workspace 插件管理及真实概览/关联会话、群成员执行节点身份 | 57 |
+| [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与日常 Chrome 引导配对、首次助手引导与模型服务管理、Agent 配置与独立停用/重新启用、已停止 Agent 永久删除、创建工作模式与团队公开/项目级/私有权限档位、Feature依赖联动与轻提示（含全局模式主动筹划开关）、Dreaming 自动整理控制、能力选择、公开/项目级联系人发现与私有助手隐藏、停用摘要与管理入口、节点绑定、设备归属标注、Workflow tool pill、Goal 显式开启、workspace 插件管理及真实概览/关联会话、群成员执行节点身份 | 57 |
 | [Gateway Relay](gateway-relay.md) | 消息中继与回执、更新切换时持久等待、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 15 |
 | [Task Graphs](task-graphs.md) | 会话归属与访问、行动焦点台与北极星全景图、渐进式单卡与多层细分、创建者与负责人、领取和明确删除、通知与聊天活卡片、依赖与衍生、九状态与可选定时/静默等待及原生统一编辑 | 20 |
 | [Personal Agent](personal-agent.md) | 固定主人、创建与配置团队公开/私有两档、双身份历史、消息协助与私有静默旁观、同主人助手内部转发、用户主身份代发与外部隔离边界、来源限制与对外披露边界、主动筹划开关、双端本人配置入口、按主人明确要求聊天创建独立 Agent；通用能力复用 Global | 8 |

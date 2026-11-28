@@ -1543,7 +1543,8 @@
     },
     "proactive_planning": {
       "label": "Proactive planning",
-      "help": "Quietly updates agreed task progress after conversations settle, then prepares substantive notes, morning brief handoffs, and Proposed cards after 03:00 Dreaming. Turning this off stops automatic quiet and nightly wakes while keeping manual task graphs and your explicit tasks and schedules active."
+      "help": "Quietly updates agreed task progress after conversations settle, then prepares substantive notes, morning brief handoffs, and Proposed cards after 03:00 Dreaming. Turning this off stops automatic quiet and nightly wakes while keeping manual task graphs and your explicit tasks and schedules active.",
+      "globalHelp": "Quietly updates agreed task progress in each originating conversation after activity settles, then reviews ROLE.md and active goals after 03:00 Dreaming to surface bounded Proposed cards on the originating group or 1-on-1 task board (silent by default with no morning greetings; working-hours nudges only for urgent prep or role-scoped risks). Turning this off stops automatic quiet and nightly wakes while keeping explicit tasks and schedules active."
     },
     "heartbeat": {
       "label": "Scheduled Check-in (Heartbeat)",

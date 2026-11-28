@@ -101,3 +101,31 @@ it('hides retired memory controls without changing stored legacy tool choices an
   expect(projected.features.find(feature=>feature.key==='plugin_management')).toMatchObject({default_on:true,available:true});
   expect(agent.toolAllowlist).toEqual(['memory','read']);
 });
+
+it('exposes proactive_planning and default_on nano-proactive-care for node and global catalogs while hiding both on single_thread', () => {
+  const node = {llm: {default_model: 'test', providers: []}} as unknown as NodeConfigurationFile;
+  const catalog = {
+    tools: ['task_graph', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'].map(name => ({name, description: name})),
+    skills: [{name: 'nano-proactive-care', description: 'Proactive care', source: 'builtin'}],
+  };
+
+  const nodeLevel = projectCapabilities(catalog, node);
+  expect(nodeLevel.features.find(f => f.key === 'proactive_planning')).toMatchObject({
+    modes: ['global'],
+    default_on: true,
+    available: true,
+  });
+  expect(nodeLevel.skills.find(s => s.name === 'nano-proactive-care')).toMatchObject({ default_on: true });
+
+  const globalLevel = projectCapabilities(catalog, node, {
+    agentId: 'g1', revision: '1', provider: 'test', model: 'test', mode: 'global',
+  });
+  expect(globalLevel.features.some(f => f.key === 'proactive_planning')).toBe(true);
+  expect(globalLevel.skills.find(s => s.name === 'nano-proactive-care')).toMatchObject({ default_on: true });
+
+  const singleThreadLevel = projectCapabilities(catalog, node, {
+    agentId: 's1', revision: '1', provider: 'test', model: 'test', mode: 'single_thread',
+  });
+  expect(singleThreadLevel.features.some(f => f.key === 'proactive_planning')).toBe(false);
+  expect(singleThreadLevel.skills.some(s => s.name === 'nano-proactive-care')).toBe(false);
+});

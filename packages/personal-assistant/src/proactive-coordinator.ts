@@ -93,28 +93,34 @@ export function nightlyCycleSlotKey(ms: number, timeZone: string, anchorHour = P
   return shifted.toISOString().slice(0, 10);
 }
 
-/** Render the hidden post-quiet lightweight accounting prompt appended to the PA root session. */
-export function renderProactiveReviewWake(input: { localTime: string; quietMinutes: number; quietHours: boolean }): string {
+/** Render the hidden post-quiet lightweight accounting prompt appended to a Global root session. */
+export function renderProactiveReviewWake(input: { localTime: string; quietMinutes: number; quietHours: boolean; personal?: boolean }): string {
+  const personal = input.personal ?? true;
   return [
     `<proactive-review-wake local_time="${input.localTime}" quiet_minutes="${input.quietMinutes}" quiet_hours="${input.quietHours}">`,
-    'guidance: Conversation has been quiet (lightweight accounting pass). Honor MEMORY.md "## 主动性与介入偏好" ("免打扰禁区" / No-Intrusion Boundaries receive zero task bookkeeping, and any custom quiet-hours rule in "触达时机与汇总方式" / Timing & Delivery Cadence overrides the default quiet_hours flag); never read knowledge/proactivity-signals.md. Only update already-explicit commitments, progress transitions, or item-specific native schedules in your private task_graph and schedule tools; do not brainstorm speculative proposals or rearrange tomorrow morning briefings in this pass. If outside effective quiet hours and you find an urgent conflict due within roughly one hour, you may send one brief heads-up; otherwise do NOT call send_message and end this turn silently.',
+    personal
+      ? 'guidance: Conversation has been quiet (lightweight accounting pass). Honor MEMORY.md "## 主动性与介入偏好" ("免打扰禁区" / No-Intrusion Boundaries receive zero task bookkeeping, and any custom quiet-hours rule in "触达时机与汇总方式" / Timing & Delivery Cadence overrides the default quiet_hours flag); never read knowledge/proactivity-signals.md. Only update already-explicit commitments, progress transitions, or item-specific native schedules in your private task_graph and schedule tools; do not brainstorm speculative proposals or rearrange tomorrow morning briefings in this pass. If outside effective quiet hours and you find an urgent conflict due within roughly one hour, you may send one brief heads-up; otherwise do NOT call send_message and end this turn silently.'
+      : 'guidance: Conversation activity has settled (lightweight accounting pass). Honor ROLE.md and MEMORY.md "## 主动性与介入偏好" (enforce zero bookkeeping on "免打扰禁区" / collaborator-scoped opt-outs, and honor any custom quiet-hours rule in "触达时机与汇总方式"); never read knowledge/proactivity-signals.md. Only update already-explicit task progress, deadlines, or item-specific native schedules in each matter\'s originating conversation task_graph and schedule tools—never move private DM matters into group boards or vice versa, and do not brainstorm speculative proposals in this pass. If outside effective quiet hours and you spot an urgent role-scoped conflict due within roughly one hour, you may send one concise heads-up to that originating conversation/thread; otherwise do NOT call send_message and end this turn silently.',
     '</proactive-review-wake>',
   ].join('\n');
 }
 
-/** Render the hidden nightly deep-planning prompt appended to the PA root session after Dreaming. */
-export function renderProactiveNightlyWake(input: { localTime: string; quietMinutes: number; quietHours: boolean }): string {
+/** Render the hidden nightly deep-planning prompt appended to a Global root session after Dreaming. */
+export function renderProactiveNightlyWake(input: { localTime: string; quietMinutes: number; quietHours: boolean; personal?: boolean }): string {
+  const personal = input.personal ?? true;
   return [
     `<proactive-nightly-wake local_time="${input.localTime}" quiet_minutes="${input.quietMinutes}" quiet_hours="${input.quietHours}">`,
-    'guidance: Nightly deep planning pass (once per night while the owner is resting). 1) Strictly honor all four calibration buckets in "## 主动性与介入偏好" (or "## Proactive & Intervention Preferences") of the latest MEMORY.md alongside ROLE.md—follow through and prepare ahead on "积极盯紧与提前备料", keep "低打扰挂卡与静默跟进" as silent candidate cards without chat interruptions, enforce zero task cards and zero nudges on "免打扰禁区", and match morning timing/granularity in "触达时机与汇总方式" (never read knowledge/proactivity-signals.md); 2) Review today\'s new conversations (including evening reflections and late-night supplements) and active goal graphs, perform read-only verification anchored to each root goal\'s objective, prepare substantive candidate points for tomorrow\'s active goals (write longer drafts to workspace files if helpful), and close resolved or stale proposed cards first. Remember that status="proposed" is a non-intrusive candidate offer (Approve or Stash to backlog), NOT an active todo commitment: whenever today\'s conversation included an undecided project/product spark outside non-proposal boundaries or an active goal where you can execute a concrete helper deliverable on approval (even if the main milestone belongs to the owner), create 1-3 high-signal status="proposed" cards in the owner\'s private conversation (assigning yourself when you will execute it, with one cohesive description stating why it matters and what concrete step will run upon approval); if today had only casual small talk or routine greetings with no new project spark or actionable goal frontier, create 0 proposed cards; 3) Inspect schedule_list: if the owner already has a recurring morning schedule, do NOT create another morning alarm—save the prepared summary/file paths and TaskCardRefs ({graph_id, node_id}, including any newly created proposed cards) in notes under [Pending Morning Brief] so tomorrow morning\'s scheduled turn delivers them together in one message and clears the pending handoff; if no morning schedule exists, create a one-shot morning schedule (e.g. 09:00 local time, or the owner\'s preferred morning time in MEMORY.md) ONLY when tonight produced substantive new preparation or new proposed cards (zero new value = zero alarm). Quiet hours are active: do NOT call send_message; finish this turn silently.',
+    personal
+      ? 'guidance: Nightly deep planning pass (once per night while the owner is resting). 1) Strictly honor all four calibration buckets in "## 主动性与介入偏好" (or "## Proactive & Intervention Preferences") of the latest MEMORY.md alongside ROLE.md—follow through and prepare ahead on "积极盯紧与提前备料", keep "低打扰挂卡与静默跟进" as silent candidate cards without chat interruptions, enforce zero task cards and zero nudges on "免打扰禁区", and match morning timing/granularity in "触达时机与汇总方式" (never read knowledge/proactivity-signals.md); 2) Review today\'s new conversations (including evening reflections and late-night supplements) and active goal graphs, perform read-only verification anchored to each root goal\'s objective, prepare substantive candidate points for tomorrow\'s active goals (write longer drafts to workspace files if helpful), and close resolved or stale proposed cards first. Remember that status="proposed" is a non-intrusive candidate offer (Approve or Stash to backlog), NOT an active todo commitment: whenever today\'s conversation included an undecided project/product spark outside non-proposal boundaries or an active goal where you can execute a concrete helper deliverable on approval (even if the main milestone belongs to the owner), create 1-3 high-signal status="proposed" cards in the owner\'s private conversation (assigning yourself when you will execute it, with one cohesive description stating why it matters and what concrete step will run upon approval); if today had only casual small talk or routine greetings with no new project spark or actionable goal frontier, create 0 proposed cards; 3) Inspect schedule_list: if the owner already has a recurring morning schedule, do NOT create another morning alarm—save the prepared summary/file paths and TaskCardRefs ({graph_id, node_id}, including any newly created proposed cards) in notes under [Pending Morning Brief] so tomorrow morning\'s scheduled turn delivers them together in one message and clears the pending handoff; if no morning schedule exists, create a one-shot morning schedule (e.g. 09:00 local time, or the owner\'s preferred morning time in MEMORY.md) ONLY when tonight produced substantive new preparation or new proposed cards (zero new value = zero alarm). Quiet hours are active: do NOT call send_message; finish this turn silently.'
+      : 'guidance: Nightly role-driven planning pass (once per night during quiet hours). 1) Honor ROLE.md and all four calibration buckets in "## 主动性与介入偏好" (or "## Proactive & Intervention Preferences") of the latest MEMORY.md—respecting both role-wide standing rules and collaborator/conversation-scoped boundaries, following relative links to entities/ or projects/ when preparing for that collaborator or project, and never reading knowledge/proactivity-signals.md; 2) Review today\'s new conversations across joined groups/threads and 1-on-1 DMs alongside active goal graphs, perform read-only verification within your standing authority (writing longer drafts or reports to workspace files if helpful), close resolved or stale proposed cards first, and create at most 1-3 high-signal status="proposed" candidate cards strictly in each matter\'s originating conversation_id (group goal -> that group/goal graph with proposed_for_user_id set to the goal/module owner u_xxxxxx; 1-on-1 DM -> that exact DM without leaking to groups; net-new ROLE.md duty with no prior chat -> its target business group, or your bound administrator\'s DM only if unassociated with any group; casual chat with no role gap -> 0 cards); 3) Low-noise team delivery: inspect schedule_list—if a target conversation already has a recurring report/check-in schedule, save prepared points/file paths and TaskCardRefs ({graph_id, node_id}) in notes under [Pending Proactive Handoff: <target>] instead of adding another schedule; otherwise leave routine proposed cards silent on the task board (0 morning greetings) and create a one-shot working-hours schedule to the originating conversation/thread ONLY for urgent substantive preparation needed tomorrow or a time-sensitive risk/blocker within your role. Quiet hours are active: do NOT call send_message; finish this turn silently.',
     '</proactive-nightly-wake>',
   ].join('\n');
 }
 
 /** Check whether proactive_planning is effectively enabled for one Agent configuration. */
 export function isProactivePlanningEnabled(config: AgentConfiguration): boolean {
-  if (!config.personal) return false;
-  const effective = effectiveFeatures(config.features, definitionsForRole(true), {
+  if (config.mode !== 'global') return false;
+  const effective = effectiveFeatures(config.features, definitionsForRole(Boolean(config.personal), undefined, 'global'), {
     tool_allowlist: config.toolAllowlist,
   });
   return effective.proactive_planning === true && effective.task_graph !== false
@@ -201,18 +207,18 @@ export class ProactiveCoordinator {
     if (this.held.get(agentId) === operationId) this.held.delete(agentId);
   }
 
-  /** Record human owner DM or admitted owner-relevant group observation without self-excitation. */
+  /** Record human DM, group participation, or admitted owner-relevant observation without self-excitation. */
   recordActivity(agentId: string, atMs = this.now()): void {
     const config = this.options.agents.find(item => item.agentId === agentId);
-    if (!config?.personal) return;
+    if (config?.mode !== 'global') return;
     this.options.store.recordProactiveActivity(agentId, atMs);
   }
 
-  /** Evaluate watermarks across personal Agents at nowMs, preserving watermarks when busy. */
+  /** Evaluate watermarks across Global-mode Agents at nowMs, preserving watermarks when busy. */
   async tick(nowMs = this.now()): Promise<void> {
     if (this.stopping) return;
-    const personalAgents = this.options.agents.filter(agent => agent.personal);
-    await Promise.all(personalAgents.map(config => this.tickAgent(config, nowMs)));
+    const globalAgents = this.options.agents.filter(agent => agent.mode === 'global');
+    await Promise.all(globalAgents.map(config => this.tickAgent(config, nowMs)));
   }
 
   private tickAgent(config: AgentConfiguration, nowMs: number): Promise<void> {
@@ -238,7 +244,7 @@ export class ProactiveCoordinator {
         await this.submitWake(config, {
           channel: 'proactive_nightly',
           inputId: `proactive-nightly:${config.agentId}:${cycleKey}:${state.lastActivitySeq}`,
-          text: renderProactiveNightlyWake({ localTime, quietMinutes, quietHours: true }),
+          text: renderProactiveNightlyWake({ localTime, quietMinutes, quietHours: true, personal: Boolean(config.personal) }),
           onAccepted: () => this.options.store.advanceProactiveNightly(config.agentId, state.lastActivitySeq, cycleKey),
         });
         return;
@@ -248,7 +254,7 @@ export class ProactiveCoordinator {
         await this.submitWake(config, {
           channel: 'proactive_review',
           inputId: `proactive-review:${config.agentId}:${state.lastActivitySeq}`,
-          text: renderProactiveReviewWake({ localTime, quietMinutes, quietHours }),
+          text: renderProactiveReviewWake({ localTime, quietMinutes, quietHours, personal: Boolean(config.personal) }),
           onAccepted: () => this.options.store.advanceProactiveReviewed(config.agentId, state.lastActivitySeq),
         });
       }
@@ -288,17 +294,17 @@ export class ProactiveCoordinator {
     }
   }
 
-  /** Synchronize personal observations into the local Inbox before a scheduled PA step runs. */
+  /** Synchronize unread observations into the local Inbox before a scheduled Global step runs. */
   async syncObservations(input: ProactiveSyncObservationsInput): Promise<ProactiveSyncObservationsResult> {
     const binding = this.options.store.bindingForSession(input.sessionId);
-    const config = this.options.agents.find(item => item.agentId === input.agentId && item.personal);
+    const config = this.options.agents.find(item => item.agentId === input.agentId && item.mode === 'global');
     if (!binding || !config || binding.agentId !== input.agentId || binding.ownerId !== input.ownerId || input.ownerId !== this.options.ownerId) {
       return { synced_count: 0, unread_conversations: [] };
     }
     const before = this.options.inbox.unreadEntryCount(config.agentId);
     await this.options.syncObservations(config, binding);
     const after = this.options.inbox.unreadEntryCount(config.agentId);
-    const checked = this.options.inbox.check(config.agentId, true, this.effectiveTimeZone());
+    const checked = this.options.inbox.check(config.agentId, Boolean(config.personal), this.effectiveTimeZone());
     const unread_conversations = checked.sources.map(source => ({
       conversation_id: String(this.options.store.toolReferences.targetRef(config.agentId, source.target)),
       title: source.name,

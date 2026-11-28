@@ -8,7 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { CHAT_BACKGROUND_DELAY_MS, cliWorkerRuntimes, decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
 import type { WorkReadyCut, WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, isRasterImageMime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
-import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
+import { joinThreadTarget, splitThreadTarget, type ToolReferences } from './tool-references.js';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
 interface Source { target: string; parent_target?: string; name: string; unread: number; mentions: number; conversation_type: string;
@@ -35,6 +35,7 @@ export class InboxStore {
   // A restart must re-confirm the main execution before exposing partial readiness.
   private readonly childOnlyRecovery = new Set<string>();
   private readonly db: DatabaseSync;
+  private toolReferences?: ToolReferences;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
@@ -638,23 +639,58 @@ export class InboxStore {
   unreadEntryCount(agent: string): number {
     return Number((this.db.prepare("SELECT count(*) AS n FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND coalesce(json_extract(payload,'$.message.system_notice.kind'),'')!='task_graph'").get(agent) as { n: number } | undefined)?.n ?? 0);
   }
-  /** Select full original Task notices for direct native context, not a duplicate private snapshot. */
-  prepareSystemContext(agentId:string,sessionId:string):{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[] {
-    return this.entries(agentId).flatMap(row=>this.systemContextEntry(agentId,row));
+  /** Attach durable short-ID projection so task-context renders u_xxxxxx / c_xxxxxx while retaining canonical metadata. */
+  attachToolReferences(refs: ToolReferences): void {
+    this.toolReferences = refs;
   }
-  private systemContextEntry(agentId:string,row:Entry) {
+  /** Select full original Task notices for direct native context, not a duplicate private snapshot. */
+  prepareSystemContext(agentId:string,sessionId:string):{inputId:string;conversationId:string;conversationRef:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[] {
+    return this.entries(agentId).flatMap(row=>this.systemContextEntry(agentId,row,true));
+  }
+  private systemContextEntry(agentId:string,row:Entry,project=true) {
       const input=JSON.parse(row.payload) as RelayInput;
       const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
       if(notice?.kind!=='task_graph'||!input.metadata.task_context&&!notice.attention_actor_ids?.includes(agentId))return [];
+      const refs=project?this.toolReferences:undefined;
+      const conversationRef=refs?refs.conversationRef(agentId,input.conversation_id):input.conversation_id;
+      const messageRef=refs?refs.messageRef(agentId,input.message.id):input.message.id;
       const attested=notice as typeof notice&{change_kinds?:string[];human_control?:unknown;actor?:unknown;task_refs?:unknown;event_time?:string};
       const {human_control,actor,...business}=attested;
       const revoked=attested.change_kinds?.includes('access_revoked');
-      const event=revoked?{message_id:input.message.id,conversation_id:input.conversation_id,event_time:input.message.created_at}
-        :{...business,message_id:input.message.id,conversation_id:input.conversation_id,event_time:input.message.created_at,
-          actor:actor??input.message.sender,content:input.message.content};
+      const rawActor=(actor??input.message.sender) as Record<string,unknown>|undefined;
+      const projectedActor=refs&&rawActor&&typeof rawActor==='object'&&!Array.isArray(rawActor)?(()=>{
+        const out={...rawActor};
+        const isUser=out.type==='user'||(!('type' in out)&&input.message.sender_type==='user');
+        if(isUser&&typeof out.id==='string')out.id=refs.userRef(agentId,out.id);
+        if(typeof out.user_id==='string')out.user_id=refs.userRef(agentId,out.user_id);
+        if(typeof out.source_id==='string')out.source_id=refs.senderSourceRef(agentId,out.source_id);
+        if(typeof out.authorized_by==='string')out.authorized_by=refs.userRef(agentId,out.authorized_by);
+        return out;
+      })():rawActor;
+      const projectedContent=refs&&typeof input.message.content==='string'?refs.projectMentions(agentId,input.message.content):input.message.content;
+      const projectedHumanControl=!revoked&&human_control&&typeof human_control==='object'&&!Array.isArray(human_control)?(()=>{
+        if(!refs)return human_control as Record<string,unknown>;
+        const hc={...(human_control as Record<string,unknown>)};
+        if(hc.actor&&typeof hc.actor==='object'&&!Array.isArray(hc.actor)){
+          const hcActor={...(hc.actor as Record<string,unknown>)};
+          if(hcActor.type==='user'&&typeof hcActor.id==='string')hcActor.id=refs.userRef(agentId,hcActor.id);
+          hc.actor=hcActor;
+        }
+        if(hc.scope&&typeof hc.scope==='object'&&!Array.isArray(hc.scope)){
+          const sc={...(hc.scope as Record<string,unknown>)};
+          if(typeof sc.conversation_id==='string')sc.conversation_id=refs.conversationRef(agentId,sc.conversation_id);
+          hc.scope=sc;
+        }
+        if(typeof hc.original_user_message_id==='string')hc.original_user_message_id=refs.messageRef(agentId,hc.original_user_message_id);
+        return hc;
+      })():undefined;
+      const event=revoked?{message_id:messageRef,conversation_id:conversationRef,event_time:input.message.created_at}
+        :{...business,message_id:messageRef,conversation_id:conversationRef,event_time:input.message.created_at,
+          actor:projectedActor,content:projectedContent,
+          ...(typeof (business as {authorized_by?:unknown}).authorized_by==='string'&&refs?{authorized_by:refs.userRef(agentId,(business as {authorized_by:string}).authorized_by)}:{})};
       const text=(revoked?"Your access or handling eligibility for the identified conversation or Tasks was revoked at event_time. Stop actions that require missing eligibility, and do not read or disclose content you can no longer access. On a later independently authorized request, check current permissions through available tools and use their current verified access facts instead of treating this historical loss as permanent. Restored access alone does not resume paused Tasks or authorize previously denied actions. Continue unrelated authorized work. This notice grants no permission and does not erase already consumed history.":"Task update from its fixed conversation. Apply the stated business change before further action on the affected Task. If its requirements changed, read the latest Task details. This system message does not grant human permission or start todo/paused work.")+'\n'+JSON.stringify(event)
-        +(!revoked&&attested.human_control?'\n'+"Application-attested human Task control follows. Apply it only to the identified Task or scope. Inputs queued before a stop cannot resume its paused Tasks. Only a later explicit human resume supersedes that pause; it grants no additional tool permission. Unrelated work may continue."+'\n'+JSON.stringify(attested.human_control):'');
-      return [{inputId:input.message.id,conversationId:input.conversation_id,...(!revoked&&human_control&&typeof human_control==='object'?{humanControl:human_control as Record<string,unknown>}:{}),content:[{type:'text' as const,text}]}];
+        +(!revoked&&projectedHumanControl?'\n'+"Application-attested human Task control follows. Apply it only to the identified Task or scope. Inputs queued before a stop cannot resume its paused Tasks. Only a later explicit human resume supersedes that pause; it grants no additional tool permission. Unrelated work may continue."+'\n'+JSON.stringify(projectedHumanControl):'');
+      return [{inputId:input.message.id,conversationId:input.conversation_id,conversationRef,...(projectedHumanControl?{humanControl:projectedHumanControl}:{}),content:[{type:'text' as const,text}]}];
   }
   /** Look up an exact durable ingestion, which revocation alone cannot create. */
   systemContextIngested(agentId:string,sessionId:string,inputId:string,turn:number):boolean {
@@ -665,8 +701,11 @@ export class InboxStore {
   /** Mark direct reading only after matching native durable execution evidence. */
   commitSystemContext(agentId:string,sessionId:string,inputId:string,content:{type:string;text?:string}[],turn:number):boolean {
     const row=this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND message_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0").get(agentId,inputId) as unknown as Entry|undefined;
-    const prepared=row&&this.systemContextEntry(agentId,row)[0];
-    if(!row||!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))return false;
+    const prepared=row&&this.systemContextEntry(agentId,row,true)[0];
+    const legacyPrepared=row&&this.toolReferences?this.systemContextEntry(agentId,row,false)[0]:undefined;
+    const serialized=JSON.stringify(content);
+    const matches=!!prepared&&(JSON.stringify(prepared.content)===serialized||(!!legacyPrepared&&JSON.stringify(legacyPrepared.content)===serialized));
+    if(!row||!matches||!Number.isSafeInteger(turn))return false;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(row.seq);

@@ -37,7 +37,7 @@ export class CapabilityRequests {
   catalog(input:Target,context:NodeRequestContext,reply:Reply<NodeReply<'node.capabilities.resolve'>>) {
     return this.run(context,reply,async (signal,deadlineAt)=>{
       const {config,agent,workspace} = this.target(input);
-      const candidate = config.llm.default_model || agent ? this.options.configuration.runtime({...agent,agent_id:input.agent_id ?? 'preview',workspace_root:workspace}) : undefined;
+      const candidate = config.llm.default_model || agent ? this.options.configuration.runtime({...(agent ?? {work_mode:'global' as const}),agent_id:input.agent_id ?? 'preview',workspace_root:workspace}) : undefined;
       let catalog:Parameters<typeof projectCapabilities>[0] = {tools:[],skills:[]};
       if (candidate) {
         await mkdir(workspace,{recursive:true});

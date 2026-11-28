@@ -7,6 +7,7 @@ import type { DocumentReceipt } from './memory-documents.js';
 export interface DreamingPendingTaskContext {
   messageId: string;
   conversationId: string;
+  conversationRef?: string;
   timeMs: number;
   text: string;
 }

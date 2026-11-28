@@ -78,7 +78,7 @@ const methods = {
   }))),
   'schedule.wait.inspect': rpc(input({...session, ...agent, scheduleId: id}), wait),
   'task.context.passive': rpc(input({...session, ...agent, messages: z.array(z.object({
-    inputId: id, conversationId: id, humanControl: dataObject.optional(), content,
+    inputId: id, conversationId: id, conversationRef: id.optional(), humanControl: dataObject.optional(), content,
   })), revoked: ids}), durable),
   'task.execution.block': rpc(input({...session, blocked: bool}), ok),
   'task.execution.changed': rpc(input({...agent, reset: bool.optional()}), ok),

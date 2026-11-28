@@ -108,6 +108,8 @@ export interface ModelOption {
 // Dependencies describe required resources independently of the current selection.
 export interface AgentFeature {
   key: string;
+  roles?: ("root" | "personal")[];
+  modes?: ("global" | "single_thread")[];
   label_i18n: string;
   help_i18n: string;
   default_on: boolean;

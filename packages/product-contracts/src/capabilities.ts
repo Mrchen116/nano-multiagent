@@ -2,6 +2,7 @@
 export interface FeatureDependency {
   key: string;
   roles?: ('root' | 'personal')[];
+  modes?: ('global' | 'single_thread')[];
   default_on: boolean;
   requires: {features: string[]; tools: string[]; skills: string[]};
 }
@@ -47,18 +48,30 @@ export const featureDependencies: FeatureDependency[] = [
   {key: 'intelligent_ui', default_on: true, requires: {features: [], tools: ['send_message', 'skill'], skills: ['nano-interactive-ui']}},
   {key: 'plugin_management', default_on: true, requires: {features: [], tools: ['plugin_manager', ...pluginInspectTools], skills: ['nano-plugin-development']}},
   {key: 'task_graph', default_on: true, requires: {features: ['cron_scheduling'], tools: ['task_graph'], skills: []}},
-  {key: 'proactive_planning', roles: ['personal'], default_on: true, requires: {features: ['task_graph'], tools: ['task_graph'], skills: []}},
+  {key: 'proactive_planning', modes: ['global'], default_on: true, requires: {features: ['task_graph'], tools: ['task_graph'], skills: []}},
   {key: 'dreaming', default_on: true, requires: {features: [], tools: [], skills: []}},
   {key: 'cron_scheduling', default_on: false, requires: {features: [], tools: ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'], skills: []}},
   {key: 'heartbeat', default_on: false, requires: {features: [], tools: ['read'], skills: []}},
 ];
 
-/** Select Feature declarations applicable to an Agent's runtime role. */
-export function definitionsForRole(isPersonal = false, definitions = featureDependencies): FeatureDependency[] {
+function draftWorkMode(draft: Pick<CapabilityDraft, 'work_mode' | 'personal_agent'>): 'global' | 'single_thread' {
+  if (draft.personal_agent) return 'global';
+  return draft.work_mode === 'global' ? 'global' : 'single_thread';
+}
+
+/** Select Feature declarations applicable to an Agent's runtime role and work mode. */
+export function definitionsForRole(
+  isPersonal = false,
+  definitions = featureDependencies,
+  workMode: 'global' | 'single_thread' = 'global',
+): FeatureDependency[] {
   const role = isPersonal ? 'personal' : 'root';
+  const effectiveMode = isPersonal ? 'global' : workMode;
   return definitions.filter(feature => {
-    const roles = feature.roles ?? featureDependencies.find(item => item.key === feature.key)?.roles;
-    return !roles || roles.includes(role);
+    const canonical = featureDependencies.find(item => item.key === feature.key);
+    const roles = feature.roles ?? canonical?.roles;
+    const modes = feature.modes ?? canonical?.modes;
+    return (!roles || roles.includes(role)) && (!modes || modes.includes(effectiveMode));
   });
 }
 
@@ -120,7 +133,7 @@ export function skillSelected(draft: CapabilityDraft, name: string): boolean {
 /** Resolve effective Feature flags, preserving pre-feat-791 plugin_manager restrictions without disk migration. */
 export function effectiveCapabilityFeatures(
   draft: CapabilityDraft,
-  definitions = definitionsForRole(Boolean(draft.personal_agent)),
+  definitions = definitionsForRole(Boolean(draft.personal_agent), featureDependencies, draftWorkMode(draft)),
   catalog: CapabilityCatalog = {},
 ): Record<string, boolean> {
   const result = effectiveFeatures(draft.features, definitions, draft);
@@ -137,7 +150,7 @@ export function effectiveCapabilityFeatures(
 
 /** Expand implicit companion inspect tools only for pre-feat-791 configs that allowed plugin_manager. */
 export function effectiveSelectedTools(draft: CapabilityDraft, catalog: CapabilityCatalog = {}): string[] {
-  const definitions = definitionsForRole(Boolean(draft.personal_agent), catalog.features ?? featureDependencies);
+  const definitions = definitionsForRole(Boolean(draft.personal_agent), catalog.features ?? featureDependencies, draftWorkMode(draft));
   const base = draft.tool_allowlist ?? catalog.tools ?? definitions.flatMap(feature => feature.requires.tools);
   if (draft.features?.plugin_management === undefined && (draft.tool_allowlist === undefined || base.includes('plugin_manager'))) {
     const availableInspect = pluginInspectTools.filter(name => catalog.tools?.includes(name) ?? true);
@@ -166,7 +179,7 @@ function owners(features: Record<string, boolean>, target: CapabilityTarget, def
   return definitions.filter(feature => features[feature.key] && feature.requires[requiredKey[target.kind]].includes(target.name)).map(feature => feature.key);
 }
 function catalogFeatures(draft: CapabilityDraft, catalog: CapabilityCatalog): FeatureDependency[] {
-  return definitionsForRole(Boolean(draft.personal_agent), catalog.features ?? featureDependencies);
+  return definitionsForRole(Boolean(draft.personal_agent), catalog.features ?? featureDependencies, draftWorkMode(draft));
 }
 function selected(draft: CapabilityDraft, target: CapabilityTarget, catalog: CapabilityCatalog): boolean {
   const definitions = catalogFeatures(draft, catalog);
@@ -187,8 +200,15 @@ function setSkill(draft: CapabilityDraft, name: string, enabled: boolean): void 
 /** Validate a final snapshot; API validation never infers omitted click actions. */
 export function validateCapabilities(draft: CapabilityDraft, catalog: CapabilityCatalog = {}): CapabilityBlock[] {
   const definitions = catalogFeatures(draft, catalog);
+  const roleAllowed = definitionsForRole(Boolean(draft.personal_agent), featureDependencies, draftWorkMode(draft));
   const features = effectiveCapabilityFeatures(draft, definitions, catalog);
   const blocks: CapabilityBlock[] = [];
+  for (const [key, enabled] of Object.entries(draft.features ?? {})) {
+    if (!enabled) continue;
+    if (featureDependencies.some(item => item.key === key) && !roleAllowed.some(item => item.key === key)) {
+      blocks.push({code: 'capability_unavailable', target: {kind: 'feature', name: key}});
+    }
+  }
   const add = (code: CapabilityBlock['code'], target: CapabilityTarget, owner: string) => {
     const existing = blocks.find(block => block.code === code && block.target.kind === target.kind && block.target.name === target.name);
     if (existing) existing.required_by!.push(owner); else blocks.push({code, target, required_by: [owner]});

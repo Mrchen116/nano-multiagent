@@ -158,6 +158,127 @@ it.each(['conversations', 'read_messages', 'search_messages', 'threads', 'task_g
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
 
+it('maps task_graph short user references bidirectionally and projects task-context actors and conversations without altering canonical dedup keys', () => {
+  const store = new NodeStore(':memory:', 'owner');
+  const inbox = new InboxStore(':memory:');
+  try {
+    const refs = store.toolReferences;
+    const aliceUuid = '00000000-0000-4000-8000-000000000011';
+    const bobUuid = '00000000-0000-4000-8000-000000000022';
+    const convRaw = 'conv-release-group-000000000000001';
+    const msgRaw = '00000000-0000-4000-8000-0000000000aa';
+
+    const aliceShort = refs.userRef('q', aliceUuid);
+    const bobShort = refs.userRef('q', bobUuid);
+    const convShort = refs.conversationRef('q', convRaw);
+    expect(aliceShort).toMatch(/^u_[a-f0-9]{6}$/);
+    expect(bobShort).toMatch(/^u_[a-f0-9]{6}$/);
+    expect(convShort).toMatch(/^c_[a-f0-9]{6}$/);
+
+    // 1) Outbound task_graph arguments: top-level + operations[] (including optional user: prefix, preserving agent assignees)
+    const mappedArgs = refs.arguments('q', 'task_graph', {
+      action: 'create',
+      target: convShort,
+      conversation_id: convShort,
+      proposed_for_user_id: aliceShort,
+      assignee: { type: 'user', id: `user:${bobShort}` },
+      wait: { asked_user_id: aliceShort, question: 'Approve?' },
+      operations: [
+        { op: 'add_task', container_id: 'n1', title: 'Subtask', proposed_for_user_id: `user:${bobShort}`, assignee: { type: 'agent', id: 'q' } },
+        { op: 'update_task', node_id: 'n2', patch: { proposed_for_user_id: aliceShort, wait: { asked_user_id: bobShort } } },
+        { op: 'approve_task', node_id: 'n2', assignee_type: 'user', assignee_id: bobShort },
+        { op: 'set_assignee', node_id: 'n3', assignee: { type: 'user', id: aliceShort } },
+      ],
+    }) as any;
+
+    expect(mappedArgs.conversation_id).toBe(convRaw);
+    expect(mappedArgs.proposed_for_user_id).toBe(aliceUuid);
+    expect(mappedArgs.assignee).toEqual({ type: 'user', id: bobUuid });
+    expect(mappedArgs.wait.asked_user_id).toBe(aliceUuid);
+    expect(mappedArgs.operations[0].proposed_for_user_id).toBe(bobUuid);
+    expect(mappedArgs.operations[0].assignee).toEqual({ type: 'agent', id: 'q' });
+    expect(mappedArgs.operations[1].patch.proposed_for_user_id).toBe(aliceUuid);
+    expect(mappedArgs.operations[1].patch.wait.asked_user_id).toBe(bobUuid);
+    expect(mappedArgs.operations[2].assignee_id).toBe(bobUuid);
+    expect(mappedArgs.operations[3].assignee).toEqual({ type: 'user', id: aliceUuid });
+
+    // 2) Inbound task_graph result: recursively projects user and conversation IDs across nodes and focus sections
+    const projectedResult = refs.result('q', 'task_graph', {
+      graph_id: 'tg_1',
+      conversation_id: convRaw,
+      nodes: [{
+        node_id: 'n1',
+        conversation_id: convRaw,
+        proposed_for_user_id: aliceUuid,
+        created_by: { type: 'user', id: aliceUuid },
+        updated_by_actor: { type: 'agent', id: 'q' },
+        assignee: { type: 'user', id: bobUuid },
+        wait: { asked_user_id: aliceUuid },
+        resume_request: { actor_id: bobUuid },
+        doing_wake: { actor: { type: 'user', id: aliceUuid } },
+      }],
+      needs_you: [{ graph_id: 'tg_1', node_id: 'n1', conversation_id: convRaw, proposed_for_user_id: aliceUuid }],
+    }) as any;
+
+    expect(projectedResult.conversation_id).toBe(convShort);
+    expect(projectedResult.nodes[0]).toMatchObject({
+      conversation_id: convShort,
+      proposed_for_user_id: aliceShort,
+      created_by: { type: 'user', id: aliceShort },
+      updated_by_actor: { type: 'agent', id: 'q' },
+      assignee: { type: 'user', id: bobShort },
+      wait: { asked_user_id: aliceShort },
+      resume_request: { actor_id: bobShort },
+      doing_wake: { actor: { type: 'user', id: aliceShort } },
+    });
+    expect(projectedResult.needs_you[0]).toMatchObject({ conversation_id: convShort, proposed_for_user_id: aliceShort });
+
+    // 3) InboxStore systemContextEntry: projects model-visible JSON while preserving raw inputId/conversationId and legacy commit compatibility
+    const noticeInput: RelayInput = {
+      agent_id: 'q',
+      conversation_id: convRaw,
+      relay_task_id: 'sys-1',
+      idempotency_key: 'sys-1',
+      metadata: { conversation_type: 'group', task_context: true },
+      message: {
+        id: msgRaw,
+        content: `Rejected by <mention type="user" target_id="${bobUuid}">@Bob</mention>`,
+        sender_type: 'system',
+        created_at: '2027-03-15T12:00:00Z',
+        attachments: [],
+        system_notice: {
+          kind: 'task_graph',
+          conversation_id: convRaw,
+          previous_status: 'proposed',
+          status: 'closed',
+          actor: { type: 'user', id: bobUuid },
+          human_control: { action: 'pause', actor: { type: 'user', id: aliceUuid }, scope: { agent_id: 'q', conversation_id: convRaw } },
+        },
+      },
+    };
+    inbox.receive(noticeInput, true);
+    const unprojectedContent = inbox.prepareSystemContext('q', 'q-root')[0]!.content;
+
+    inbox.attachToolReferences(refs);
+    const projectedEntry = inbox.prepareSystemContext('q', 'q-root')[0]!;
+    expect(projectedEntry.inputId).toBe(msgRaw);
+    expect(projectedEntry.conversationId).toBe(convRaw);
+    expect(projectedEntry.conversationRef).toBe(convShort);
+    const text = projectedEntry.content[0]!.text;
+    expect(text).toContain(convShort);
+    expect(text).toContain(bobShort);
+    expect(text).toContain(aliceShort);
+    expect(text).not.toContain(bobUuid);
+    expect(text).not.toContain(aliceUuid);
+    expect(text).not.toContain(convRaw);
+
+    expect(inbox.commitSystemContext('q', 'q-root', msgRaw, unprojectedContent, 1)).toBe(true);
+  } finally {
+    inbox.close();
+    store.close();
+  }
+});
+
 it('strips visual avatar_version metadata across all projected tool methods without altering user text', () => {
   const store = new NodeStore(':memory:', 'owner');
   try {

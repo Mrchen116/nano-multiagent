@@ -24,7 +24,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
     assignee,
     proposed_for_user_id: {
       type: ['string', 'null'],
-      description: 'Optional human user ID in shared group chats when status="proposed" targets a specific member to decide; omit in private PA chats.',
+      description: 'Optional human user ID (short u_xxxxxx reference) in shared group chats when status="proposed" targets a specific member to decide; omit in private PA chats or 1-on-1 human-Agent DMs where it automatically routes to the human peer.',
     },
     wait: {
       type: ['object', 'null'],
