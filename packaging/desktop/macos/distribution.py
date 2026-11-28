@@ -202,6 +202,8 @@ def sign_candidate(candidate, target, identity, profile):
         verify_hash(seed / DESC, candidate_manifest)
         desc = read_json(seed / DESC)
         manifest = read_json(seed / MANIFEST)
+        # The signed image is a new artifact. Only verify() can admit it for release.
+        manifest.pop("macos_distribution", None)
         release = tmp / "release"
         release.mkdir()
         for kind, name in ARCHIVES.items():
@@ -231,7 +233,6 @@ def sign_candidate(candidate, target, identity, profile):
         sign(dmg, identity, "--identifier", "work.crewden.desktop.dmg")
         notarize(dmg, dmg, profile)
         manifest["installer"].update(metadata(dmg))
-        manifest["macos_distribution"] = "developer-id-notarized"
         write_json(release / MANIFEST, manifest)
         release.rename(target)
 

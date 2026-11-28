@@ -62,8 +62,8 @@ jobs:
             echo "windows=false" >> "$GITHUB_OUTPUT"
           fi
           if test -f scripts/package-macos-desktop.py && test -f scripts/build-desktop-windows.ps1; then
-            if ! test -f packaging/desktop/macos/distribution.py; then
-              echo "::error::Selected desktop source predates the verified Mac distribution pipeline. Choose a release commit containing bugfix-811."
+            if ! python3 packaging/desktop/macos/distribution.py verify --help | grep -q -- "--mode"; then
+              echo "::error::Selected desktop source predates the verified Mac distribution pipeline. Choose a release commit containing the bugfix-811 release modes."
               exit 1
             fi
             echo "desktop=true" >> "$GITHUB_OUTPUT"
@@ -139,6 +139,12 @@ jobs:
         env:
           MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
         run: python3 packaging/desktop/macos/distribution.py verify signed --mode developer-id-notarized
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-notarized-desktop-darwin-arm64-${{ inputs.commit }}
+          path: signed/
+          if-no-files-found: error
+          compression-level: 0
   publish:
     needs: [source, windows, desktop, verify-macos]
     if: >-
@@ -175,7 +181,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'
         with:
-          name: ${{ inputs.macos_distribution == 'developer-id-notarized' && 'signed' || 'unnotarized' }}-desktop-darwin-arm64-${{ inputs.commit }}
+          name: ${{ inputs.macos_distribution == 'developer-id-notarized' && 'verified-notarized' || 'unnotarized' }}-desktop-darwin-arm64-${{ inputs.commit }}
           path: dist/node-release/desktop-darwin-arm64
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'
