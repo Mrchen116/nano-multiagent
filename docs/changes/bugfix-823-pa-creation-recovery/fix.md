@@ -88,7 +88,7 @@ Platform-Parity-Exempt: Web IM 与 Desktop 主窗口 WebView 共享本次聊天�
 
 1. **服务端确定性失败回滚与未完成绑定恢复自愈**（`apps/im-server/src/personal-agent.ts`）：
    - 新增 `discardUncommittedBinding` 守卫：仅当 `binding.status !== 'active'`、无活跃在途配置操作（`activeConfigOperation` 不存在）且 `agent_profiles` 未落库时，原子清理本次写入的 `pa_runtime_status`、`pa_policies`、`pa_binding_scopes`、`personal_agent_bindings` 以及不再被任何绑定引用的 `pa_node_residencies`；当 `ops.create` 处于 `503 config_apply_pending` 在途未确认时完整保留 `pending` 绑定供幂等恢复。
-   - 收敛 `POST /im/v1/personal-agent` 对未激活 `pending` 绑定的处理：先执行 `ops.recover`（若已提交或已有 `agent_profiles` 则直接跳过重复创建、补建私聊并转 `active`）；若无在途操作（孤儿 `pending` 绑定），同 `request_key` 重试时自动同步当前节点 `node_epoch` 后继续创建，异 `request_key` 重建时清理孤儿绑定并以新请求参数创建；若确有在途未决操作，不再对异 `request_key` 静默返回 `200 pending` 假成功。
+   - 收敛 `POST /im/v1/personal-agent` 对未激活 `pending` 绑定的处理：先执行 `ops.recover`（若已有同主人、同节点的有效 `agent_profiles` 则直接跳过重复创建、补建私聊并转 `active`）；若无在途操作（孤儿 `pending` 绑定），同 `request_key` 重试时在能力读取完成后同步当前节点 `node_epoch` 后继续创建，异 `request_key` 重建时清理孤儿绑定并以新请求参数创建；若确有在途未决操作，不再对异 `request_key` 静默返回 `200 pending` 假成功。
    - 收紧 `PATCH /im/v1/personal-agent` 与 `GET /im/v1/personal-agent/sources`，在绑定尚未 `active` 时拒绝改名且不提前物化未创建助手的用户实体。
 2. **Web 前端未确认态收敛与恢复交互统一**（`src/IM/frontend/src/features/chat/chat-workspace-page.tsx`、`components/personal-agent-entry.tsx`、`personal-agent/personal-agent-dialog.tsx`、`settings/agents/personal-agent-entry.tsx`、`styles/global.css`）：
    - 聊天工作区区分已确认绑定（`!creation && status !== 'pending'`）与未完成准备态（`personalSetupPending`）：未完成时侧栏置顶项显示助手名称与“继续设置助手”副标题，点击弹出 `PersonalAgentDialog` 恢复界面而绝不跳转未建立的 `/chat/:id`，工作区欢迎页也不提前展示未建成私聊入口与快捷开场白。
@@ -105,3 +105,10 @@ Platform-Parity-Exempt: Web IM 与 Desktop 主窗口 WebView 共享本次聊天�
   - 执行 `pnpm exec vitest run apps/im-server/tests/pa-binding-recovery.test.ts apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/personal-agent-creation.test.ts apps/im-server/tests/agent-privacy-groups-and-pa.test.ts apps/im-server/tests/tenancy.test.ts`（5 文件 49 项测试全绿）、前端相关 5 个测试文件全绿、`pnpm build && pnpm typecheck` 通过。
 - **真实隔离栈与浏览器恢复旅程验证**：
   - 详见 [M1-fix/evidence/web-pa-recovery-journey.md](M1-fix/evidence/web-pa-recovery-journey.md)：在独立 `e2e-up.sh` 隔离栈上复现存量 `status='pending'` 绑定（“酷狗”），验证桌面（`1280×820`）与移动（`390×844`）聊天页、恢复弹窗、Agents 页均无“聊天不可访问”报错，点击“重新准备”后经真实 Gateway + DSH 节点完成创建并自动进入 `/chat/c_issuej_missing` 首次私聊，全部临时服务、端口与 `dist/` 已核实回收。
+
+
+### R1 修订
+
+- 已登记的 profile 暂时 stale 时返回可重试的 409，保留绑定和预留的私聊 ID，等待原电脑重新登记。排队中的新请求在获取电脑能力后读取当前绑定代次，用它创建助手。
+- 原电脑离线且没有配置操作或 profile 的历史记录，在重试失败后释放预留绑定。聊天弹窗刷新为可编辑表单后保留错误提示，用户可以改选在线电脑。
+- 桌面欢迎卡片显示准备进度和继续入口。Agents 主列表及详情侧栏按原绑定 ID 去重，即使联系人中已经出现同一助手，也只显示设置入口。

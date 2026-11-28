@@ -139,6 +139,7 @@ it('treats an unconfirmed pending PA binding as setup recovery in Chat instead o
 
   const pinned = await screen.findByRole('button', { name: /Kugou/ });
   expect(pinned).toHaveTextContent('Continue assistant setup');
+  expect(screen.getByRole('link', {name: /Continue assistant setup/})).toHaveAttribute('href', '/onboarding');
   expect(screen.queryByRole('button', { name: /plan my study time/i })).not.toBeInTheDocument();
 
   await userEvent.click(pinned);

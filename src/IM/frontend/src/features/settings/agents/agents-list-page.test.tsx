@@ -189,13 +189,13 @@ describe("agents list page", () => {
           creation: { request_key: "rk-pending" },
         });
       }
-      if (url.includes("/im/v1/contacts?")) return jsonResponse({ items: [], next_cursor: null });
+      if (url.includes("/im/v1/contacts?")) return jsonResponse({ items: [{kind:"agent",agent_id:"pa-pending",user_id:"pa-user",display_name:"Kugou"}], next_cursor: null });
       return new Response(null, { status: 404 });
     });
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
     expect(await screen.findByText("Assistant setup in progress")).toBeVisible();
     expect(screen.getByRole("link", { name: "Continue assistant setup" })).toHaveAttribute("href", "/onboarding");
-    expect(screen.queryByRole("button", { name: "Kugou" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Kugou/ })).not.toBeInTheDocument();
   });
 
 });

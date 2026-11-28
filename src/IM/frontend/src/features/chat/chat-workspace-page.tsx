@@ -1672,7 +1672,7 @@ export function ChatWorkspacePage() {
           </PendingConversationPane>
         ) : (
           !isMobile && (
-            <WorkspaceWelcome assistant={personalBinding ?? null}
+            <WorkspaceWelcome assistant={personalBinding ?? null} setupPending={personalSetupPending}
               conversation={localConversations.find(c => c.id === personalBinding?.conversation_id)}
               onStart={text => personalBinding ? handleComposeMessage(personalBinding.conversation_id, text) : Promise.resolve()}
               onNewChat={() => setShowNewChat(true)} />

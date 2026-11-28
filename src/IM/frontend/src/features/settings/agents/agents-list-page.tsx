@@ -33,7 +33,7 @@ export function AgentsListPage() {
       : null;
 
   const queryText = search.trim().toLowerCase();
-  const visibleAgents = agents.filter(agent => agent.agent_id !== personalBinding?.agent_id)
+  const visibleAgents = agents.filter(agent => agent.agent_id !== personal.data?.binding?.agent_id)
     .filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(queryText));
   const personalMatches = personalBinding && `${personalBinding.display_name} ${personalBinding.agent_id} ${t("pa.label")} ${agents.find(agent => agent.agent_id === personalBinding.agent_id)?.description ?? ""}`.toLowerCase().includes(queryText);
 

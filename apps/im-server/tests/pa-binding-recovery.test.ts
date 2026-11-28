@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
+import { configurationOperations } from '../src/configuration-assembly.js';
 import { Messaging } from '../src/messaging.js';
 import { PersonalAgents, registerPersonalAgentRoutes } from '../src/personal-agent.js';
 import { connectFixtureGateway, fixture } from './control-fixture.js';
@@ -214,6 +215,55 @@ it('self-heals legacy orphan pending bindings across node epoch bumps and new re
     });
     expect(freshKeyCreated.json().binding.binding_id).not.toBe('legacy-b');
   } finally {
+    await app.close();
+  }
+});
+
+it.each([true, false])('keeps only a registered identity on failed legacy recovery (stale profile: %s)', async stale => {
+  const { app, db, ctx } = createPaHarness();
+  try {
+    db.prepare("INSERT INTO personal_agent_bindings VALUES('b','o1','u1','pa_legacy','n',1,'c_pa','Assistant','old','pending',NULL,datetime('now'))").run();
+    db.prepare("INSERT INTO pa_policies(binding_id) VALUES('b')").run();
+    db.prepare("INSERT INTO pa_node_residencies VALUES('n','o1')").run();
+    if (stale) db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,is_stale,created_at,updated_at) VALUES('pa_legacy','o1','n','Assistant',1,datetime('now'),datetime('now'))").run();
+    ctx.gateway.request = async () => { throw Object.assign(new Error('Computer offline'), {statusCode:503}); };
+    const result = await app.inject({method:'POST',url:'/im/v1/personal-agent',payload:{request_key:'old',node_id:'n',display_name:'Assistant'}});
+    expect(result.statusCode).toBe(stale ? 409 : 503);
+    const state = (await app.inject({method:'GET',url:'/im/v1/personal-agent'})).json();
+    if (stale) expect(state.binding).toMatchObject({binding_id:'b',conversation_id:'c_pa',status:'pending'});
+    else expect(state.binding).toBeNull();
+    expect(db.prepare('SELECT count(*) n FROM pa_node_residencies').get()).toEqual({n: Number(stale)});
+  } finally {
+    await app.close();
+  }
+});
+
+it('creates a queued PA using the current node epoch after rebind', async () => {
+  const {app, ctx, db} = createPaHarness();
+  await app.ready();
+  const ops = configurationOperations(ctx);
+  const lock = Promise.withResolvers<void>();
+  const holder = ops.serialized('personal:o1', () => lock.promise);
+  const queue = vi.spyOn(ops, 'serialized');
+  try {
+    ctx.gateway.request = async (_node, method, payload: any) => {
+      if (method === 'node.capabilities.resolve') return {capabilities:{tools:[]}};
+      return {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,
+        agent:{...payload.agent,workspace_root:'/private/pa',workspace_is_default:true}};
+    };
+    const response = app.inject({method:'POST',url:'/im/v1/personal-agent',payload:{request_key:'queued',node_id:'n',display_name:'Assistant'}}).then(r=>r);
+    await vi.waitFor(()=>expect(queue).toHaveBeenCalled());
+    db.prepare("UPDATE node_binding_state SET node_epoch=2 WHERE node_id='n'").run();
+    ctx.gateway.nodes.get('n')!.node_epoch=2;
+    lock.resolve();
+    const created = await response;
+    expect(created.statusCode,created.body).toBe(201);
+    const {binding} = created.json();
+    expect(binding.node_epoch).toBe(2);
+    expect(ctx.personal!.authority({node_id:'n',owner_id:'o1',node_epoch:2},{agent_id:binding.agent_id}).binding_id).toBe(binding.binding_id);
+  } finally {
+    lock.resolve();
+    await holder;
     await app.close();
   }
 });

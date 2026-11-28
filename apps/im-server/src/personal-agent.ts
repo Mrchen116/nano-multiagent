@@ -534,7 +534,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   const pa=ctx.personal!; const ops=configurationOperations(ctx);
   const user=(req:any)=>ctx.identity.authenticateRequest(req);
   const discardUncommittedBinding=(binding:Row,ownerId:string):boolean=>{
-    if(binding.status==='active'||activeConfigOperation(ctx.db,binding.agent_id,ownerId)||readAgentProfile(ctx.db,binding.agent_id,ownerId))return false;
+    if(binding.status==='active'||activeConfigOperation(ctx.db,binding.agent_id,ownerId)||readAgentProfile(ctx.db,binding.agent_id))return false;
     transaction(ctx.db,()=>{
       ctx.db.prepare('DELETE FROM pa_runtime_status WHERE binding_id=?').run(binding.binding_id);
       ctx.db.prepare('DELETE FROM pa_policies WHERE binding_id=?').run(binding.binding_id);
@@ -551,54 +551,51 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
     const avatar=parseAvatarVariant(input.avatar_variant);
     if(input.collaboration_scope!==undefined && !isPersonalCollaborationScope(input.collaboration_scope)) fail(422,'invalid_collaboration_scope');
     if(typeof input.request_key!=='string'||!input.request_key||typeof input.display_name!=='string'||!input.display_name.trim()) fail(422,'name_and_request_key_required');
-    const node=one(ctx.db,'SELECT n.*,b.node_epoch FROM nodes n JOIN node_binding_state b ON b.node_id=n.node_id WHERE n.node_id=? AND n.owner_id=?',input.node_id,u.owner_id);
-    if(!node) fail(404,'node_not_found');
     return ops.serialized(`personal:${u.owner_id}`,async()=>{
       let b=pa.binding(u.owner_id);
+      const nodeBinding=(id:string)=>one(ctx.db,'SELECT s.node_id,s.node_epoch FROM node_binding_state s JOIN nodes n ON n.node_id=s.node_id WHERE s.node_id=? AND s.owner_id=? AND n.owner_id=?',id,u.owner_id,u.owner_id);
+      if(!nodeBinding(input.node_id)) {
+        if(b?.status==='pending' && b.node_id===input.node_id && b.request_key===input.request_key) discardUncommittedBinding(b,u.owner_id);
+        fail(404,'node_not_found');
+      }
       if(b?.status==='active') {
         if(b.request_key===input.request_key && input.collaboration_scope!==undefined && input.collaboration_scope!==(b.collaboration_scope ?? 'team')) {
           fail(409,'collaboration_scope_conflict');
         }
         return pa.state(u.owner_id);
       }
-      let recovered: Awaited<ReturnType<typeof ops.recover>> = null;
+      let alreadyCommitted=false;
       if(b) {
         const sameRequest=b.request_key===input.request_key;
         if(sameRequest && input.collaboration_scope!==undefined && input.collaboration_scope!==(b.collaboration_scope ?? 'team')) {
           fail(409,'collaboration_scope_conflict');
         }
         try {
-          recovered=await ops.recover(b.agent_id,u.owner_id);
+          await ops.recover(b.agent_id,u.owner_id);
         } catch(error) {
           discardUncommittedBinding(b,u.owner_id);
           throw error;
         }
-        const committed=Boolean(recovered||readAgentProfile(ctx.db,b.agent_id,u.owner_id));
-        if(!committed) {
-          if(!sameRequest) {
-            if(!discardUncommittedBinding(b,u.owner_id)) {
-              fail(409,{code:'personal_agent_creation_pending',message:'Personal assistant setup is still in progress. Retry the pending setup.'});
-            }
-            b=undefined;
-          } else {
-            const currentNode=one(ctx.db,'SELECT n.*,s.node_epoch FROM nodes n JOIN node_binding_state s ON s.node_id=n.node_id WHERE n.node_id=? AND n.owner_id=?',b.node_id,u.owner_id);
-            if(!currentNode) {
-              discardUncommittedBinding(b,u.owner_id);
-              b=undefined;
-            } else if(currentNode.node_epoch!==b.node_epoch) {
-              ctx.db.prepare('UPDATE personal_agent_bindings SET node_epoch=? WHERE binding_id=?').run(currentNode.node_epoch,b.binding_id);
-              b=pa.binding(u.owner_id)!;
-            }
+        const profile=readAgentProfile(ctx.db,b.agent_id);
+        if(profile && (profile.is_stale || profile.owner_id!==u.owner_id || profile.node_id!==b.node_id)) {
+          fail(409,{code:'personal_agent_registration_unavailable',message:'Reconnect the original computer to confirm assistant registration, then retry.'});
+        }
+        alreadyCommitted=Boolean(profile);
+        if(!alreadyCommitted && !sameRequest) {
+          if(!discardUncommittedBinding(b,u.owner_id)) {
+            fail(409,{code:'personal_agent_creation_pending',message:'Personal assistant setup is still in progress. Retry the pending setup.'});
           }
+          b=undefined;
         }
       }
-      const alreadyCommitted=Boolean(b&&(recovered||readAgentProfile(ctx.db,b.agent_id,u.owner_id)));
-      let catalog: Awaited<ReturnType<typeof readNodeCapabilitiesRaw>> | undefined;
       if(!alreadyCommitted) {
-        const targetNodeId=b ? b.node_id : node.node_id;
+        const targetNodeId=b?.node_id ?? input.node_id;
+        let catalog: Awaited<ReturnType<typeof readNodeCapabilitiesRaw>>;
         try {
           catalog=await readNodeCapabilitiesRaw(ctx,targetNodeId,u.owner_id,{allowUnboundRequestFallback:true});
+          if(!Array.isArray(catalog?.tools)) fail(502,'Invalid computer capabilities');
         } catch(error) {
+          if(b) discardUncommittedBinding(b,u.owner_id);
           const errObj=error as {statusCode?:number;code?:string;detail?:unknown;message?:string}|null;
           const status=Number(errObj?.statusCode ?? 0);
           const msg=typeof errObj?.detail==='string' ? errObj.detail : String(errObj?.message ?? '');
@@ -612,26 +609,30 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
           if(status===502 || status===503) fail(502,{code:'node_capabilities_unavailable',message:'Computer capabilities are temporarily unavailable. Retry shortly.'});
           throw error;
         }
-        if(!catalog||!Array.isArray(catalog.tools)) {
-          fail(502,{code:'node_capabilities_unavailable',message:'Computer capabilities are temporarily unavailable. Retry shortly.'});
+        // Read the epoch after the catalog RPC, immediately before persisting the creation identity.
+        const node=nodeBinding(targetNodeId);
+        if(!node) {
+          if(b) discardUncommittedBinding(b,u.owner_id);
+          fail(404,'node_not_found');
         }
-      }
-      if(!b) {
-        const requestedScope = input.collaboration_scope ?? 'team';
-        const id=randomUUID(),agent=`pa_${id.replaceAll('-','').slice(0,12)}`,conversation=chatId('c_');
-        transaction(ctx.db,()=>{
-          ctx.db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id=?").run(u.id);
-          ctx.db.prepare('INSERT INTO personal_agent_bindings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,u.owner_id,u.id,agent,node.node_id,node.node_epoch,conversation,input.display_name.trim(),input.request_key,'pending',null,now());
-          ctx.db.prepare('INSERT OR REPLACE INTO pa_binding_scopes(binding_id,collaboration_scope) VALUES(?,?)').run(id,requestedScope);
-          ctx.db.prepare('INSERT INTO pa_policies(binding_id) VALUES(?)').run(id);
-          ctx.db.prepare('INSERT OR IGNORE INTO pa_node_residencies VALUES(?,?)').run(node.node_id,u.owner_id);
-        });
-        b=pa.binding(u.owner_id)!;
-      }
-      if(!alreadyCommitted) {
+        if(!b) {
+          const requestedScope = input.collaboration_scope ?? 'team';
+          const id=randomUUID(),agent=`pa_${id.replaceAll('-','').slice(0,12)}`,conversation=chatId('c_');
+          transaction(ctx.db,()=>{
+            ctx.db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id=?").run(u.id);
+            ctx.db.prepare('INSERT INTO personal_agent_bindings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,u.owner_id,u.id,agent,node.node_id,node.node_epoch,conversation,input.display_name.trim(),input.request_key,'pending',null,now());
+            ctx.db.prepare('INSERT OR REPLACE INTO pa_binding_scopes(binding_id,collaboration_scope) VALUES(?,?)').run(id,requestedScope);
+            ctx.db.prepare('INSERT INTO pa_policies(binding_id) VALUES(?)').run(id);
+            ctx.db.prepare('INSERT OR IGNORE INTO pa_node_residencies VALUES(?,?)').run(node.node_id,u.owner_id);
+          });
+          b=pa.binding(u.owner_id)!;
+        } else if(b.node_epoch!==node.node_epoch) {
+          ctx.db.prepare('UPDATE personal_agent_bindings SET node_epoch=? WHERE binding_id=?').run(node.node_epoch,b.binding_id);
+          b=pa.binding(u.owner_id)!;
+        }
         const personal={bindingId:b.binding_id,ownerId:b.owner_id,conversationId:b.conversation_id,epoch:b.node_epoch};
-        const workspaceTools=catalog!.tools!.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
-        const tools=[...new Set([...catalog!.tools!.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
+        const workspaceTools=catalog.tools!.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
+        const tools=[...new Set([...catalog.tools!.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
         const bindingScope: 'team' | 'owner_only' = b.collaboration_scope === 'owner_only' ? 'owner_only' : 'team';
         const paFeatures=definitionsForRole(true);
         let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:bindingScope,default_model:null,model_fallbacks:[],workspace_root:null};
