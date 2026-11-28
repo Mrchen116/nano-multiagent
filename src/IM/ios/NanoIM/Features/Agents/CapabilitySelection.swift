@@ -230,7 +230,7 @@ extension AgentDraft {
 extension AgentCapabilities {
     static func modeFixedTools(mode: String, personal: Bool = false) -> [String] {
         guard mode == "global" else { return [] }
-        return ["inbox", "conversations", "read_messages", "search_messages", "threads", "send_message", "download_attachment", "delegate_worker"] + (personal ? ["personal_sources", "send_user_message"] : [])
+        return ["inbox", "conversations", "read_messages", "search_messages", "threads", "send_message", "download_attachment", "delegate_worker", "read_worker"] + (personal ? ["personal_sources", "send_user_message"] : [])
     }
 
     func fixedTools(mode: String, personal: Bool = false) -> [String] {

@@ -82,6 +82,7 @@ it('reports dependency resources independently from the selected allowlist', () 
   expect(available.features.find(feature => feature.key === 'intelligent_ui')).toMatchObject({available: true});
   expect(available.features.find(feature => feature.key === 'task_graph')).toMatchObject({available: false});
   expect(available.fixed_tools).toContain('delegate_worker');
+  expect(available.fixed_tools).toContain('read_worker');
 });
 
 it('hides retired memory controls without changing stored legacy tool choices and exposes plugin_management plus inspect tools', () => {

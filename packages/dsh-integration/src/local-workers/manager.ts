@@ -8,7 +8,21 @@ import { workerRuntimes, type ModelRunProjection, type RuntimeWorkerChange, type
 import { z } from 'zod';
 import { jsonBytes, workPageBytes } from '../work-page.js';
 import { openCliWorker, type CliWorkerOptions } from './drivers.js';
+import {
+  computeDshUsage,
+  formatWorkerUsage,
+  MAX_HISTORY_ENTRIES,
+  MAX_STORED_ENTRY_CHARS,
+  redactSecrets,
+  sanitizeWorkerValue,
+  SUMMARY_PREVIEW_CHARS,
+  WorkerInspector,
+  type WorkerHistoryEntry,
+  type WorkerHistoryRecord,
+  type WorkerUsageSnapshot,
+} from './inspector.js';
 import { workerReportBridge } from './report-bridge.js';
+import { extractToolSummary } from './work-details.js';
 
 const recordSchema = z.object({
   workerId: z.string(),
@@ -29,22 +43,62 @@ const workerDetail = z.object({
 const workState = z.object({
   id: z.string(), time: z.number(), state: recordSchema.shape.state, turnUsage: turnUsage.optional(), detail: workerDetail.optional(),
 });
-const storedWorker = recordSchema.extend({ pending: z.array(workState).optional(), nativeThrough: z.number().optional() });
+const storedWorker = recordSchema.extend({
+  pending: z.array(workState).optional(),
+  nativeThrough: z.number().optional(),
+  createdAt: z.number().optional(),
+  updatedAt: z.number().optional(),
+  turnCount: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  tokensPartial: z.boolean().optional(),
+  countedTurnIds: z.array(z.string()).optional(),
+  latestReport: z.string().optional(),
+  latestError: z.string().optional(),
+});
+export type StoredWorker = z.infer<typeof storedWorker>;
 type EndedTurn = z.infer<typeof turnUsage> & { time: number };
+const reportSourceSchema = z.enum(['worker-report', 'system-notice', 'turn-end', 'recovery']);
 const reportSchema = z.object({
   rootId: z.string(),
   workerId: z.string(),
   eventId: z.string(),
   activationId: z.string().optional(),
   text: z.string(),
+  rawText: z.string().optional(),
+  source: reportSourceSchema.optional(),
   state: z.enum(['completed', 'failed', 'interrupted']).optional(),
 });
 type WorkerReport = z.infer<typeof reportSchema>;
+const historyEntrySchema = z.object({
+  seq: z.number().int().nonnegative(),
+  dedupeKey: z.string(),
+  time: z.number(),
+  kind: z.enum(['message', 'tool', 'system']),
+  role: z.enum(['parent', 'worker']).optional(),
+  via: z.literal('report').optional(),
+  toolName: z.string().optional(),
+  callId: z.string().optional(),
+  status: z.enum(['running', 'ok', 'error']).optional(),
+  summary: z.string().optional(),
+  text: z.string(),
+  durationMs: z.number().optional(),
+  reasonCode: z.string().optional(),
+});
+const historyRecordSchema = z.object({
+  rootId: z.string(),
+  nextSeq: z.number().int().nonnegative(),
+  truncatedBefore: z.number().int().nonnegative().optional(),
+  entries: z.array(historyEntrySchema),
+});
 const workerDomain = defineDomain({
   name: 'nano_local_workers',
   version: 1,
   layout: 'per-record',
-  tables: { workers: domainTable(storedWorker), reports: domainTable(reportSchema) },
+  tables: {
+    workers: domainTable(storedWorker),
+    reports: domainTable(reportSchema),
+    history: domainTable(historyRecordSchema),
+  },
 });
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -53,6 +107,13 @@ declare module '@deepseek-ai/cordis' {
 }
 function reportKey(worker: string, event: string): string {
   return createHash('sha256').update(JSON.stringify([worker, event])).digest('hex');
+}
+function clipPreview(raw: string): string {
+  const safe = redactSecrets(raw.trim()).text;
+  return safe.length > SUMMARY_PREVIEW_CHARS ? `${safe.slice(0, SUMMARY_PREVIEW_CHARS)}…` : safe;
+}
+function isNonNegativeInt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 type Cli = Awaited<ReturnType<typeof openCliWorker>>;
@@ -76,7 +137,9 @@ export class LocalWorkers {
   private readonly changes = new Map<string, Promise<unknown>>();
   private readonly commands = new Map<string, Promise<unknown>>();
   private readonly muted = new Set<string>();
+  private readonly dshUsage = new Map<string, WorkerUsageSnapshot & { rootId: string }>();
   private readonly cold: Promise<Set<string>>;
+  readonly inspector: WorkerInspector;
   constructor(
     private readonly ctx: Context,
     private readonly report: Report,
@@ -85,14 +148,23 @@ export class LocalWorkers {
     private readonly bindPermissions?: (root: Agent, worker: WorkerRecord, assignment: string, callId: string) => Promise<CliWorkerOptions['onPermission']>,
   ) {
     this.domain = ctx.storageDomain.open(workerDomain);
-    this.cold = this.domain.then(
-      (domain) =>
-        new Set(
-          [...domain.table('workers').entries()]
-            .filter(([, r]) => r.runtime !== 'dsh' && ['starting', 'running'].includes(r.state))
-            .map(([id]) => id),
-        ),
-    );
+    this.cold = this.domain.then((domain) => {
+      const stale = new Set<string>();
+      for (const [id, r] of domain.table('workers').entries()) {
+        if (r.runtime === 'dsh') {
+          this.dshUsage.set(id, {
+            rootId: r.rootId,
+            turnCount: r.turnCount ?? 0,
+            ...(r.totalTokens !== undefined ? { totalTokens: r.totalTokens } : {}),
+            ...(r.tokensPartial ? { tokensPartial: true } : {}),
+          });
+        } else if (['starting', 'running'].includes(r.state)) {
+          stale.add(id);
+        }
+      }
+      return stale;
+    });
+    this.inspector = new WorkerInspector(ctx, this, bound);
     ctx.provide('nanoWorkers', this);
     ctx.on('subagent/start', (info) => this.nativeState(info.id, 'running'));
     ctx.on('subagent/end', (info) =>
@@ -118,6 +190,54 @@ export class LocalWorkers {
     return !!(await this.domain).table('workers').get(id);
   }
 
+  /** Read-only list of all first-level worker records owned by one Global root. */
+  async listRecords(rootId: string): Promise<StoredWorker[]> {
+    const out: StoredWorker[] = [];
+    for (const [, row] of (await this.domain).table('workers').entries()) {
+      if (row.rootId === rootId) out.push(row);
+    }
+    return out;
+  }
+
+  /** Read-only lookup of a single owned first-level worker record. */
+  async getRecord(rootId: string, workerId: string): Promise<StoredWorker | undefined> {
+    const row = (await this.domain).table('workers').get(workerId);
+    return row?.rootId === rootId ? row : undefined;
+  }
+
+  /** Read-only lookup of persisted external CLI worker history (survives confirmWork). */
+  async getCliHistory(workerId: string): Promise<WorkerHistoryRecord | undefined> {
+    return (await this.domain).table('history').get(workerId);
+  }
+
+  /** Synchronously refresh in-memory DSH usage before settlement disposes the live session. */
+  captureDshUsageSync(session: Session): void {
+    const existing = this.dshUsage.get(session.id);
+    if (!existing) return;
+    const snapshot = computeDshUsage(session.snapshotEvents(), session.inheritedEventCount);
+    this.dshUsage.set(session.id, {
+      rootId: existing.rootId,
+      turnCount: Math.max(snapshot.turnCount, existing.turnCount),
+      ...(snapshot.totalTokens !== undefined
+        ? { totalTokens: snapshot.totalTokens }
+        : existing.totalTokens !== undefined
+          ? { totalTokens: existing.totalTokens }
+          : {}),
+      ...(snapshot.tokensPartial || existing.tokensPartial ? { tokensPartial: true } : {}),
+    });
+  }
+
+  /** Synchronously read owned DSH first-level worker usage for subagent-settled notices. */
+  getDshUsageSync(rootId: string, workerId: string): WorkerUsageSnapshot | undefined {
+    const entry = this.dshUsage.get(workerId);
+    if (!entry || entry.rootId !== rootId) return undefined;
+    return {
+      turnCount: entry.turnCount,
+      ...(entry.totalTokens !== undefined ? { totalTokens: entry.totalTokens } : {}),
+      ...(entry.tokensPartial ? { tokensPartial: true } : {}),
+    };
+  }
+
   private serialize<T>(
     queue: Map<string, Promise<unknown>>,
     id: string,
@@ -137,31 +257,122 @@ export class LocalWorkers {
     if (record?.runtime === 'dsh') await this.change(record, { state });
   }
 
-  private change(record: WorkerRecord, patch: Partial<WorkerRecord>) {
+  private change(record: WorkerRecord, patch: Partial<StoredWorker>) {
     return this.serialize(this.changes, record.workerId, async () => {
       const table = (await this.domain).table('workers');
       const previous = table.get(record.workerId);
-      const next = { ...(previous ?? record), ...patch };
-      if (previous && previous.state === next.state && previous.sessionId === next.sessionId) return previous;
-      // DSH rejects unknown native events on replay. Commit the relation and its Work delivery together.
-      const update = { id: randomUUID(), time: Date.now(), state: next.state };
-      if (next.runtime !== 'dsh' && (!previous || (next.state === 'running' && previous.state !== 'starting' && previous.state !== 'running')))
-        next.activationId = update.id;
-      await table.put(next.workerId, { ...next, pending: [...(previous?.pending ?? []), update] });
-      this.workChanged(next.rootId);
+      const now = Date.now();
+      const next: StoredWorker = {
+        ...(previous ?? record),
+        ...patch,
+        createdAt: previous?.createdAt ?? patch.createdAt ?? now,
+        updatedAt: patch.updatedAt ?? now,
+      };
+      const stateOrSessionChanged =
+        !previous || previous.state !== next.state || previous.sessionId !== next.sessionId;
+      const metadataChanged =
+        !previous ||
+        previous.updatedAt !== next.updatedAt ||
+        previous.turnCount !== next.turnCount ||
+        previous.totalTokens !== next.totalTokens ||
+        previous.tokensPartial !== next.tokensPartial ||
+        previous.latestReport !== next.latestReport ||
+        previous.latestError !== next.latestError;
+      if (!stateOrSessionChanged && !metadataChanged) return previous;
+      if (stateOrSessionChanged) {
+        // DSH rejects unknown native events on replay. Commit the relation and its Work delivery together.
+        const update = { id: randomUUID(), time: now, state: next.state };
+        if (next.runtime !== 'dsh' && (!previous || (next.state === 'running' && previous.state !== 'starting' && previous.state !== 'running')))
+          next.activationId = update.id;
+        await table.put(next.workerId, { ...next, pending: [...(previous?.pending ?? []), update] });
+        this.workChanged(next.rootId);
+      } else {
+        await table.put(next.workerId, { ...next, pending: previous?.pending });
+      }
       return next;
     });
   }
 
-  private async publishTurns(row: z.infer<typeof storedWorker>, turns: EndedTurn[], nativeThrough?: number) {
+  private async upsertCliHistoryLocked(
+    workerId: string,
+    rootId: string,
+    item: Omit<WorkerHistoryEntry, 'seq'>,
+  ): Promise<void> {
+    const table = (await this.domain).table('history');
+    const existing: WorkerHistoryRecord = table.get(workerId) ?? {
+      rootId,
+      nextSeq: 1,
+      entries: [],
+    };
+    const entries = [...existing.entries];
+    let nextSeq = existing.nextSeq;
+    let truncatedBefore = existing.truncatedBefore;
+
+    if (item.kind === 'tool' && item.callId) {
+      const index = entries.findLastIndex((entry) => entry.kind === 'tool' && entry.callId === item.callId);
+      if (index !== -1) {
+        const prior = entries[index]!;
+        entries[index] = {
+          ...prior,
+          ...item,
+          seq: prior.seq,
+          dedupeKey: prior.dedupeKey,
+          summary: item.summary ?? prior.summary,
+          text: item.text || prior.text,
+        };
+        await table.put(workerId, { rootId, nextSeq, ...(truncatedBefore ? { truncatedBefore } : {}), entries });
+        return;
+      }
+    }
+
+    if (entries.some((entry) => entry.dedupeKey === item.dedupeKey)) return;
+    entries.push({ ...item, seq: nextSeq++ });
+    if (entries.length > MAX_HISTORY_ENTRIES) {
+      const dropped = entries.length - MAX_HISTORY_ENTRIES;
+      entries.splice(0, dropped);
+      truncatedBefore = (truncatedBefore ?? 0) + dropped;
+    }
+    await table.put(workerId, { rootId, nextSeq, ...(truncatedBefore ? { truncatedBefore } : {}), entries });
+  }
+
+  private async publishTurns(row: StoredWorker, turns: EndedTurn[], nativeThrough?: number) {
     if (!turns.length) return;
     const pending = [...(row.pending ?? [])];
-    for (const { id, time, totalTokens } of turns) {
+    let turnCount = row.turnCount ?? 0;
+    let totalTokens = row.totalTokens;
+    let tokensPartial = row.tokensPartial;
+    let latestTime = row.updatedAt ?? 0;
+    for (const { id, time, totalTokens: turnTotal } of turns) {
       const eventId = `turn:${row.workerId}:${id}`;
-      if (!pending.some(event => event.id === eventId))
-        pending.push({ id: eventId, time, state: row.state, turnUsage: { id, totalTokens } });
+      if (!pending.some((event) => event.id === eventId)) {
+        pending.push({ id: eventId, time, state: row.state, turnUsage: { id, totalTokens: turnTotal } });
+      }
+      turnCount++;
+      if (turnTotal !== null && isNonNegativeInt(turnTotal)) {
+        totalTokens = (totalTokens ?? 0) + turnTotal;
+      } else {
+        tokensPartial = true;
+      }
+      if (time > latestTime) latestTime = time;
     }
-    await (await this.domain).table('workers').put(row.workerId, { ...row, nativeThrough, pending });
+    const updated: StoredWorker = {
+      ...row,
+      nativeThrough,
+      pending,
+      turnCount,
+      ...(totalTokens !== undefined ? { totalTokens } : {}),
+      ...(tokensPartial ? { tokensPartial: true } : {}),
+      updatedAt: latestTime || Date.now(),
+    };
+    await (await this.domain).table('workers').put(row.workerId, updated);
+    if (row.runtime === 'dsh') {
+      this.dshUsage.set(row.workerId, {
+        rootId: row.rootId,
+        turnCount,
+        ...(totalTokens !== undefined ? { totalTokens } : {}),
+        ...(tokensPartial ? { tokensPartial: true } : {}),
+      });
+    }
     this.workChanged(row.rootId);
   }
 
@@ -245,12 +456,32 @@ export class LocalWorkers {
         report.workerId === id && report.state && report.activationId === row.activationId)?.[1];
       if (!terminal) {
         const eventId = 'recovery:' + (row.activationId ?? randomUUID());
-        const item: WorkerReport = {workerId:id, rootId:root.id, activationId:row.activationId,
-          eventId, state:'interrupted', text:'The execution runtime was interrupted before this worker finished. No closing message was received.'};
+        const text = 'The execution runtime was interrupted before this worker finished. No closing message was received.';
+        const item: WorkerReport = {
+          workerId: id,
+          rootId: root.id,
+          activationId: row.activationId,
+          eventId,
+          state: 'interrupted',
+          source: 'recovery',
+          rawText: text,
+          text,
+        };
         // Stage the parent notification first. ensure() flushes it after the parent can accept input.
         await reports.put(reportKey(id, eventId), item);
+        await this.serialize(this.changes, id, async () => {
+          await this.upsertCliHistoryLocked(id, root.id, {
+            dedupeKey: eventId,
+            time: Date.now(),
+            kind: 'system',
+            text,
+          });
+        });
       }
-      await this.change(row, {state: terminal?.state ?? 'interrupted'});
+      await this.change(row, {
+        state: terminal?.state ?? 'interrupted',
+        ...(!terminal ? { latestError: clipPreview('The execution runtime was interrupted before this worker finished. No closing message was received.') } : {}),
+      });
       cold.delete(id);
     }
   }
@@ -276,6 +507,7 @@ export class LocalWorkers {
       const old = table.get(workerId);
       if (old) return old;
       exec.signal.throwIfAborted();
+      const now = Date.now();
       const row: WorkerRecord = {
         workerId,
         rootId: root.id,
@@ -284,7 +516,10 @@ export class LocalWorkers {
         runtime,
         state: 'starting',
       };
-      await this.change(row, {});
+      if (runtime === 'dsh') {
+        this.dshUsage.set(workerId, { rootId: root.id, turnCount: 0 });
+      }
+      await this.change(row, { createdAt: now, updatedAt: now, turnCount: 0 });
       try {
         if (runtime === 'dsh') {
           await this.ctx.subagents.startActivation({
@@ -312,7 +547,10 @@ export class LocalWorkers {
         return table.get(workerId)!;
       } catch (error) {
         await this.close(workerId);
-        await this.change(row, { state: exec.signal.aborted ? 'interrupted' : 'failed' });
+        await this.change(row, {
+          state: exec.signal.aborted ? 'interrupted' : 'failed',
+          latestError: clipPreview(error instanceof Error ? error.message : String(error)),
+        });
         throw error;
       }
     });
@@ -325,12 +563,103 @@ export class LocalWorkers {
       if (!row || row.rootId !== item.rootId) throw new Error('Worker report lost its parent binding');
       const pending = domain.table('reports');
       await pending.put(key, item);
-      if (item.state && row.activationId === item.activationId) await this.change(row, { state: item.state });
+
+      let wakeText = item.text;
+      const rawText = item.rawText ?? item.text;
+      const source = item.source;
+      const now = Date.now();
+
+      const updatedRow = await this.serialize(this.changes, item.workerId, async () => {
+        const workersTable = domain.table('workers');
+        const current = workersTable.get(item.workerId);
+        if (!current) return row;
+
+        const patch: Partial<StoredWorker> = { updatedAt: now };
+        let stateChanged = false;
+        if (item.state && current.activationId === item.activationId && current.state !== item.state) {
+          patch.state = item.state;
+          stateChanged = true;
+        }
+
+        if (source === 'worker-report') {
+          await this.upsertCliHistoryLocked(current.workerId, current.rootId, {
+            dedupeKey: `report:${item.eventId}`,
+            time: now,
+            kind: 'message',
+            role: 'worker',
+            via: 'report',
+            text: sanitizeWorkerValue(rawText, MAX_STORED_ENTRY_CHARS),
+          });
+          if (rawText.trim()) patch.latestReport = clipPreview(rawText);
+        } else if (source === 'turn-end') {
+          const hist = domain.table('history').get(current.workerId);
+          const lastEntry = hist?.entries.at(-1);
+          if (item.state === 'completed') {
+            if (rawText.trim()) patch.latestReport = clipPreview(rawText);
+            if (
+              rawText.trim() &&
+              !(lastEntry?.kind === 'message' && lastEntry.role === 'worker' && lastEntry.text.trim() === rawText.trim())
+            ) {
+              await this.upsertCliHistoryLocked(current.workerId, current.rootId, {
+                dedupeKey: `end:${item.eventId}`,
+                time: now,
+                kind: 'message',
+                role: 'worker',
+                text: sanitizeWorkerValue(rawText, MAX_STORED_ENTRY_CHARS),
+              });
+            }
+          } else if (item.state === 'failed' || item.state === 'interrupted') {
+            if (rawText.trim()) patch.latestError = clipPreview(rawText);
+            if (rawText.trim()) {
+              await this.upsertCliHistoryLocked(current.workerId, current.rootId, {
+                dedupeKey: `end:${item.eventId}`,
+                time: now,
+                kind: 'system',
+                text: sanitizeWorkerValue(rawText, MAX_STORED_ENTRY_CHARS),
+              });
+            }
+          }
+        } else if (source === 'recovery') {
+          if (rawText.trim()) patch.latestError = clipPreview(rawText);
+          await this.upsertCliHistoryLocked(current.workerId, current.rootId, {
+            dedupeKey: item.eventId,
+            time: now,
+            kind: 'system',
+            text: sanitizeWorkerValue(rawText, MAX_STORED_ENTRY_CHARS),
+          });
+        }
+        // source === 'system-notice': already captured in history by onDetail, do not overwrite latestReport.
+
+        const next: StoredWorker = {
+          ...current,
+          ...patch,
+          createdAt: current.createdAt ?? now,
+          updatedAt: now,
+        };
+        if (stateChanged) {
+          const update = { id: randomUUID(), time: now, state: next.state };
+          await workersTable.put(next.workerId, { ...next, pending: [...(current.pending ?? []), update] });
+          this.workChanged(next.rootId);
+        } else {
+          await workersTable.put(next.workerId, { ...next, pending: current.pending });
+        }
+        return next;
+      });
+
+      if (source === 'turn-end' && !wakeText.includes('[Worker usage:')) {
+        const trailer = formatWorkerUsage({
+          turnCount: updatedRow.turnCount ?? 0,
+          ...(updatedRow.totalTokens !== undefined ? { totalTokens: updatedRow.totalTokens } : {}),
+          ...(updatedRow.tokensPartial ? { tokensPartial: true } : {}),
+        });
+        wakeText = `${wakeText}\n${trailer}`;
+      }
+
       await this.report(
-        row.rootId,
-        row.workerId,
+        updatedRow.rootId,
+        updatedRow.workerId,
         item.eventId,
-        `Worker ${row.label} (${row.workerId}): ${item.text}`,
+        `Worker ${updatedRow.label} (${updatedRow.workerId}): ${wakeText}`,
       );
       await pending.delete(key);
     });
@@ -364,10 +693,24 @@ export class LocalWorkers {
     if (row.runtime === 'dsh') throw new Error('Expected a CLI worker');
     const cwd = root.session.header.cwd;
     if (!cwd) throw new Error('Worker workspace is unavailable');
-    const notify = async (eventId: string, text: string, state?: WorkerReport['state']) => {
+    const notify = async (
+      eventId: string,
+      text: string,
+      state?: WorkerReport['state'],
+      source: WorkerReport['source'] = 'worker-report',
+      rawText?: string,
+    ) => {
       const current = (await this.domain).table('workers').get(row.workerId);
-      return this.deliver(reportKey(row.workerId, eventId), {rootId:root.id, workerId:row.workerId,
-        activationId:current?.activationId, eventId, text, state});
+      return this.deliver(reportKey(row.workerId, eventId), {
+        rootId: root.id,
+        workerId: row.workerId,
+        activationId: current?.activationId,
+        eventId,
+        text,
+        rawText: rawText ?? text,
+        source,
+        state,
+      });
     };
     const lifetime = new AbortController();
     let release = computer && await this.ctx.nanoComputer.bindWorker(root, row.workerId, computer.ref, computer.signal);
@@ -383,11 +726,13 @@ export class LocalWorkers {
       release = undefined;
     };
     let currentPermission = await this.bindPermissions?.(root, row, assignment, callId);
-    const bridge = await workerReportBridge(notify, computer ? (args, signal) => {
-      lifetime.signal.throwIfAborted();
-      return this.ctx.nanoComputer.callWorker(root, row.workerId, args, AbortSignal.any([signal, lifetime.signal]));
-    } : undefined)
-      .catch(error => { revoke(); throw error; });
+    const bridge = await workerReportBridge(
+      (id, message) => notify(id, message, undefined, 'worker-report', message),
+      computer ? (args, signal) => {
+        lifetime.signal.throwIfAborted();
+        return this.ctx.nanoComputer.callWorker(root, row.workerId, args, AbortSignal.any([signal, lifetime.signal]));
+      } : undefined,
+    ).catch(error => { revoke(); throw error; });
     try {
       computer?.signal.throwIfAborted();
       const cli = await openCliWorker({
@@ -399,24 +744,126 @@ export class LocalWorkers {
         computer: bridge.computer,
         onPermission: (action, signal) =>
           currentPermission ? currentPermission(action, signal) : Promise.resolve({ allow: false, reason: 'No live worker approval is available.' }),
-        onReport: notify,
+        onReport: (id, message) => notify(id, message, undefined, 'system-notice', message),
         onDetail: (id, detail) => this.serialize(this.changes, row.workerId, async () => {
           const table = (await this.domain).table('workers');
           const current = table.get(row.workerId);
           if (!current) return;
+          const now = Date.now();
           const eventId = JSON.stringify([row.workerId, detail.turnId, detail.fact.type, id]);
           const pending = current.pending ?? [];
-          if (pending.some(change => change.id === eventId)) return;
-          const change = {id: eventId, state: current.state, time: Date.now(), detail};
-          await table.put(row.workerId, {...current, pending: [...pending, change]});
-          this.workChanged(row.rootId);
+          const hasPending = pending.some(change => change.id === eventId);
+          const nextPending = hasPending
+            ? pending
+            : [...pending, { id: eventId, state: current.state, time: now, detail }];
+
+          let nextWorker: StoredWorker = {
+            ...current,
+            createdAt: current.createdAt ?? now,
+            updatedAt: now,
+            pending: nextPending,
+          };
+
+          const fact = detail.fact;
+          if (fact.type === 'message') {
+            const { role, text } = fact.payload;
+            if (role === 'user') {
+              await this.upsertCliHistoryLocked(row.workerId, row.rootId, {
+                dedupeKey: eventId,
+                time: now,
+                kind: 'message',
+                role: 'parent',
+                text: sanitizeWorkerValue(text, MAX_STORED_ENTRY_CHARS),
+              });
+            } else if (role === 'assistant') {
+              await this.upsertCliHistoryLocked(row.workerId, row.rootId, {
+                dedupeKey: eventId,
+                time: now,
+                kind: 'message',
+                role: 'worker',
+                text: sanitizeWorkerValue(text, MAX_STORED_ENTRY_CHARS),
+              });
+            } else {
+              await this.upsertCliHistoryLocked(row.workerId, row.rootId, {
+                dedupeKey: eventId,
+                time: now,
+                kind: 'system',
+                text: sanitizeWorkerValue(text, MAX_STORED_ENTRY_CHARS),
+              });
+            }
+          } else if (fact.type === 'tool_start') {
+            const { call_id, tool_name, arguments: toolArgs, presentation } = fact.payload;
+            const summary = presentation?.summary ?? extractToolSummary(toolArgs) ?? tool_name;
+            await this.upsertCliHistoryLocked(row.workerId, row.rootId, {
+              dedupeKey: `tool:${detail.turnId}:${call_id}`,
+              time: now,
+              kind: 'tool',
+              toolName: tool_name,
+              callId: call_id,
+              status: 'running',
+              summary,
+              text: '',
+            });
+          } else if (fact.type === 'tool_end') {
+            const { call_id, tool_name, is_error, duration_ms, reason_code, arguments: toolArgs, presentation } = fact.payload;
+            const summary = presentation?.summary ?? extractToolSummary(toolArgs) ?? tool_name;
+            const rawOutput = (presentation?.detail as { content?: unknown } | undefined)?.content;
+            await this.upsertCliHistoryLocked(row.workerId, row.rootId, {
+              dedupeKey: `tool:${detail.turnId}:${call_id}`,
+              time: now,
+              kind: 'tool',
+              toolName: tool_name,
+              callId: call_id,
+              status: is_error ? 'error' : 'ok',
+              summary,
+              text: sanitizeWorkerValue(rawOutput, MAX_STORED_ENTRY_CHARS),
+              ...(duration_ms !== undefined ? { durationMs: duration_ms } : {}),
+              ...(reason_code ? { reasonCode: reason_code } : {}),
+            });
+          } else if (fact.type === 'turn_end') {
+            const counted = new Set(current.countedTurnIds ?? []);
+            if (!counted.has(detail.turnId)) {
+              counted.add(detail.turnId);
+              const nextCounted = [...counted].slice(-500);
+              const turnTotal = fact.payload.usage?.total_tokens;
+              const nextTurnCount = (current.turnCount ?? 0) + 1;
+              let nextTotalTokens = current.totalTokens;
+              let nextPartial = current.tokensPartial;
+              if (isNonNegativeInt(turnTotal)) {
+                nextTotalTokens = (nextTotalTokens ?? 0) + turnTotal;
+              } else {
+                nextPartial = true;
+              }
+              nextWorker = {
+                ...nextWorker,
+                turnCount: nextTurnCount,
+                ...(nextTotalTokens !== undefined ? { totalTokens: nextTotalTokens } : {}),
+                ...(nextPartial ? { tokensPartial: true } : {}),
+                countedTurnIds: nextCounted,
+              };
+            }
+            const turnError = (fact.payload.error as { message?: unknown } | undefined)?.message;
+            if (fact.payload.status === 'failed' && typeof turnError === 'string' && turnError) {
+              const errMsg = turnError;
+              nextWorker = { ...nextWorker, latestError: clipPreview(errMsg) };
+              await this.upsertCliHistoryLocked(row.workerId, row.rootId, {
+                dedupeKey: `turn_error:${detail.turnId}`,
+                time: now,
+                kind: 'system',
+                text: sanitizeWorkerValue(errMsg, MAX_STORED_ENTRY_CHARS),
+              });
+            }
+          }
+
+          await table.put(row.workerId, nextWorker);
+          if (!hasPending) this.workChanged(row.rootId);
         }),
         onEnd: async (id, state, text) => {
           if (this.muted.has(row.workerId)) return;
           try {
             const ending = state === 'completed' ? 'This turn ended. The worker will do no further work unless you send it more.'
               : state === 'interrupted' ? 'The worker was interrupted.' : 'The worker failed before it finished.';
-            await notify('end:' + id, ending + '\n' + text, state);
+            await notify('end:' + id, ending + '\n' + text, state, 'turn-end', text);
           } finally {
             // Release an idle CLI, unless a newer correction already restarted the same session.
             void this.serialize(this.commands, root.id, async () => {
@@ -465,6 +912,7 @@ export class LocalWorkers {
       if (row.runtime === 'dsh') {
         if (action === 'send') {
           await this.ctx.subagents.sendMessage(root, SessionId(id), [{ type: 'text', text }], { signal });
+          await this.change(row, { updatedAt: Date.now() });
           return { workerId: id, accepted: true };
         }
         if (!['running', 'starting'].includes(row.state)) return { workerId: id, state: row.state };
@@ -486,12 +934,15 @@ export class LocalWorkers {
         dispatchCallId,
         computerRequestRef ? { ref: computerRequestRef, signal } : undefined,
       );
-      await this.change(row, { state: 'running' });
+      await this.change(row, { state: 'running', updatedAt: Date.now() });
       try {
         await cli.send(text);
       } catch (error) {
         await this.close(id);
-        await this.change(row, { state: 'failed' });
+        await this.change(row, {
+          state: 'failed',
+          latestError: clipPreview(error instanceof Error ? error.message : String(error)),
+        });
         throw error;
       }
       return { workerId: id, accepted: true };
@@ -527,7 +978,10 @@ export class LocalWorkers {
 
   async forget(roots: ReadonlySet<string>) {
     const domain = await this.domain;
-    for (const table of [domain.table('reports'), domain.table('workers')])
+    for (const [id, usage] of this.dshUsage) {
+      if (roots.has(usage.rootId)) this.dshUsage.delete(id);
+    }
+    for (const table of [domain.table('reports'), domain.table('workers'), domain.table('history')])
       for (const [id, row] of table.entries()) if (roots.has(row.rootId)) await table.delete(id);
   }
 }

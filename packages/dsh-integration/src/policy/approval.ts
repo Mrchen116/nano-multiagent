@@ -24,10 +24,11 @@ import { normalizeMessageArguments } from '../message-arguments.js';
 import type { CliWorkerOptions } from '../local-workers/drivers.js';
 import type { WorkerRecord } from '../local-workers/manager.js';
 import { isHumanSource } from '../input-source.js';
+import { globalWorkRole, isOrdinaryChild } from '../child-role.js';
 import type {} from '../computer/host.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
-const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'wait_agent', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'memory', ...cordisInspectTools]);
+const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'read_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'wait_agent', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'memory', ...cordisInspectTools]);
 const isInternalSendArgs = (value: unknown): boolean =>
   typeof (value as { agent?: unknown })?.agent === 'string'
   || typeof (value as { agent_id?: unknown })?.agent_id === 'string';
@@ -126,8 +127,9 @@ export class NanoApproval extends Service {
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
-    if (exec.name === 'send_user_message' || exec.name === 'send_message' && !isInternalSendArgs(exec.arguments)) exec = {...exec, arguments:normalizeMessageArguments(exec.arguments, exec.name === 'send_message')};
     const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
+    const allowInternalSend = !(config?.mode === 'global' && !isOrdinaryChild(agent) && !globalWorkRole(agent, config));
+    if (exec.name === 'send_user_message' || exec.name === 'send_message' && !(allowInternalSend && isInternalSendArgs(exec.arguments))) exec = {...exec, arguments:normalizeMessageArguments(exec.arguments, exec.name === 'send_message')};
     const downstream = await next();
     const message = exec.name === 'send_message' ? exec.arguments as {local_images?: unknown; local_files?: unknown; receipt_of?:unknown} : undefined;
     if (downstream.kind === 'ask' && (Array.isArray(message?.local_images) || Array.isArray(message?.local_files)))
@@ -163,7 +165,7 @@ export class NanoApproval extends Service {
         || exec.name === 'task_graph' && ['list', 'get'].includes((exec.arguments as { action: string }).action)
         || exec.name === 'workflow' && ['list', 'read'].includes((exec.arguments as { action: string }).action))
       || !['bash', 'send_message', 'send_user_message'].includes(exec.name) && exec.name !== 'computer_use' && policy.alwaysAllowTools.includes(exec.name)
-      || exec.name === 'send_message' && isInternalSendArgs(exec.arguments))) return allow('safe_tool');
+      || exec.name === 'send_message' && allowInternalSend && isInternalSendArgs(exec.arguments))) return allow('safe_tool');
     // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
     if (config.personal && policy.enabled && ['send_message', 'send_user_message'].includes(exec.name)) return allow('product_disclosure_gate');
     const messageContext = exec.name === 'send_message'

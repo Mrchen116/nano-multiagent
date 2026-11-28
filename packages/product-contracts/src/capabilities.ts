@@ -102,7 +102,7 @@ export function featureClosure(features: Record<string, boolean> = {}, definitio
  */
 export function fixedTools(mode: string | undefined, role: 'root' | 'personal' | 'subagent' = 'root', contextEnabled = true): string[] {
   return [
-    ...(mode === 'global' && role !== 'subagent' ? ['inbox', 'conversations', 'read_messages', 'search_messages', 'threads', 'send_message', 'download_attachment', 'delegate_worker', ...(role === 'personal' ? ['personal_sources', 'send_user_message'] : [])] : []),
+    ...(mode === 'global' && role !== 'subagent' ? ['inbox', 'conversations', 'read_messages', 'search_messages', 'threads', 'send_message', 'download_attachment', 'delegate_worker', 'read_worker', ...(role === 'personal' ? ['personal_sources', 'send_user_message'] : [])] : []),
     ...(contextEnabled ? [...contextWindowTools] : []),
   ];
 }
