@@ -4,8 +4,8 @@ Platform-Parity-Exempt: 本次修复聚焦 Crewden Desktop 原生宿主（macOS 
 
 ## Relations
 
-- Related: [IM - Desktop Client Specification](../../specs/im/desktop-client.md)
-- Related: [Gateway - Service Lifecycle Specification](../../specs/gateway/service-lifecycle.md)
+- Related: [IM - Desktop Client Specification](../../../specs/im/desktop-client.md)
+- Related: [Gateway - Service Lifecycle Specification](../../../specs/gateway/service-lifecycle.md)
 - Related: `bugfix-807-desktop-seed-retry`、`bugfix-810-desktop-node-lifecycle`、`bugfix-812-windows-installer-lifecycle`
 
 ## 原始报告
