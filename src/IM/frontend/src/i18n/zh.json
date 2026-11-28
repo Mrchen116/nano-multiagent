@@ -76,7 +76,7 @@
     },
     "userMenu": {
       "newAgent": "新建 Agent",
-      "nodes": "电脑",
+      "nodes": "节点",
       "models": "AI 模型与 API",
       "account": "账号",
       "policies": "用量与团队规则",
@@ -109,9 +109,9 @@
     "sections": {
       "account": "账号",
       "accountSubtitle": "个人资料与空间",
-      "nodes": "电脑",
-      "nodesSubtitle": "运行助手的电脑与连接状态",
-      "nodesConnectedPrefix": "运行助手的电脑",
+      "nodes": "节点",
+      "nodesSubtitle": "运行助手的电脑与服务器",
+      "nodesConnectedPrefix": "运行助手的电脑与服务器",
       "models": "AI 模型与 API",
       "modelsSubtitle": "模型接入与 API 密钥配置",
       "policies": "用量与团队规则",
@@ -150,7 +150,7 @@
   "settings": {
     "nav": {
       "agents": "智能体",
-      "nodes": "电脑",
+      "nodes": "节点",
       "account": "账号"
     },
     "models": {
@@ -159,9 +159,9 @@
       "backToModels": "← AI 模型与 API"
     },
     "nodes": {
-      "title": "电脑",
-      "subtitle": "管理已连接的电脑和电脑端更新。",
-      "loading": "正在加载电脑…",
+      "title": "节点",
+      "subtitle": "管理已连接的节点（电脑与服务器）及更新。",
+      "loading": "节点加载中…",
       "empty": "还没有绑定设备",
       "emptyBody": "绑定设备后，就可以在上面运行和管理自己的 Agent。",
       "bindStart": "在你的设备上启动 Gateway，并连接到此 IM。",
@@ -396,10 +396,10 @@
     "loadError": "无法加载 Agent 列表。",
     "unavailablePrivate": "该助手不存在或当前未对外开放。",
     "retry": "重试",
-    "openNodes": "前往电脑",
+    "openNodes": "前往节点",
     "empty": {
       "title": "还没有 Agent",
-      "body": "前往电脑页，在已连接且在线的电脑上创建第一个助手。"
+      "body": "前往节点页，在已连接且在线的节点上创建第一个助手。"
     },
     "rowStatus": {
       "online": "{{id}} 在线",

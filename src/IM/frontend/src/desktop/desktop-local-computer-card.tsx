@@ -35,8 +35,8 @@ function localizeConfigSaveError(err: unknown, zh: boolean): string {
   }
   if (code === "unregistered_approval_model" || raw.includes("tool_approval_model is not registered")) {
     return zh
-      ? "所选专用自动审批模型尚未在本机模型目录注册，请先选择已注册模型或恢复默认继承。"
-      : "The selected dedicated approval model is not registered on this computer.";
+      ? "所选安全审核模型尚未在本机注册，请先在「AI 模型与 API」中添加或恢复默认跟随。"
+      : "The selected safety review model is not registered yet; add it in AI Models & API or reset to default.";
   }
   if (code === "invalid_env_var" || raw.includes("environment variable") || raw.includes("managed automatically")) {
     return zh
@@ -45,14 +45,14 @@ function localizeConfigSaveError(err: unknown, zh: boolean): string {
   }
   if (code === "restart_rolled_back" || raw.includes("rolled back")) {
     return zh
-      ? "新配置重启后未能正常就绪，已自动回退至原先可用的节点配置与运行状态。"
+      ? "新设置重启后未能正常就绪，已自动回退至原先可用的设置与运行状态。"
       : "Restart failed under the new settings; automatically rolled back to the previous working configuration.";
   }
-  return raw || (zh ? "保存配置失败，已保留原可用配置。" : "Failed to apply settings; previous configuration preserved.");
+  return raw || (zh ? "保存设置失败，已保留原可用设置。" : "Failed to apply settings; previous configuration preserved.");
 }
 
 const WORKER_LABELS: Record<WorkerRuntime, { zh: string; en: string }> = {
-  dsh: { zh: "内置 DSH 运行时（默认）", en: "Bundled DSH runtime (Default)" },
+  dsh: { zh: "内置默认引擎（开箱即用）", en: "Built-in default engine (Ready out of the box)" },
   codex: { zh: "Codex CLI", en: "Codex CLI" },
   claude: { zh: "Claude Code", en: "Claude Code" },
   antigravity: { zh: "Antigravity CLI", en: "Antigravity CLI" },
@@ -116,6 +116,8 @@ export function DesktopLocalComputerCard({
 
   const [logQuery, setLogQuery] = useState("");
   const [logCopied, setLogCopied] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
 
   function syncDraftFromInspect(data: DesktopLocalInspectResponse) {
     setWorkerRuntime(data.worker_runtime ?? "dsh");
@@ -281,12 +283,12 @@ export function DesktopLocalComputerCard({
               {running ? (
                 <span className="desktop-chip online">
                   <span className="desktop-status-dot online" />
-                  {text("本机在线 · 运行时正常", "Online · Runtime ready")}
+                  {text("在线 · 运行正常", "Online · Ready")}
                 </span>
               ) : (
                 <span className="desktop-chip muted">
                   <span className="desktop-status-dot" />
-                  {text("本机节点已停止", "Local node stopped")}
+                  {text("已停止运行", "Stopped")}
                 </span>
               )}
               {matchedNode && (
@@ -376,8 +378,8 @@ export function DesktopLocalComputerCard({
           <strong style={{ fontSize: 13 }}>{text("开机登录自启", "Start at login")}</strong>
           <span style={{ fontSize: 12, color: "var(--im-text-muted)", marginLeft: 6 }}>
             {text(
-              "登录系统后静默驻留托盘并自动拉起本机节点（免重启即时保存）",
-              "Stay silently in tray/menubar on login and start local node automatically (saved without restarting active tasks)",
+              "登录电脑后静默驻留托盘并在后台自动启动（即时保存，不打断当前任务）",
+              "Stay silently in tray/menubar on login and start automatically in the background (saved instantly)",
             )}
           </span>
         </div>
@@ -404,30 +406,44 @@ export function DesktopLocalComputerCard({
         />
       )}
 
-      <details className="local-section-disclosure">
+      <details className="local-section-disclosure" onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
         <summary>
           <span>
             {text(
-              "本机运行配置（Worker 框架 · 网络代理 · 审批模型 · 环境变量）",
-              "Local runtime settings (Workers · Proxy · Approval model · Environment)",
+              "高级运行设置（外部编程工具 · 网络代理 · 安全审核模型 · 环境变量）",
+              "Advanced runtime settings (External coding tools · Proxy · Safety review model · Environment)",
             )}
           </span>
           <span style={{ fontSize: 12, color: "var(--im-accent)" }}>
-            {dirty ? text("● 有待保存修改", "● Unsaved changes") : text("展开配置 ▾", "Expand ▾")}
+            {dirty
+              ? text("● 有待保存修改", "● Unsaved changes")
+              : advancedOpen
+                ? text("收起设置 ▴", "Collapse ▴")
+                : text("展开设置 ▾", "Expand ▾")}
           </span>
         </summary>
         <div className="local-sections-grid">
           <div className="local-panel-box">
-            <h3>{text("一级委派 Worker 框架", "Delegated Worker runtime")}</h3>
-            <p className="hint">{text("按合并后的运行 PATH 实时探测本机可执行状态。", "Probed against merged service PATH in real time.")}</p>
-            <div className="local-worker-options" role="radiogroup" aria-label={text("本机一级委派 Worker 框架", "Delegated Worker runtime")}>
+            <h3>{text("外部编程工具接入", "External coding tools")}</h3>
+            <p className="hint">
+              {text(
+                "选择助手处理编程与复杂电脑任务时使用的引擎；电脑上装好的工具会自动识别。",
+                "Choose the engine assistants use for coding and complex tasks; installed CLI tools are detected automatically.",
+              )}
+            </p>
+            <div className="local-worker-options" role="radiogroup" aria-label={text("外部编程工具接入", "External coding tools")}>
               {workerRuntimes.map((rt) => {
                 const probe = workers.find((w) => w.runtime === rt);
                 const available = rt === "dsh" ? true : Boolean(probe?.available);
                 const detailText =
-                  probe?.resolved_path
-                    ? `${text("已检测到", "Detected")} · ${probe.resolved_path}`
-                    : probe?.detail || (rt === "dsh" ? text("随应用受管提供 · 已就绪", "Bundled · Ready") : text("未检测到可执行文件", "Not found in PATH"));
+                  rt === "dsh"
+                    ? text("随客户端内置 · 无需额外安装", "Built into Crewden · No extra install needed")
+                    : probe?.resolved_path
+                      ? `${text("已检测到", "Detected")} · ${probe.resolved_path}`
+                      : text(
+                          "本机暂未安装（安装后自动识别，也可在下方补充 PATH）",
+                          "Not installed yet (auto-detected once installed, or add PATH below)",
+                        );
                 return (
                   <button
                     key={rt}
@@ -446,7 +462,7 @@ export function DesktopLocalComputerCard({
                       <small>{detailText}</small>
                     </div>
                     <span className={`desktop-chip ${available ? "online" : "warn"}`}>
-                      {available ? text("可用", "Ready") : text("未就绪", "Missing")}
+                      {available ? text("可用", "Ready") : text("未安装", "Not found")}
                     </span>
                   </button>
                 );
@@ -455,8 +471,13 @@ export function DesktopLocalComputerCard({
           </div>
 
           <div className="local-panel-box">
-            <h3>{text("网络代理与专用审批模型", "Network proxy & approval model")}</h3>
-            <p className="hint">{text("仅支持 HTTP/HTTPS 代理地址，自动同步本机出站与子进程代理变量。", "HTTP/HTTPS proxies only; automatically syncs all 9 outbound proxy variables.")}</p>
+            <h3>{text("网络代理与安全审核模型", "Network proxy & safety review model")}</h3>
+            <p className="hint">
+              {text(
+                "为助手联网与命令行工具统一配置 HTTP/HTTPS 代理，或指定独立模型审核敏感操作。",
+                "Route assistant and CLI traffic through an HTTP/HTTPS proxy, or pick a dedicated model to review sensitive actions.",
+              )}
+            </p>
             <div className="local-toggle-row">
               <strong style={{ fontSize: 13 }}>{text("启用本机 HTTP/HTTPS 代理", "Enable HTTP/HTTPS proxy")}</strong>
               <button
@@ -504,7 +525,7 @@ export function DesktopLocalComputerCard({
               />
             </div>
             <div className="local-field" style={{ marginBottom: approvalSelect === "__custom__" ? 8 : 0 }}>
-              <label htmlFor="desktop-approval-model">{text("专用自动审批模型", "Dedicated approval model")}</label>
+              <label htmlFor="desktop-approval-model">{text("安全审核模型", "Safety review model")}</label>
               <select
                 id="desktop-approval-model"
                 className="desktop-select-input"
@@ -518,7 +539,7 @@ export function DesktopLocalComputerCard({
                 <option value="">{text("跟随各助手自身模型（默认）", "Follow each assistant's model (Default)")}</option>
                 {(inspect.registered_models ?? []).map((m) => (
                   <option key={m.name} value={m.name}>
-                    {m.name}（{m.display_name || text("已注册", "Registered")}）
+                    {m.name}（{m.display_name || text("已添加", "Added")}）
                   </option>
                 ))}
                 <option value="__custom__">{text("手动输入模型标识…", "Enter custom model identifier…")}</option>
@@ -528,7 +549,7 @@ export function DesktopLocalComputerCard({
               <div className="local-field" style={{ marginBottom: 0 }}>
                 <input
                   className="desktop-text-input"
-                  aria-label={text("自定义审批模型标识", "Custom approval model identifier")}
+                  aria-label={text("自定义安全审核模型标识", "Custom safety review model identifier")}
                   placeholder="provider:model-id"
                   value={customApprovalModel}
                   onChange={(e) => {
@@ -543,7 +564,7 @@ export function DesktopLocalComputerCard({
 
           <div className="local-panel-box full">
             <h3>
-              <span>{text("本机运行环境变量", "Local environment variables")}</span>
+              <span>{text("本机环境变量", "Environment variables")}</span>
               <button
                 type="button"
                 className="desktop-btn subtle compact"
@@ -556,7 +577,12 @@ export function DesktopLocalComputerCard({
                 + {text("添加变量", "Add variable")}
               </button>
             </h3>
-            <p className="hint">{text("独立管理非代理环境变量（如自定义工具 PATH、本地搜索地址）。", "Manage non-proxy environment variables (such as custom PATH or local tool endpoints).")}</p>
+            <p className="hint">
+              {text(
+                "为本机命令行工具补充自定义环境变量（例如自定义 PATH 目录或内网工具地址）。",
+                "Pass custom environment variables to local CLI tools (such as custom PATH folders or internal service URLs).",
+              )}
+            </p>
             <div className="local-env-list">
               {envVars.map((row, idx) => (
                 <div key={idx} className="env-item-card">
@@ -627,17 +653,17 @@ export function DesktopLocalComputerCard({
                           `当前有 ${inspect.active_tasks} 项本机任务正在执行；点击保存时会再次向你确认重启时机。`,
                           `${inspect.active_tasks} task(s) currently running; you will be asked to confirm before restarting.`,
                         )
-                      : text("保存后将自动重启本机节点并验证恢复上线。", "Saving restarts the local node and verifies readiness.")}
+                      : text("保存后将自动平滑重启本机服务以应用新设置。", "Saving smoothly restarts the local service to apply changes.")}
                   </>
                 ) : (
                   <>
                     <strong>{text("有待保存修改：", "Unsaved changes: ")}</strong>
-                    {text("保存后将写入本机配置，下次启动即生效。", "Saving updates local configuration for the next start.")}
+                    {text("保存后将写入本机设置，下次启动即生效。", "Saving updates local settings for the next start.")}
                   </>
                 )
               ) : (
                 <span style={{ color: "var(--im-text-muted)" }}>
-                  {text("当前显示的是本机节点已确认生效的配置。", "Showing the active confirmed configuration of this computer.")}
+                  {text("当前显示的是这台电脑正在生效的设置。", "Showing the active settings on this computer.")}
                 </span>
               )}
             </div>
@@ -715,8 +741,8 @@ export function DesktopLocalComputerCard({
                     {configMutation.isPending
                       ? text("正在保存…", "Saving…")
                       : running
-                        ? text("保存并重启本机节点", "Save and restart local node")
-                        : text("保存配置", "Save settings")}
+                        ? text("保存并重启生效", "Save & restart to apply")
+                        : text("保存设置", "Save settings")}
                   </button>
                 </>
               )}
@@ -725,10 +751,12 @@ export function DesktopLocalComputerCard({
         </div>
       </details>
 
-      <details className="local-section-disclosure">
+      <details className="local-section-disclosure" onToggle={(e) => setLogsOpen(e.currentTarget.open)}>
         <summary>
           <span>{text("本机运行日志与连接诊断", "Local logs & diagnostics")}</span>
-          <span style={{ fontSize: 12, color: "var(--im-text-muted)" }}>{text("查看 / 搜索日志 ▾", "View / search logs ▾")}</span>
+          <span style={{ fontSize: 12, color: "var(--im-text-muted)" }}>
+            {logsOpen ? text("收起日志 ▴", "Collapse logs ▴") : text("查看 / 搜索日志 ▾", "View / search logs ▾")}
+          </span>
         </summary>
         <div style={{ padding: "4px 22px 20px" }}>
           <div className="local-log-toolbar">

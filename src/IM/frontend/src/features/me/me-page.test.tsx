@@ -71,8 +71,8 @@ describe("MePage", () => {
     expect(screen.queryByText("user-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("me-row-account")).toHaveAttribute("href", "/settings/account");
     expect(screen.getByTestId("me-row-nodes")).toHaveAttribute("href", "/settings/nodes");
-    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent("Computers");
-    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent(/Computers running your assistants/i);
+    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent("Nodes");
+    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent(/Computers and servers running your assistants/i);
     expect(screen.getByRole("link", { name: /AI Models & API/i })).toHaveAttribute("href", "/settings/models");
     expect(screen.getByRole("link", { name: /AI Models & API/i })).toHaveTextContent(/AI model providers and API keys/i);
     expect(screen.getByTestId("me-row-policies")).toHaveAttribute("href", "/settings/policies");
@@ -104,8 +104,8 @@ describe("MePage", () => {
     renderMe();
     await userEvent.click(screen.getByRole("button", { name: /^中$/ }));
     expect(screen.getByRole("heading", { name: "我" })).toBeInTheDocument();
-    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent("电脑");
-    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent("运行助手的电脑与连接状态");
+    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent("节点");
+    expect(screen.getByTestId("me-row-nodes")).toHaveTextContent("运行助手的电脑与服务器");
     expect(screen.getByRole("link", { name: /AI 模型与 API/ })).toHaveTextContent("模型接入与 API 密钥配置");
     expect(screen.getByTestId("me-row-policies")).toHaveTextContent("用量与团队规则");
     expect(screen.getByTestId("me-row-policies")).toHaveTextContent("附件存储用量与团队运行预设");

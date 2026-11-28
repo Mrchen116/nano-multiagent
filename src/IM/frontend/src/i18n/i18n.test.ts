@@ -63,12 +63,12 @@ describe("i18n", () => {
     expect(collectKeys(zh.shell, "shell")).toEqual(collectKeys(en.shell, "shell"));
     expect(collectKeys(zh.me, "me")).toEqual(collectKeys(en.me, "me"));
     setLanguage("zh");
-    expect(i18n.t("shell.userMenu.nodes")).toBe("电脑");
+    expect(i18n.t("shell.userMenu.nodes")).toBe("节点");
     expect(i18n.t("shell.userMenu.models")).toBe("AI 模型与 API");
     expect(i18n.t("shell.userMenu.policies")).toBe("用量与团队规则");
     expect(i18n.t("company.title")).toBe("成员管理");
     setLanguage("en");
-    expect(i18n.t("shell.userMenu.nodes")).toBe("Computers");
+    expect(i18n.t("shell.userMenu.nodes")).toBe("Nodes");
     expect(i18n.t("shell.userMenu.models")).toBe("AI Models & API");
     expect(i18n.t("shell.userMenu.policies")).toBe("Usage & Policies");
     expect(i18n.t("company.title")).toBe("Team members");

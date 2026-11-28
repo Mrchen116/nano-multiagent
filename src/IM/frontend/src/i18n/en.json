@@ -76,7 +76,7 @@
     },
     "userMenu": {
       "newAgent": "New agent",
-      "nodes": "Computers",
+      "nodes": "Nodes",
       "models": "AI Models & API",
       "account": "Account",
       "policies": "Usage & Policies",
@@ -109,8 +109,8 @@
     "sections": {
       "account": "Account",
       "accountSubtitle": "Profile and spaces",
-      "nodes": "Computers",
-      "nodesSubtitle": "Computers running your assistants",
+      "nodes": "Nodes",
+      "nodesSubtitle": "Computers and servers running your assistants",
       "nodesConnectedPrefix": "Runs your assistants",
       "models": "AI Models & API",
       "modelsSubtitle": "AI model providers and API keys",
@@ -150,7 +150,7 @@
   "settings": {
     "nav": {
       "agents": "Agents",
-      "nodes": "Computers",
+      "nodes": "Nodes",
       "account": "Account"
     },
     "models": {
@@ -159,9 +159,9 @@
       "backToModels": "← AI Models & API"
     },
     "nodes": {
-      "title": "Computers",
-      "subtitle": "Manage connected computers and desktop updates.",
-      "loading": "Loading computers…",
+      "title": "Nodes",
+      "subtitle": "Manage connected nodes (computers and servers) and updates.",
+      "loading": "Loading nodes…",
       "empty": "No devices bound yet",
       "emptyBody": "Bind a device to run and manage your own Agents.",
       "bindStart": "Start Gateway on your device and connect it to this IM.",
@@ -396,10 +396,10 @@
     "loadError": "Could not load agents.",
     "unavailablePrivate": "This assistant does not exist or is currently private.",
     "retry": "Retry",
-    "openNodes": "Open Computers",
+    "openNodes": "Open Nodes",
     "empty": {
       "title": "No agents yet",
-      "body": "Open Computers to create your first assistant on an online connected computer."
+      "body": "Open Nodes to create your first assistant on an online connected node."
     },
     "rowStatus": {
       "online": "{{id}} online",

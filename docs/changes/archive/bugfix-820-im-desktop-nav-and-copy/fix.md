@@ -80,11 +80,12 @@ Agent 解读：
 2. **「日常 Chrome 浏览器」配对卡片明确传达控制能力与隔离边界（Issue H）**：
    - 更新 `src/IM/frontend/src/features/settings/nodes/browser-pairing-section.tsx`（含 `desktop-strip`、`drawer`、`agent-callout` 三种变体及未配对/已配对/已验证/需重新配对/未装 Chrome 各状态）的中英文文案，清晰说明连接后助手可在后台标签页操作该 Chrome（打开网页、点击、输入、读取页面与截图）并复用已登录网站会话，未连接或无需个人登录态时使用干净隔离浏览器（独立环境，不触碰个人浏览器数据）；
    - 调整 `src/IM/frontend/src/features/settings/nodes/browser-pairing-section.css` 头排与全宽摘要段落结构，避免英文窄抽屉下操作按钮掉行。
-3. **消除内部 UUID 与硬编码词条，统一中英文用户向术语与副标题（Issue I）**：
+3. **消除内部 UUID 与硬编码词条，保留「节点 / Nodes」核心概念并统一通俗术语与 Desktop 高级运行设置文案（Issue I + 用户审查增量反馈）**：
    - `MePage` 身份卡副标题由裸露 `user.id` 改为 `@username`（缺失用户名时不渲染空 `@` 且不回退暴露内部 ID）；
    - 消除 `UserMenu`（`src/IM/frontend/src/app/shell/user-menu.tsx`）、`MePage`、`ModelsPage` 与 `ModelServicesPanel` 中硬编码的 `'模型服务' : 'Model services'`，统一纳入 `src/IM/frontend/src/i18n/{zh,en}.json`；
-   - 将残留的 `节点 / Nodes` 与 `资料与网关 / Nodes and gateway` 统一为 `电脑 / Computers`（含窄屏连接摘要副标题与 Agent 空态 `前往电脑 / Open Computers`），模型入口统一为 `AI 模型与 API / AI Models & API`，策略入口按真实页面能力统一为 `用量与团队规则 / Usage & Policies`（明确说明「附件存储用量与团队运行预设」），公司成员入口统一为 `成员管理 / Team members`，并为 `MePage` 各管理行补齐简洁用途副标题；
-   - 将上述用户可见导航、术语与日常 Chrome 配对说明契约同步归并至 `docs/specs/im/web-chat-ux.md` 与 `docs/specs/im/agents-nodes.md`。
+   - 按用户审查确认保留 `节点 / Nodes` 核心产品概念（覆盖个人电脑与无头服务器），将 `MePage` 中晦涩的 `资料与网关 / Nodes and gateway` 副标题更新为 `运行助手的电脑与服务器 / Computers and servers running your assistants`；模型入口统一为 `AI 模型与 API / AI Models & API`，策略入口按真实页面能力统一为 `用量与团队规则 / Usage & Policies`（明确说明「附件存储用量与团队运行预设」），公司成员入口统一为 `成员管理 / Team members`，并为 `MePage` 各管理行补齐简洁用途副标题；
+   - 将 Desktop 本机卡片（`src/IM/frontend/src/desktop/desktop-local-computer-card.tsx`）折叠栏与内部面板中的内部架构黑话（`本机运行配置（Worker 框架 · 网络代理 · 审批模型 · 环境变量）`、`一级委派 Worker 框架`、`内置 DSH 运行时` 及暴露内部 `node.exe` 路径、`专用自动审批模型`）更新为通俗表达（`高级运行设置（外部编程工具 · 网络代理 · 安全审核模型 · 环境变量）`、`外部编程工具接入`、`内置默认引擎（开箱即用）` / `随客户端内置 · 无需额外安装`、`安全审核模型`）；
+   - 将上述用户可见导航、术语、日常 Chrome 配对说明及 Desktop 高级运行设置契约同步归并至 `docs/specs/im/web-chat-ux.md`、`docs/specs/im/agents-nodes.md` 与 `docs/specs/im/desktop-client.md`。
 
 ## 验证
 

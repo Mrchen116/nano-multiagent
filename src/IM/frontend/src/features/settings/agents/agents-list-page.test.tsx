@@ -103,7 +103,7 @@ describe("agents list page", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
 
     expect(await screen.findByText(/No agents yet/i)).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /Open Computers/i })[0]).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: /Open Nodes/i })[0]).toHaveAttribute(
       "href",
       "/settings/nodes"
     );
