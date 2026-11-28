@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { useTranslation } from '../../../i18n';
 import { useAuthStore } from '../../auth/auth-store';
 import { getPersonalAgent, type PersonalAgentState } from '../../personal-agent/personal-agent-api';
@@ -11,7 +12,7 @@ export function usePersonalAgentEntry() {
 }
 
 export function configuredPersonalAgent(state?: PersonalAgentState) {
-  return !state?.creation && state?.binding?.status === 'active' ? state.binding : null;
+  return !state?.creation && state?.binding && state.binding.status !== 'pending' ? state.binding : null;
 }
 
 /** One owner entry shared by the list and detail/create navigation rails. */
@@ -24,7 +25,7 @@ export function PersonalAgentEntry({state, failed, search, agent, isMobile, isAc
   const matches = binding && `${binding.display_name} ${binding.agent_id} ${t('pa.label')} ${agent?.description ?? ''}`.toLowerCase().includes(search.trim().toLowerCase());
   return <>
     {failed && <div className="agents-pa-feedback" role="status"><span>{t('pa.retry')}</span><button onClick={onRetry} type="button">{t('agents.retry')}</button></div>}
-    {state?.creation && <p className="agents-pa-feedback">{t('agents.paSettingUp')}</p>}
+    {state?.creation && <div className="agents-pa-feedback" role="status"><span>{t('agents.paSettingUp')}</span><Link to="/onboarding">{t('firstUse.continue')}</Link></div>}
     {matches && <section className="agents-pa-section" aria-label={t('pa.create')}>
       <h2>{t('pa.create')}</h2>
       <AgentRow agent={{...agent, agent_id: binding.agent_id, display_name: binding.display_name, description: agent?.description ?? '', role: 'personal', owner_id: agent?.owner_id ?? self}} nodes={[]} isActive={isActive} isMobile={isMobile} onSelect={onSelect} />

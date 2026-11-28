@@ -65,7 +65,7 @@ struct AgentContractsTests {
         #expect(preview["initial_role"] == nil)
         #expect(preview["custom_prompt"] == nil)
         #expect(preview["skill_ids"] == .array([.string("guide")]))
-        #expect(preview["tool_ids"] == .array(["conversations", "delegate_worker", "download_attachment", "inbox", "read_messages", "search_messages", "send_message", "threads"].map(JSONValue.string)))
+        #expect(preview["tool_ids"] == .array(["conversations", "delegate_worker", "download_attachment", "inbox", "read_messages", "read_worker", "search_messages", "send_message", "threads"].map(JSONValue.string)))
         #expect(preview["scenario"] == .string("direct"))
         #expect(preview["workspace_mode"] == .string("custom"))
         draft.skills_selection_mode = "explicit_allowlist"

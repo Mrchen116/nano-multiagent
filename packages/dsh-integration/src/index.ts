@@ -63,6 +63,7 @@ import { TrajectoryAttachments } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
 import { SubagentRecovery } from './subagent-recovery.js';
 import {LocalWorkers} from './local-workers/manager.js';
+import { formatWorkerUsage } from './local-workers/inspector.js';
 import { InterruptedWork } from './interrupted-work.js';
 import { SessionDeletion } from './agent-deletion.js';
 import { ownedLinks, purgeDerived } from './agent-deletion-derived.js';
@@ -159,10 +160,27 @@ export default class NanoRuntime {
       if (message.type === 'error') cleanup.getStore()?.push(String(message.args[0]?.stack ?? message.args[0] ?? 'Runtime cleanup error'));
     }});
     const liveAgents = new WeakSet<Agent>();
+    let workers!: LocalWorkers;
     ctx.on('agent/inbox/inserted', ({agent, message}) => {
-      if (!liveAgents.has(agent) || message.source.kind !== 'schedule' || 'lifecycle_revision' in message.source) return;
-      const agentId = this.ownerOf(agent.id);
-      if (agentId) agent.inbox.replace(message.id, freezeMessage({...message, source: {...message.source, lifecycle_revision: this.lifecycle.current(agentId).revision}}));
+      if (!liveAgents.has(agent)) return;
+      if (message.source.kind === 'schedule' && !('lifecycle_revision' in message.source)) {
+        const agentId = this.ownerOf(agent.id);
+        if (agentId) agent.inbox.replace(message.id, freezeMessage({...message, source: {...message.source, lifecycle_revision: this.lifecycle.current(agentId).revision}}));
+        return;
+      }
+      if (message.source.kind === 'subagent-settled' && workers && this.bindings.has(agent.id)) {
+        const alreadyAnnotated = message.content.some(block => block.type === 'text' && block.text.startsWith('[Worker usage:'));
+        if (alreadyAnnotated) return;
+        const usage = workers.getDshUsageSync(agent.id, message.source.senderSessionId);
+        if (!usage) return;
+        agent.inbox.replace(message.id, freezeMessage({
+          ...message,
+          content: [...message.content, { type: 'text', text: formatWorkerUsage(usage) }],
+        }));
+      }
+    });
+    ctx.on('agent/disposed', ({agent}) => {
+      if (workers && agent.session.header.origin === 'subagent') workers.captureDshUsageSync(agent.session);
     });
     let terminals: Context['terminals'] | undefined;
     ctx.inject(['terminals'], child => { terminals = child.terminals; child.effect(() => () => { terminals = undefined; }); });
@@ -183,7 +201,7 @@ export default class NanoRuntime {
     });
     this.chatScope = new ChatScope(ctx,id=>this.bindings.get(id)?.agentId);
     new TrajectoryRuns(ctx);
-    const workers=new LocalWorkers(ctx,async(root,worker,event,text)=>{
+    workers=new LocalWorkers(ctx,async(root,worker,event,text)=>{
       const binding=this.bindings.get(root);
       if(!binding)throw new Error('Worker parent is no longer bound');
       const messageId=`worker:${worker}:${event}`;
@@ -459,8 +477,10 @@ export default class NanoRuntime {
     });
     const toolViews = recordToolPresentations(ctx, process.env.DSH_HOME!);
     ctx.on('session/event', (session, event) => {
-      if (event.type === 'turn/end' && session.header.origin === 'subagent' && session.isOwnSeq(event.seq))
+      if (event.type === 'turn/end' && session.header.origin === 'subagent' && session.isOwnSeq(event.seq)) {
+        workers.captureDshUsageSync(session);
         void captureWorkerTurns(session).catch(error=>ctx.logger.error(error));
+      }
       const rootSessionId = boundRoot(session.id);
       if (rootSessionId) {
         const discovered = descendantReader.remember(session,event,rootSessionId);

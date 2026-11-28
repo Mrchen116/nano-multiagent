@@ -15,6 +15,7 @@ import * as Label from "@radix-ui/react-label";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useBlocker, useNavigate, useParams } from "react-router-dom";
 
+import { useDesktopUnsavedForm } from "../../../desktop/use-desktop-unsaved-form";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
@@ -395,6 +396,7 @@ export function AgentCreatePage() {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [isDirty, setIsDirty] = useState(false);
+  useDesktopUnsavedForm(isDirty);
   const allowExitRef = useRef(false);
   const autoDefaultToolsRef = useRef<string[]>([]);
   const toolsEditedRef = useRef(false);

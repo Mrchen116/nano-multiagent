@@ -66,16 +66,19 @@ export function CompanyMembersPage() {
       ...(member.avatar_version !== undefined ? { avatar_version: member.avatar_version } : {}),
     }))}>
     <section className="company-page" aria-label={t("company.title")}>
-      {isMobile && (
-        <div className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b border-im-border bg-[oklch(0.97_0.004_240)] px-1">
-          <Link to="/me" aria-label={t("common.back")} className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] hover:bg-im-surface-2">‹</Link>
-          <h1 className="m-0 text-[16px] font-bold tracking-tight">{t("company.title")}</h1>
-        </div>
-      )}
       <div className="company-content">
+        {isMobile && (
+          <Link
+            to="/me"
+            data-testid="company-page-back"
+            className="company-page-back"
+          >
+            ‹ {t("me.title")}
+          </Link>
+        )}
         <header className="company-heading">
           <div>
-            {!isMobile && <h1 className="company-title">{t("company.title")}</h1>}
+            <h1 className="company-title">{t("company.title")}</h1>
             <p className="company-description">{t("company.subtitle")}</p>
           </div>
           <button type="button" className="company-refresh" aria-label={t("company.refreshList")} title={t("company.refreshList")} disabled={query.isFetching} onClick={() => void query.refetch()}>

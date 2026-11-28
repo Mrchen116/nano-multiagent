@@ -1,8 +1,10 @@
 import { Avatar } from "../chat/components/avatar";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 
 import { UserMenuIcon } from "../../app/shell/user-menu-icons";
 import { isDesktopClient } from "../../desktop/desktop-context";
+import { DesktopCompactUpdateBox } from "../../desktop/desktop-update-pill";
+import { useIsMobile } from "../../hooks/use-is-mobile";
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { useQuery } from "@tanstack/react-query";
@@ -21,19 +23,26 @@ const ROW_BASE =
 const ICON_BASE =
   "flex w-[28px] h-[28px] shrink-0 items-center justify-center";
 const LABEL = "flex-1 min-w-0 m-0 text-[15px] font-medium text-[oklch(0.14_0.01_240)]";
+const SUBTITLE = "m-0 mt-[2px] text-[12px] text-[oklch(0.55_0.01_240)]";
 const LABEL_DANGER = "flex-1 min-w-0 m-0 text-[15px] font-medium text-red-600 text-[oklch(0.50_0.15_25)]";
 const CHEVRON = "shrink-0 text-[18px] font-light text-[oklch(0.70_0.01_240)]";
 
 export function MePage() {
+  const isMobile = useIsMobile();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const lang = getCurrentLanguage();
 
-  const nodesQuery = useQuery({ queryKey: ["settings", "nodes"], queryFn: listNodes, staleTime: 30_000 });
+  const nodesQuery = useQuery({ queryKey: ["settings", "nodes"], queryFn: listNodes, enabled: isMobile, staleTime: 30_000 });
   const ownedNodes = (nodesQuery.data ?? []).filter((n) => user?.owned_node_ids?.includes(n.node_id));
   const onlineCount = ownedNodes.filter((n) => n.status === "online").length;
   const offlineCount = ownedNodes.length - onlineCount;
+
+  // Desktop viewports have persistent primary navigation and UserMenu; never trap desktop users in the mobile hub.
+  if (!isMobile) {
+    return <Navigate to="/settings/account" replace />;
+  }
 
   const handleSignOut = () => {
     navigate("/login", { replace: true, state: { signOut: true } });
@@ -43,6 +52,14 @@ export function MePage() {
     setLanguage(next);
   };
 
+  const nodesSubtitle =
+    ownedNodes.length > 0
+      ? `${t("me.sections.nodesConnectedPrefix")} · ${t("computers.summary", {
+          count: ownedNodes.length,
+          total: ownedNodes.length,
+          online: onlineCount
+        })}${offlineCount > 0 ? ` · ${offlineCount} ${t("common.offline")}` : ""}`
+      : t("me.sections.nodesSubtitle");
 
   return (
     <section className={`im-me-page ${PAGE_BG} flex-1 overflow-y-auto pb-6`} data-testid="me-page">
@@ -58,17 +75,25 @@ export function MePage() {
         <span data-testid="me-identity-avatar"><Avatar id={user?.id ?? ""} size={62} /></span>
         <div className="flex-1 min-w-0">
           <p className="m-0 text-[20px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)] truncate">
-            {user?.display_name ?? user?.username ?? ""}
+            {user?.display_name || user?.username || ""}
           </p>
-          <p
-            className="mt-[5px] text-[13px] font-mono text-[oklch(0.55_0.01_240)] truncate"
-            data-testid="me-identity-user-id"
-          >
-            {user?.id ?? ""}
-          </p>
+          {user?.username ? (
+            <p
+              className="mt-[4px] text-[13px] text-[oklch(0.55_0.01_240)] truncate"
+              data-testid="me-identity-username"
+            >
+              @{user.username}
+            </p>
+          ) : null}
         </div>
         <span className={CHEVRON} aria-hidden="true" data-testid="me-identity-chevron">›</span>
       </Link>
+
+      {isDesktopClient() && (
+        <div className="px-[14px] pt-[12px]">
+          <DesktopCompactUpdateBox testId="me-page-update-box" />
+        </div>
+      )}
 
       <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
@@ -83,10 +108,9 @@ export function MePage() {
             <p className={LABEL}>{t("me.sections.nodes")}</p>
             <p
               data-testid="me-row-subtitle"
-              className="m-0 mt-[2px] text-[12px] text-[oklch(0.55_0.01_240)]"
+              className={SUBTITLE}
             >
-              {ownedNodes.length} {t("common.owned")} · {onlineCount} {t("common.online")}
-              {offlineCount > 0 ? ` · ${offlineCount} ${t("common.offline")}` : ""}
+              {nodesSubtitle}
             </p>
           </div>
           {offlineCount > 0 && (
@@ -113,7 +137,7 @@ export function MePage() {
             <p className={LABEL}>{t("me.sections.account")}</p>
             <p
               data-testid="me-row-subtitle"
-              className="m-0 mt-[2px] text-[12px] text-[oklch(0.55_0.01_240)]"
+              className={SUBTITLE}
             >
               {t("me.sections.accountSubtitle")}
             </p>
@@ -122,9 +146,29 @@ export function MePage() {
         </Link>
       </div>
 
-      <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/models" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><UserMenuIcon kind="models" /></span><p className={LABEL}>{lang === 'zh' ? '模型服务' : 'Model services'}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>
+      <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`} data-testid="me-card-models">
+        <Link to="/settings/models" className={ROW_BASE} data-testid="me-row-models">
+          <span className={ICON_BASE} aria-hidden="true"><UserMenuIcon kind="models" /></span>
+          <div className="flex-1 min-w-0">
+            <p className={LABEL}>{t("me.sections.models")}</p>
+            <p className={SUBTITLE}>{t("me.sections.modelsSubtitle")}</p>
+          </div>
+          <span className={CHEVRON} aria-hidden="true">›</span>
+        </Link>
+      </div>
 
-      {!isDesktopClient() && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/about#download" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><UserMenuIcon kind="download" /></span><p className={LABEL}>{t("shell.userMenu.downloadApps")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
+      {!isDesktopClient() && (
+        <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}>
+          <Link to="/about#download" className={ROW_BASE}>
+            <span className={ICON_BASE} aria-hidden="true"><UserMenuIcon kind="download" /></span>
+            <div className="flex-1 min-w-0">
+              <p className={LABEL}>{t("shell.userMenu.downloadApps")}</p>
+              <p className={SUBTITLE}>{t("me.sections.downloadAppsSubtitle")}</p>
+            </div>
+            <span className={CHEVRON} aria-hidden="true">›</span>
+          </Link>
+        </div>
+      )}
 
       {user?.membership_status === "active" && <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
@@ -134,12 +178,26 @@ export function MePage() {
           <span className={ICON_BASE} aria-hidden="true">
             <UserMenuIcon kind="policies" />
           </span>
-          <p className={LABEL}>{t("shell.userMenu.policies")}</p>
+          <div className="flex-1 min-w-0">
+            <p className={LABEL}>{t("me.sections.policies")}</p>
+            <p className={SUBTITLE}>{t("me.sections.policiesSubtitle")}</p>
+          </div>
           <span className={CHEVRON} aria-hidden="true">›</span>
         </Link>
       </div>}
 
-      {user?.is_company_admin && user.membership_status === "active" && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/company" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><UserMenuIcon kind="members" /></span><p className={LABEL}>{t("company.title")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
+      {user?.is_company_admin && user.membership_status === "active" && (
+        <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`} data-testid="me-card-company">
+          <Link to="/settings/company" className={ROW_BASE} data-testid="me-row-company">
+            <span className={ICON_BASE} aria-hidden="true"><UserMenuIcon kind="members" /></span>
+            <div className="flex-1 min-w-0">
+              <p className={LABEL}>{t("company.title")}</p>
+              <p className={SUBTITLE}>{t("me.sections.companySubtitle")}</p>
+            </div>
+            <span className={CHEVRON} aria-hidden="true">›</span>
+          </Link>
+        </div>
+      )}
       <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-language"

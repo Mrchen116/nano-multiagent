@@ -25,12 +25,17 @@ pub struct DesktopNotificationRecord {
 
 #[derive(Debug, Clone, Default)]
 pub struct WindowAttentionState {
+    pub window_visible: bool,
     pub visible_and_focused: bool,
+    pub has_unsaved_form: bool,
     pub current_route: String,
 }
 
 pub trait DesktopUiBridge: Send + Sync {
     fn login_autostart_changed(&self, _enabled: bool) {}
+    fn updater_state_changed(&self, _phase: &str, _target_version: Option<&str>, _auto_update: bool) {}
+    fn set_unsaved_form(&self, _dirty: bool) {}
+    fn set_window_visibility(&self, _visible: bool) {}
     fn window_attention(&self) -> WindowAttentionState;
     fn update_current_route(&self, route: &str) -> Option<String>;
     fn update_unread_badge(&self, total_unread: u64);
@@ -52,9 +57,29 @@ pub struct NoopUiBridge {
     pub pending_route: Mutex<Option<String>>,
 }
 
+impl NoopUiBridge {
+    pub fn with_window_visible(window_visible: bool) -> Self {
+        let bridge = Self::default();
+        bridge.attention.write().unwrap().window_visible = window_visible;
+        bridge
+    }
+}
+
 impl DesktopUiBridge for NoopUiBridge {
     fn window_attention(&self) -> WindowAttentionState {
         self.attention.read().unwrap().clone()
+    }
+
+    fn set_unsaved_form(&self, dirty: bool) {
+        self.attention.write().unwrap().has_unsaved_form = dirty;
+    }
+
+    fn set_window_visibility(&self, visible: bool) {
+        let mut attn = self.attention.write().unwrap();
+        attn.window_visible = visible;
+        if !visible {
+            attn.visible_and_focused = false;
+        }
     }
 
     fn update_current_route(&self, route: &str) -> Option<String> {
@@ -1821,10 +1846,13 @@ mod tests {
         let hidden = WindowAttentionState {
             visible_and_focused: false,
             current_route: "/chat/c1".to_string(),
+            ..Default::default()
         };
         let focused_same = WindowAttentionState {
+            window_visible: true,
             visible_and_focused: true,
             current_route: "/chat/c1".to_string(),
+            ..Default::default()
         };
 
         // 1. Canonical non-streaming `message.completed` (where `sender` came from earlier `message.created` in `data`)
@@ -2001,10 +2029,13 @@ mod tests {
         let hidden = WindowAttentionState {
             visible_and_focused: false,
             current_route: "/chat".to_string(),
+            ..Default::default()
         };
         let focused_prefix_neighbor = WindowAttentionState {
+            window_visible: true,
             visible_and_focused: true,
             current_route: "/chat/c-group-2".to_string(),
+            ..Default::default()
         };
 
         // 1. Unfollowed group thread reply (`thread_notify_user_ids` excludes `u-self`) is suppressed
@@ -2200,8 +2231,10 @@ mod tests {
         // Verify `message.completed` (e.g. streaming Agent @mention in a group thread) and
         // `permission.request` materialize `conversation_unread` on the Desktop badge unless focused
         let unfocused = WindowAttentionState {
+            window_visible: true,
             visible_and_focused: false,
             current_route: "/chat/other".to_string(),
+            ..Default::default()
         };
         let completed_hint = parse_frame_notification_hint(&json!({
             "notification_hint": {
@@ -2228,8 +2261,10 @@ mod tests {
         assert_eq!(*ui.badge_count.lock().unwrap(), 1);
 
         let focused_same_chat = WindowAttentionState {
+            window_visible: true,
             visible_and_focused: true,
             current_route: "/chat/c-agent?thread=root-1".to_string(),
+            ..Default::default()
         };
         let perm_hint = parse_frame_notification_hint(&json!({
             "notification_hint": {
@@ -2271,6 +2306,7 @@ mod tests {
         let hidden = WindowAttentionState {
             visible_and_focused: false,
             current_route: "/chat".to_string(),
+            ..Default::default()
         };
 
         // 1. Owner's own Feishu/WeChat mirror message (`eligible: false`) is suppressed

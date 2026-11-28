@@ -165,7 +165,7 @@ else if(action==='start'){
       package: 'desktop-darwin-arm64.json',
       platform: 'desktop-darwin-arm64',
       size: 256,
-      shell_protocol: 1,
+      shell_protocol: 2,
       node_major: 24,
       pnpm_version: '11.7.0',
       updater_protocol: 1,
@@ -175,7 +175,7 @@ else if(action==='start'){
     };
     for (const [file, value] of Object.entries({
       'package.json': { type: 'module' },
-      '.nano-release.json': { source_commit: 'a'.repeat(40), updater_protocol: 1, data_epoch: 1, shell_protocol: 1 },
+      '.nano-release.json': { source_commit: 'a'.repeat(40), updater_protocol: 1, data_epoch: 1, shell_protocol: 2 },
       '.release-manifest.json': oldManifest,
     })) {
       await writeFile(join(oldRoot, file), JSON.stringify(value));
@@ -214,7 +214,7 @@ else if(action==='start'){
     await writeFile(join(appPayload, 'apps/node/lib/cli.js'), program);
     await writeFile(join(appPayload, 'ui/index.html'), 'new-ui-2.0.1');
     await writeFile(join(appPayload, 'package.json'), '{"type":"module"}');
-    await writeFile(join(appPayload, '.nano-release.json'), JSON.stringify({ source_commit: 'c'.repeat(40), updater_protocol: 1, data_epoch: 1, shell_protocol: 1 }));
+    await writeFile(join(appPayload, '.nano-release.json'), JSON.stringify({ source_commit: 'c'.repeat(40), updater_protocol: 1, data_epoch: 1, shell_protocol: 2 }));
     const appArchive = join(home, 'desktop-app-darwin-arm64.tar.gz');
     execFileSync('tar', ['-czf', appArchive, '-C', appPayload, '.']);
     const appBytes = await readFile(appArchive);
@@ -226,7 +226,7 @@ else if(action==='start'){
         source_commit: 'c'.repeat(40),
         updater_protocol: 1,
         data_epoch: 1,
-        shell_protocol: 1,
+        shell_protocol: 2,
         runtime: { name: 'desktop-runtime-darwin-arm64.tar.gz', size: runtimeBytes.length, sha256: runtimeSha, download_url: base + 'desktop-runtime-darwin-arm64.tar.gz' },
         app: { name: 'desktop-app-darwin-arm64.tar.gz', size: appBytes.length, sha256: appSha, download_url: base + 'desktop-app-darwin-arm64.tar.gz' },
       }),
@@ -244,7 +244,7 @@ else if(action==='start'){
       package: 'desktop-darwin-arm64.json',
       platform: 'desktop-darwin-arm64',
       size: descBytes.length,
-      shell_protocol: 1,
+      shell_protocol: 2,
       node_major: 24,
       pnpm_version: '11.7.0',
       updater_protocol: 1,
@@ -369,7 +369,7 @@ else if(action==='start'){
       package: 'desktop-darwin-arm64.json',
       platform: 'desktop-darwin-arm64',
       size: 256,
-      shell_protocol: 1,
+      shell_protocol: 2,
       node_major: 24,
       pnpm_version: '11.7.0',
       updater_protocol: 1,
@@ -378,7 +378,7 @@ else if(action==='start'){
       installer: { download_url: oldPrivateBase + 'Crewden-Desktop-arm64.dmg', size: 1024, sha256: '2'.repeat(64) },
     };
     await writeFile(join(oldRoot, 'package.json'), '{"type":"module"}');
-    await writeFile(join(oldRoot, '.nano-release.json'), JSON.stringify({ source_commit: 'a'.repeat(40), updater_protocol: 1, data_epoch: 1, shell_protocol: 1 }));
+    await writeFile(join(oldRoot, '.nano-release.json'), JSON.stringify({ source_commit: 'a'.repeat(40), updater_protocol: 1, data_epoch: 1, shell_protocol: 2 }));
     await writeFile(join(oldRoot, '.release-manifest.json'), JSON.stringify(oldManifest));
     await writeFile(cli, program);
     await writeFile(join(oldRoot, 'ui/index.html'), 'old-private-ui');
@@ -419,7 +419,7 @@ else if(action==='start'){
         source_commit: 'c'.repeat(40),
         updater_protocol: 1,
         data_epoch: 1,
-        shell_protocol: 1,
+        shell_protocol: 2,
         trusted_release_base_url: privateBase,
         allow_private_http_release_base: true,
       }),
@@ -435,7 +435,7 @@ else if(action==='start'){
         source_commit: 'c'.repeat(40),
         updater_protocol: 1,
         data_epoch: 1,
-        shell_protocol: 1,
+        shell_protocol: 2,
         runtime: { name: 'desktop-runtime-darwin-arm64.tar.gz', size: runtimeBytes.length, sha256: runtimeSha, download_url: privateBase + 'desktop-runtime-darwin-arm64.tar.gz' },
         app: { name: 'desktop-app-darwin-arm64.tar.gz', size: appBytes.length, sha256: appSha, download_url: privateBase + 'desktop-app-darwin-arm64.tar.gz' },
       }),
@@ -452,7 +452,7 @@ else if(action==='start'){
       package: 'desktop-darwin-arm64.json',
       platform: 'desktop-darwin-arm64',
       size: descBytes.length,
-      shell_protocol: 1,
+      shell_protocol: 2,
       node_major: 24,
       pnpm_version: '11.7.0',
       updater_protocol: 1,

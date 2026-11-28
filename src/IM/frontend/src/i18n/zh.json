@@ -77,8 +77,9 @@
     "userMenu": {
       "newAgent": "新建 Agent",
       "nodes": "节点",
+      "models": "AI 模型与 API",
       "account": "账号",
-      "policies": "策略",
+      "policies": "用量与团队规则",
       "language": "语言",
       "downloadApps": "下载客户端",
       "signOut": "退出登录"
@@ -109,7 +110,14 @@
       "account": "账号",
       "accountSubtitle": "个人资料与空间",
       "nodes": "节点",
-      "nodesSubtitle": "资料与网关",
+      "nodesSubtitle": "运行助手的电脑与服务器",
+      "nodesConnectedPrefix": "运行助手的电脑与服务器",
+      "models": "AI 模型与 API",
+      "modelsSubtitle": "模型接入与 API 密钥配置",
+      "policies": "用量与团队规则",
+      "policiesSubtitle": "附件存储用量与团队运行预设",
+      "companySubtitle": "成员审批与团队访问权限",
+      "downloadAppsSubtitle": "获取 macOS、Windows 与手机客户端",
       "language": "语言",
       "notifications": "通知",
       "signOut": "退出登录"
@@ -143,11 +151,16 @@
     "nav": {
       "agents": "智能体",
       "nodes": "节点",
-      "account": "账户"
+      "account": "账号"
+    },
+    "models": {
+      "title": "AI 模型与 API",
+      "subtitle": "配置助手使用的 AI 模型与 API 密钥。",
+      "backToModels": "← AI 模型与 API"
     },
     "nodes": {
-      "title": "电脑",
-      "subtitle": "管理已连接的电脑和电脑端更新。",
+      "title": "节点",
+      "subtitle": "管理已连接的节点（电脑与服务器）及更新。",
       "loading": "节点加载中…",
       "empty": "还没有绑定设备",
       "emptyBody": "绑定设备后，就可以在上面运行和管理自己的 Agent。",
@@ -277,9 +290,9 @@
       }
     },
     "policies": {
-      "title": "策略",
-      "subtitle": "查看实际存储状态，维护团队策略预设。",
-      "loading": "加载策略中…",
+      "title": "用量与团队规则",
+      "subtitle": "查看实际附件存储用量，维护团队运行与安全策略预设。",
+      "loading": "加载中…",
       "fields": {
         "defaultModel": "默认模型",
         "defaultModelHint": "未设置 agent 级覆盖时使用的模型。",
@@ -307,7 +320,7 @@
       "presetsSubtitle": "保存的是预设值，尚未接入执行。",
       "notAppliedTitle": "这些预设目前不会改变实际运行",
       "notAppliedHint": "模型、轮次、审计、限流、附件大小和留存预设目前仅保存记录。实际模型在助手设置中管理；实际附件限制以服务端为准。",
-      "manageModels": "管理模型服务",
+      "manageModels": "管理 AI 模型与 API",
       "groups": {
         "runtime": {
           "title": "运行预设",
@@ -386,7 +399,7 @@
     "openNodes": "前往节点",
     "empty": {
       "title": "还没有 Agent",
-      "body": "前往节点页,在在线的已绑定节点上创建第一个运行时配置。"
+      "body": "前往节点页，在已连接且在线的节点上创建第一个助手。"
     },
     "rowStatus": {
       "online": "{{id}} 在线",
@@ -987,7 +1000,7 @@
       "单 Thread": "单 Thread",
       "一个持续上下文统筹各聊天，按需读取收件箱和委派。": "一个持续上下文统筹各聊天，按需读取收件箱和委派。",
       "每个聊天独立上下文，保持现有工作方式。": "每个聊天独立上下文，保持现有工作方式。",
-      "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、subagent，其他工具仍可配置。": "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、read_messages、search_messages、threads、send_message、delegate_worker，其他工具仍可配置。",
+      "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、subagent，其他工具仍可配置。": "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、read_messages、search_messages、threads、send_message、download_attachment、delegate_worker、read_worker，其他工具仍可配置。",
       "创建后固定": "创建后固定",
       "固定": "固定",
       "已停止": "已停止",
@@ -1860,7 +1873,7 @@
   },
   "company": {
     "suspendAction": "停用",
-    "subtitle": "审核新成员加入，管理公司工作区的访问权限。",
+    "subtitle": "审核新成员加入，管理团队工作区的访问权限。",
     "refreshList": "刷新",
     "member": "成员",
     "role": "角色",
@@ -1879,7 +1892,7 @@
       "active": "已加入",
       "suspended": "已停用"
     },
-    "title": "公司成员",
+    "title": "成员管理",
     "pending": "等待管理员批准",
     "pendingHint": "注册成功。管理员批准后即可进入公司工作区。",
     "suspended": "成员资格已停用",

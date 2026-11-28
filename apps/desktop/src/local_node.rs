@@ -1,6 +1,6 @@
 use crate::config::{
     append_host_log, append_private_jsonl, sha256_hex, write_private_json, DesktopPaths,
-    StoredSessionsFile,
+    DesktopUiActiveFile, DesktopUiOriginPointer, StoredSessionsFile,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -302,7 +302,7 @@ fn current_ui_bundle_fingerprint(
     dev_repo_root: Option<&Path>,
     seed_archives_dir: Option<&Path>,
 ) -> (String, String) {
-    if let Ok(bundle) = resolve_active_bundle(paths, im_origin, dev_repo_root) {
+    if let Ok(bundle) = resolve_active_ui_bundle(paths, im_origin, dev_repo_root) {
         let index_sha = fs::read(bundle.ui_frontend.join("index.html"))
             .map(|bytes| sha256_hex(&bytes))
             .unwrap_or_else(|_| "missing-index".to_string());
@@ -371,7 +371,7 @@ pub fn reconcile_webview_ui_cache(
     true
 }
 
-fn configure_hidden_command(cmd: &mut Command) {
+pub(crate) fn configure_hidden_command(cmd: &mut Command) {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -381,7 +381,7 @@ fn configure_hidden_command(cmd: &mut Command) {
     let _ = cmd;
 }
 
-fn node_rel_path() -> &'static str {
+pub(crate) fn node_rel_path() -> &'static str {
     if cfg!(target_os = "windows") {
         "runtime/node.exe"
     } else {
@@ -389,12 +389,19 @@ fn node_rel_path() -> &'static str {
     }
 }
 
-fn standalone_node_rel_path() -> &'static str {
+pub(crate) fn standalone_node_rel_path() -> &'static str {
     if cfg!(target_os = "windows") {
         "node.exe"
     } else {
         "bin/node"
     }
+}
+
+/// Verify that a staged or active version root contains `.ready`, Node runtime, and SPA `ui/frontend/index.html`.
+pub fn verify_ready_ui_version_root(root: &Path) -> bool {
+    root.join(".ready").is_file()
+        && root.join(node_rel_path()).is_file()
+        && root.join("ui/frontend/index.html").is_file()
 }
 
 /// Locate bundled `seed-archives/` next to the packaged `.app` or Windows install root.
@@ -460,25 +467,47 @@ fn read_seed_marker(paths: &DesktopPaths) -> Option<SeedMarker> {
         .and_then(|raw| serde_json::from_str::<SeedMarker>(&raw).ok())
 }
 
-/// Advance existing `.desktop-active.json` pointers across connections when a new installer seed bundle lands.
+/// Advance existing `.desktop-active.json` and `desktop-ui-active.json` pointers when a new installer seed bundle lands.
 fn advance_managed_active_pointers_to_seed(
     paths: &DesktopPaths,
     version: &str,
     target_sha: &str,
     final_version_root: &Path,
 ) -> Result<(), String> {
-    let connections_dir = paths.nano_install_root.join("connections");
-    let entries = match fs::read_dir(&connections_dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e.to_string()),
-    };
     let now_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let root_str = final_version_root.to_string_lossy().to_string();
     let ui_str = final_version_root.join("ui").to_string_lossy().to_string();
+
+    // Advance pure-chat / per-origin UI pointers first (works even when `connections/` does not exist yet).
+    let ui_active_path = paths.desktop_ui_active_path();
+    if ui_active_path.is_file() {
+        if let Ok(raw) = fs::read_to_string(&ui_active_path) {
+            if let Ok(mut ui_active) = serde_json::from_str::<DesktopUiActiveFile>(&raw) {
+                for ptr in ui_active.origins.values_mut() {
+                    *ptr = DesktopUiOriginPointer {
+                        version: version.to_string(),
+                        sha256: target_sha.to_string(),
+                        version_root: root_str.clone(),
+                        updated_at_epoch: now_epoch,
+                    };
+                }
+                ui_active.rollback_blocked.clear();
+                ui_active.previous_ui.clear();
+                ui_active.just_updated.clear();
+                let _ = write_private_json(&ui_active_path, &ui_active);
+            }
+        }
+    }
+
+    let connections_dir = paths.nano_install_root.join("connections");
+    let entries = match fs::read_dir(&connections_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.to_string()),
+    };
     for entry in entries {
         let connection = entry.map_err(|e| e.to_string())?.path();
         if !connection.is_dir() {
@@ -601,7 +630,7 @@ pub fn has_pending_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&
         .is_file()
 }
 
-fn file_sha256(path: &Path) -> io::Result<String> {
+pub(crate) fn file_sha256(path: &Path) -> io::Result<String> {
     let mut hasher = Sha256::new();
     io::copy(&mut fs::File::open(path)?, &mut hasher)?;
     Ok(format!("{:x}", hasher.finalize()))
@@ -647,7 +676,7 @@ fn mark_seed_ready(root: &Path, contents: &[u8]) -> Result<(), String> {
     fs::write(&path, contents).map_err(|e| format!("Write seed marker {}: {e}", path.display()))
 }
 
-fn publish_seed_directory(stage: &Path, target: &Path) -> Result<(), String> {
+pub(crate) fn publish_seed_directory(stage: &Path, target: &Path) -> Result<(), String> {
     let mut result = fs::rename(stage, target);
     if cfg!(windows) {
         // NTFS also reports access denied while a child of the staged directory is open.
@@ -665,7 +694,7 @@ fn publish_seed_directory(stage: &Path, target: &Path) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn publish_seed_runtime(stage: &Path, target: &Path) -> Result<(), String> {
+pub(crate) fn publish_seed_runtime(stage: &Path, target: &Path) -> Result<(), String> {
     // Move only a junction into the content-addressed slot. Open files in the
     // backing directory (including the Node used for layout) can stay open.
     let link = stage.with_added_extension("junction");
@@ -919,7 +948,7 @@ fn ensure_seed_bundle_installed_inner(
     Ok(Some(final_version_root))
 }
 
-fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), String> {
+pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), String> {
     let tar_bin = if cfg!(target_os = "windows") {
         PathBuf::from(r"C:\Windows\System32\tar.exe")
     } else {
@@ -947,6 +976,42 @@ fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn resolve_ui_origin_pointer(paths: &DesktopPaths, im_origin: &str) -> Option<ActiveBundlePaths> {
+    let ui_active_path = paths.desktop_ui_active_path();
+    let raw = fs::read_to_string(&ui_active_path).ok()?;
+    let mut parsed = serde_json::from_str::<DesktopUiActiveFile>(&raw).ok()?;
+    let ptr = parsed.origins.get(im_origin)?.clone();
+    let root = PathBuf::from(&ptr.version_root);
+    if verify_ready_ui_version_root(&root) {
+        return Some(ActiveBundlePaths {
+            node_bin: root.join(node_rel_path()),
+            cli_js: root.join("apps/node/lib/cli.js"),
+            ui_frontend: root.join("ui/frontend"),
+            ui_trajectory: root.join("ui/trajectory"),
+            version: ptr.version,
+            sha256: Some(ptr.sha256),
+            version_root: root,
+        });
+    }
+    // Automatically prune broken or missing pointers on disk.
+    parsed.origins.remove(im_origin);
+    let _ = write_private_json(&ui_active_path, &parsed);
+    None
+}
+
+/// Resolve the active WebView SPA bundle for `im_origin` (preferring per-origin `desktop-ui-active.json`
+/// so unbound / stopped / foreign-owner Desktop clients can hot-update independently).
+pub fn resolve_active_ui_bundle(
+    paths: &DesktopPaths,
+    im_origin: &str,
+    dev_repo_root: Option<&Path>,
+) -> Result<ActiveBundlePaths, String> {
+    if let Some(ui_bundle) = resolve_ui_origin_pointer(paths, im_origin) {
+        return Ok(ui_bundle);
+    }
+    resolve_active_bundle(paths, im_origin, dev_repo_root)
 }
 
 /// Resolve the active version bundle (UI + Node 24.22.1 + `apps/node/lib/cli.js`) for `im_origin`.
@@ -981,7 +1046,12 @@ pub fn resolve_active_bundle(
         }
     }
 
-    // 2. Installed seed version in `<desktop_home>/seed-current.json`
+    // 2. Unbound connection inherits any hot-updated UI bundle already staged & activated for `im_origin`.
+    if let Some(ui_bundle) = resolve_ui_origin_pointer(paths, im_origin) {
+        return Ok(ui_bundle);
+    }
+
+    // 3. Installed seed version in `<desktop_home>/seed-current.json`
     if let Ok(raw) = fs::read_to_string(paths.seed_marker_path()) {
         if let Ok(seed) = serde_json::from_str::<SeedMarker>(&raw) {
             let root = PathBuf::from(&seed.version_root);
@@ -1246,6 +1316,54 @@ pub fn open_external_url(paths: &DesktopPaths, raw_url: &str) -> Result<(), Stri
         .env("CREWDEN_EXTERNAL_URL", &clean)
         .spawn()
         .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+/// Re-verify SHA-256 of a downloaded Desktop platform installer (`.dmg` or `.exe`) and launch/open it safely.
+pub fn launch_verified_installer(
+    paths: &DesktopPaths,
+    installer_path: &Path,
+    expected_sha256: &str,
+) -> Result<(), String> {
+    if !installer_path.is_file() {
+        return Err("Installer file does not exist".to_string());
+    }
+    let actual_sha = file_sha256(installer_path)
+        .map_err(|e| format!("Failed to read installer {}: {e}", installer_path.display()))?;
+    if actual_sha != expected_sha256 {
+        return Err("Installer integrity check failed".to_string());
+    }
+    append_private_jsonl(
+        &paths.open_actions_log_path(),
+        &json!({
+            "action": "launch_installer",
+            "path": installer_path.to_string_lossy(),
+            "sha256": expected_sha256,
+        }),
+    );
+    if std::env::var("CREWDEN_SUPPRESS_OS_OPEN").as_deref() == Ok("1") {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("/usr/bin/open")
+            .arg(installer_path)
+            .status()
+            .map_err(|e| format!("Failed to open disk image: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new(installer_path);
+        configure_hidden_command(&mut cmd);
+        cmd.spawn()
+            .map_err(|e| format!("Failed to start installer: {e}"))?;
         return Ok(());
     }
 

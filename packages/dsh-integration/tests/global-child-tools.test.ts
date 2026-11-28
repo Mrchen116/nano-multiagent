@@ -32,7 +32,9 @@ ctx.on('llm/stream',async function*(o){
  const key=agent.id+':'+(user?.id??'child');const fresh=!seen.has(key);seen.add(key);
  const text=user?.content.find(b=>b.type==='text')?.text??'';
  let calls=[];
- if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[['send_message',{agent:text.slice(7),message:'Resume original work'}]]:[${JSON.stringify(mode==='global'
+ if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[${mode==='global'
+   ? `['delegate_worker',{action:'send',worker_id:text.slice(7),message:'Resume original work'}]`
+   : `['send_message',{agent:text.slice(7),message:'Resume original work'}]`}]:[${JSON.stringify(mode==='global'
    ? ['delegate_worker',{action:'start',label:'Continuable work',message:'Prepare findings'}]
    : ['subagent',{prompt:'Prepare findings',description:'Continuable work'}])},['subagent_fork',{prompt:'Check findings independently',description:'Fork work'}]];
  const desc=agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data;
@@ -59,7 +61,14 @@ ctx.on('llm/stream',async function*(o){
     const children = [...new Set(before.filter(row => row.id !== 'root').map(row => row.id))];
     expect(children).toHaveLength(3);
     const root = before.find(row => row.id === 'root');
-    expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining([...(mode==='global'?['inbox']:[]), 'conversations', 'download_attachment', 'read_messages', 'search_messages', 'threads', 'send_message', ...(personal ? ['send_user_message'] : [])]));
+    const rootNames = root.schemas.map((tool: any) => tool.name);
+    expect(rootNames).toEqual(expect.arrayContaining([...(mode==='global'?['inbox','delegate_worker','read_worker']:[]), 'conversations', 'download_attachment', 'read_messages', 'search_messages', 'threads', 'send_message', ...(personal ? ['send_user_message'] : [])]));
+    if (mode === 'global') {
+      expect(rootNames).not.toContain('list_agents');
+      expect(rootNames).not.toContain('interrupt_agent');
+    } else {
+      expect(rootNames).not.toContain('read_worker');
+    }
     const conversations = root.schemas.find((tool: any) => tool.name === 'conversations');
     expect(conversations.parameters.properties.action.enum).toEqual(['list', 'info', 'create', 'join']);
     expect(conversations.parameters.properties).not.toHaveProperty('type');
@@ -81,13 +90,21 @@ ctx.on('llm/stream',async function*(o){
     expect(threads.parameters.properties.action.enum).toEqual(['list', 'follow', 'unfollow']);
     const rootSend = root.schemas.find((tool: any) => tool.name === 'send_message');
     expect(rootSend.parameters.properties).not.toHaveProperty('in_thread_of');
+    if (mode === 'global') {
+      expect(rootSend.parameters.properties).not.toHaveProperty('agent');
+      expect(rootSend.parameters.properties).not.toHaveProperty('agent_id');
+      expect(rootSend.parameters.properties).not.toHaveProperty('message');
+      expect(rootSend.description).not.toContain('Use the native agent/message fields');
+    } else {
+      expect(rootSend.parameters.properties).toHaveProperty('agent');
+    }
     for (const row of before.filter(row => row.id !== 'root')) {
       if (row.fork) { expect(row.schemas).toEqual(root.schemas); expect(row.tools).toEqual(root.tools); continue; }
       const names = row.schemas.map((tool: any) => tool.name);
       if (mode === 'single_thread') expect(JSON.stringify(row.system)).toContain('You are an internal execution agent');
       expect(JSON.stringify(row.system)).not.toContain('Your final prose is delivered to the current conversation.');
       expect(JSON.stringify(row.system)).not.toContain('In Global mode this requires send_message; private prose is not delivery.');
-      expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('download_attachment'); expect(names).not.toContain('read_messages'); expect(names).not.toContain('search_messages'); expect(names).not.toContain('threads'); expect(names).not.toContain('send_user_message');expect(names).not.toContain('agent_creation');
+      expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('download_attachment'); expect(names).not.toContain('read_messages'); expect(names).not.toContain('read_worker'); expect(names).not.toContain('search_messages'); expect(names).not.toContain('threads'); expect(names).not.toContain('send_user_message');expect(names).not.toContain('agent_creation');
       const send = row.schemas.find((tool: any) => tool.name === 'send_message');
       expect(send.parameters.properties).toHaveProperty('agent'); expect(send.parameters.properties).not.toHaveProperty('target');
       expect(JSON.stringify(row.tools)).not.toContain('"name":"inbox"');
@@ -146,7 +163,7 @@ it.each([false,true])('gives Global workers native work tools and native nested 
     let calls:any[]=[];
     const resume=body.messages.map((m:any)=>JSON.stringify(m)).findLast((m:string)=>m.includes('resume:'))?.match(/resume:([a-z0-9-]+):([a-z-]+)/);
     const continuation=body.messages.map((m:any)=>JSON.stringify(m)).findLast((m:string)=>m.includes('continue-worker:'))?.match(/continue-worker:([a-z-]+)/);
-    if(id==='root'&&resume&&!resumed.has(resume[2]!)){resumed.add(resume[2]!);calls=[['send_message',{agent:resume[1],message:'continue-worker:'+resume[2]}]];}
+    if(id==='root'&&resume&&!resumed.has(resume[2]!)){resumed.add(resume[2]!);calls=[['delegate_worker',{action:'send',worker_id:resume[1],message:'continue-worker:'+resume[2]}]];}
     else if(fresh&&meta.depth===0)calls=[['delegate_worker',{action:'start',message:'WHOLE_ASSIGNMENT_SENTINEL: prepare a complete finding',label:'whole task'}]];
     if(fresh&&meta.depth===1)calls=[['read',{file_path:join(home,'AGENTS.md')}],['subagent',{prompt:'CHILD_ASSIGNMENT_SENTINEL: check one fact',description:'one fact'}],['subagent_fork',{prompt:'Check this delegated fact',description:'fork fact'}]];
     // The second-level continuation is steered only by its original direct parent.

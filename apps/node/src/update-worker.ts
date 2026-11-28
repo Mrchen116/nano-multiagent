@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import lockfile from 'proper-lockfile';
 import {
+  CURRENT_DESKTOP_SHELL_PROTOCOL,
   classifyOriginSecurity,
   normalizeReleaseBaseUrl,
   parseReleaseManifest,
@@ -115,7 +116,7 @@ interface DesktopDescriptor {
   source_commit: string;
   updater_protocol: 1;
   data_epoch: 1;
-  shell_protocol: 1;
+  shell_protocol: number;
   runtime: DesktopArchiveEntry;
   app: DesktopArchiveEntry;
 }
@@ -177,7 +178,7 @@ export async function prepareDesktopUpdate(
   signal?: AbortSignal,
   trustedOptions?: ParseReleaseManifestOptions,
 ): Promise<{ versionRoot: string; runtimeReused: boolean }> {
-  if (!isDesktopPlatform(target.platform) || target.shell_protocol !== 1) {
+  if (!isDesktopPlatform(target.platform) || target.shell_protocol !== CURRENT_DESKTOP_SHELL_PROTOCOL || target.updater_protocol !== 1 || target.data_epoch !== 1) {
     throw new Error('Incompatible desktop release');
   }
   const oldVersionRoot = resolve(dirname(oldEntry), '../../..');
@@ -208,7 +209,7 @@ export async function prepareDesktopUpdate(
     desc.source_commit !== (target.source_commit ?? target.version) ||
     desc.updater_protocol !== 1 ||
     desc.data_epoch !== 1 ||
-    desc.shell_protocol !== 1 ||
+    desc.shell_protocol !== CURRENT_DESKTOP_SHELL_PROTOCOL ||
     !/^[a-f0-9]{64}$/.test(desc.runtime?.sha256 ?? '') ||
     !/^[a-f0-9]{64}$/.test(desc.app?.sha256 ?? '') ||
     desc.runtime.download_url !== base + desc.runtime.name ||
@@ -261,14 +262,21 @@ export async function prepareDesktopUpdate(
     }
     await atomicPrivate(join(versionStage, '.release-manifest.json'), target);
     await verifyReleaseMetadata(versionStage, target);
-    await atomicPrivate(join(versionStage, '.ready'), `${target.sha256}\n`);
     try {
       await rename(versionStage, finalVersionRoot);
     } catch (error) {
       if (!['ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
     }
-    if (existsSync(layoutScript) && existsSync(join(finalVersionRoot, 'workspaces.json'))) {
-      await exec(execNode, [layoutScript, 'verify', finalVersionRoot], { signal, timeout: 60000, windowsHide: true });
+    if (!existsSync(join(finalVersionRoot, '.ready'))) {
+      try {
+        if (existsSync(layoutScript) && existsSync(join(finalVersionRoot, 'workspaces.json'))) {
+          await exec(execNode, [layoutScript, 'verify', finalVersionRoot], { signal, timeout: 60000, windowsHide: true });
+        }
+        await atomicPrivate(join(finalVersionRoot, '.ready'), `${target.sha256}\n`);
+      } catch (verifyError) {
+        await rm(finalVersionRoot, { recursive: true, force: true }).catch(() => {});
+        throw verifyError;
+      }
     }
     return { versionRoot: finalVersionRoot, runtimeReused };
   } finally {
@@ -277,14 +285,14 @@ export async function prepareDesktopUpdate(
   }
 }
 
-async function notifyDesktopHostReload(desktopHome: string): Promise<void> {
+async function notifyDesktopHostReload(desktopHome: string, imUrl: string): Promise<void> {
   try {
     const stateRaw = await readFile(join(desktopHome, 'host-state.json'), 'utf8');
     const hostState = JSON.parse(stateRaw) as { port?: number; reload_token?: string };
     if (hostState.port && hostState.reload_token) {
       await fetch(`http://127.0.0.1:${hostState.port}/desktop/internal/reload-assets`, {
         method: 'POST',
-        headers: { 'x-crewden-reload-token': hostState.reload_token },
+        headers: { 'x-crewden-reload-token': hostState.reload_token, 'x-crewden-im-origin': new URL(imUrl).origin },
         signal: AbortSignal.timeout(3000),
       }).catch(() => {});
     }
@@ -365,7 +373,7 @@ export async function runUpdate(configPath: string, operationId: string): Promis
     if (!target || target.platform !== old.release.platform || expectedWinHost !== (process.platform === 'win32')
         || (target.platform === 'desktop-darwin-arm64' && process.platform !== 'darwin')
         || target.data_epoch !== old.release.data_epoch || target.updater_protocol !== 1
-        || (desktop && (target.shell_protocol !== 1 || old.release.shell_protocol !== target.shell_protocol))) {
+        || (desktop && (target.shell_protocol !== CURRENT_DESKTOP_SHELL_PROTOCOL || old.release.shell_protocol !== target.shell_protocol))) {
       throw new Error('Incompatible target');
     }
     await write();
@@ -453,7 +461,7 @@ export async function runUpdate(configPath: string, operationId: string): Promis
           await rm(switchPath, {force: true});
         } else if (desktop) {
           await rm(switchPath, {force: true});
-          await notifyDesktopHostReload(desktopHome);
+          await notifyDesktopHostReload(desktopHome, config.value.im_service.url);
         }
         await terminal('succeeded').catch(async () => {
           await terminal('succeeded').catch(error => console.error(error));
@@ -475,7 +483,7 @@ export async function runUpdate(configPath: string, operationId: string): Promis
               ui_root: join(oldVersionRoot, 'ui'),
               updated_at: new Date().toISOString(),
             });
-            await notifyDesktopHostReload(desktopHome);
+            await notifyDesktopHostReload(desktopHome, config.value.im_service.url);
           }
           await cli(old, 'start');
           await verify(old.release!, failed?.pid ?? old.pid);

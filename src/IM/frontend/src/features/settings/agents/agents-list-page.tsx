@@ -33,14 +33,14 @@ export function AgentsListPage() {
       : null;
 
   const queryText = search.trim().toLowerCase();
-  const visibleAgents = agents.filter(agent => agent.agent_id !== personalBinding?.agent_id)
-    .filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(queryText));
+  const otherAgents = agents.filter(agent => agent.agent_id !== personal.data?.binding?.agent_id);
+  const visibleAgents = otherAgents.filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(queryText));
   const personalMatches = personalBinding && `${personalBinding.display_name} ${personalBinding.agent_id} ${t("pa.label")} ${agents.find(agent => agent.agent_id === personalBinding.agent_id)?.description ?? ""}`.toLowerCase().includes(queryText);
 
   return (
     <section className="im-agent-panel im-agent-settings im-agent-directory" data-testid="agents-list">
       <header className="im-settings-list-header">
-        <h1>{t("agents.title")}{agentsQuery.isSuccess && <span className="im-settings-count">{agents.length}</span>}</h1>
+        <h1>{t("agents.title")}{agentsQuery.isSuccess && <span className="im-settings-count">{otherAgents.length + Number(Boolean(personalBinding))}</span>}</h1>
         <Link className="im-settings-action" to={newAgentPath}>{t("agents.newButton")}</Link>
       </header>
       <input type="search" className="im-input im-settings-search" aria-label={t("agents.search")} placeholder={t("agents.search")} value={search} onChange={e => setSearch(e.target.value)} />

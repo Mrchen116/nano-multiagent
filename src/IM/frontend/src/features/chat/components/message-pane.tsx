@@ -86,6 +86,7 @@ import {
   isComposerSending,
   markComposerSending,
   subscribeComposerStore,
+  syncLiveComposerSnapshot,
   threadDraftKey,
   writeComposerSnapshot,
   composerStoreFor,
@@ -317,7 +318,7 @@ export function MessagePane({
 
   const localComposerStoreRef = useRef<Map<string, ComposerSnapshot>>(new Map());
   const composerSnapshots = composerStore
-    ?? (import.meta.env.MODE === "test" ? localComposerStoreRef.current : composerStoreFor(selfUserId));
+    ?? (import.meta.env.MODE === "test" && !isDesktopClient() ? localComposerStoreRef.current : composerStoreFor(selfUserId));
   // 从仓库起状态：StrictMode 会先卸再挂，cleanup 若读到空初始 state 会把已存草稿盖掉。
   const initialSnapshot = composerSnapshots.get(conversation.id);
   const [draft, setDraft] = useState(initialSnapshot?.draft ?? "");
@@ -550,9 +551,26 @@ export function MessagePane({
         restored ? cloneComposerSnapshot(restored) : cloneComposerSnapshot(EMPTY_COMPOSER_SNAPSHOT)
       );
     });
+    const flushLiveComposer = () => {
+      syncLiveComposerSnapshot(
+        composerSnapshots,
+        displayedConversationIdRef.current,
+        liveComposerRef.current
+      );
+    };
+    if (isDesktopClient()) {
+      window.addEventListener("crewden:before-hot-reload", flushLiveComposer);
+      window.addEventListener("pagehide", flushLiveComposer);
+      window.addEventListener("beforeunload", flushLiveComposer);
+    }
     return () => {
       mountedRef.current = false;
       unsubscribe();
+      if (isDesktopClient()) {
+        window.removeEventListener("crewden:before-hot-reload", flushLiveComposer);
+        window.removeEventListener("pagehide", flushLiveComposer);
+        window.removeEventListener("beforeunload", flushLiveComposer);
+      }
       writeComposerSnapshot(
         composerSnapshots,
         displayedConversationIdRef.current,
@@ -564,6 +582,15 @@ export function MessagePane({
       }
     };
   }, [composerSnapshots]);
+
+  useEffect(() => {
+    if (!isDesktopClient()) return;
+    syncLiveComposerSnapshot(
+      composerSnapshots,
+      displayedConversationIdRef.current,
+      liveComposerRef.current
+    );
+  }, [composerSnapshots, conversation.id, draft, draftMentions, replyTo, pending, uploads, slashDismissed]);
 
   function clearSubmittedDraft(attempt: SendAttempt) {
     const cid = attempt.conversationId;

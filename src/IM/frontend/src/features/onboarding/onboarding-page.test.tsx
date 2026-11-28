@@ -279,6 +279,31 @@ it.each([true,false])('resumes a pending assistant after refresh without mixing 
  expect(router.state.location.pathname).toBe('/chat/existing');
 });
 
+it('retries a stranded assistant on the selected online computer and preserves its identity fields after rollback', async () => {
+ const online = {...computer,node_id:'new',node_name:'Online workstation'};
+ vi.mocked(getOnboarding).mockResolvedValue({nodes:[{...computer,status:'offline'},online],agents:[],install});
+ vi.mocked(setupNode).mockResolvedValue({...modelStatus, default_model:'m', models:[{provider:'p',model:'m'}]});
+ localStorage.setItem(`nano-onboarding:${TEST_AUTH_USER.id}`,JSON.stringify({requestKey:'old'}));
+ vi.mocked(getPersonalAgent).mockResolvedValue({...pa,binding:{...pa.binding,status:'pending',display_name:'Kugou',collaboration_scope:'owner_only'},creation:{request_key:'old'}});
+ vi.mocked(createPersonalAgent).mockImplementationOnce(async () => {
+   vi.mocked(getPersonalAgent).mockResolvedValue({binding:null,policy:null});
+   throw Object.assign(new Error('timeout'),{code:'node_capabilities_timeout'});
+ }).mockResolvedValueOnce(pa);
+ const router=mount();
+ await userEvent.selectOptions(await screen.findByRole('combobox',{name:'Choose computer'}), 'new');
+ await userEvent.click(await screen.findByRole('button',{name:'Retry setup'}));
+ const first=vi.mocked(createPersonalAgent).mock.calls[0][0];
+ expect(first).toMatchObject({node_id:'new',display_name:'Kugou',collaboration_scope:'owner_only'});
+ expect(first.request_key).not.toBe('old');
+ expect(await screen.findByLabelText('Name your assistant')).toHaveValue('Kugou');
+ expect(screen.getByRole('button',{name:'Private (you & your assistants)'})).toHaveAttribute('aria-pressed','true');
+ expect(screen.getByRole('alert')).toHaveTextContent('Reading your computer runtime capabilities timed out');
+ await userEvent.click(screen.getByRole('button',{name:'Check and retry'}));
+ await screen.findByText('Chat opened');
+ expect(vi.mocked(createPersonalAgent).mock.calls[1][0]).toMatchObject({node_id:'new',request_key:first.request_key,display_name:'Kugou'});
+ expect(router.state.location.pathname).toBe('/chat/existing');
+});
+
 it('opens an already-created assistant chat while its runtime is unavailable', async () => {
  vi.mocked(getPersonalAgent).mockResolvedValue({...pa,binding:{...pa.binding,status:'unavailable'},creation:null});
  const router=mount();

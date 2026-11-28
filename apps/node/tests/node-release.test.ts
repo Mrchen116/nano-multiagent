@@ -88,7 +88,7 @@ async function platformMaterials(f: Awaited<ReturnType<typeof fixture>>, macMode
       await writeFile(join(sub, name), content);
       return {name, download_url: base + name, size: Buffer.byteLength(content), sha256: createHash('sha256').update(content).digest('hex')};
     };
-    const platformFlags = lightweight ? {launcher_protocol: 1} : {shell_protocol: 1};
+    const platformFlags = lightweight ? {launcher_protocol: 1} : {shell_protocol: 2};
     const common = {version: f.published.version, source_commit: f.published.source_commit, updater_protocol: 1, data_epoch: 1, ...platformFlags};
     const payload = (kind: string) => lightweight ? `windows-${kind}-x64.zip` : `desktop-${kind}-${platform.slice(8)}.tar.gz`;
     const descriptor = await asset(lightweight ? 'windows-x64.json' : platform + '.json', JSON.stringify({
@@ -112,7 +112,12 @@ it.each([
     const notes = await readFile(join(f.directory, 'notes'), 'utf8');
     expect(notes.split('\n').find(line => line.includes('Crewden-Desktop-arm64.dmg'))).toContain(disclosure);
     for (const name of ['manifest.json', 'manifest.win32-x64.json', 'manifest.desktop-win32-x64.json', 'manifest.desktop-darwin-arm64.json']) {
-      expect(JSON.parse(await readFile(join(f.directory, name), 'utf8')).version).toBe(f.published.version);
+      const promoted = JSON.parse(await readFile(join(f.directory, name), 'utf8'));
+      expect(promoted.version).toBe(f.published.version);
+      if (name.startsWith('manifest.desktop-')) {
+        expect(promoted.shell_protocol).toBe(2);
+        expect(promoted.release_notes).toBe('- 改进节点连接');
+      }
     }
   } finally { await rm(f.directory, {recursive: true, force: true}); }
 });

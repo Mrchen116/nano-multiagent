@@ -3,7 +3,7 @@ import type { RuntimeWorkerDetail, WorkUsage } from '@nano/product-contracts';
 type Fact = RuntimeWorkerDetail['fact'];
 type Emit = (id: string, detail: RuntimeWorkerDetail) => void;
 
-function extractToolSummary(args: unknown): string | undefined {
+export function extractToolSummary(args: unknown): string | undefined {
   const fields = args as {
     description?: string;
     toolSummary?: string;

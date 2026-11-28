@@ -214,7 +214,8 @@ export async function inspectLocalNode(input: {
     };
   }
 
-  const desktopManaged = existsSync(desktopActiveFilePath(configPath));
+  const desktopActivePath = desktopActiveFilePath(configPath);
+  const desktopManaged = existsSync(desktopActivePath);
   const rawState = await gatewayState(configPath);
   const live = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
   const ownership = !desktopManaged
@@ -222,6 +223,17 @@ export async function inspectLocalNode(input: {
     : live
       ? 'managed_online'
       : 'managed_stopped';
+  let stoppedManagedVersion: string | undefined;
+  if (!live && desktopManaged) {
+    try {
+      const parsed = JSON.parse(await readFile(desktopActivePath, 'utf8')) as { version?: unknown };
+      if (typeof parsed.version === 'string' && parsed.version.trim()) {
+        stoppedManagedVersion = parsed.version.trim();
+      }
+    } catch {
+      // Fall back to default version when pointer is unreadable.
+    }
+  }
 
   // A Windows gateway task may still start this connection independently of the desktop Run item.
   const scheduledAtLogin = desktopManaged && process.platform === 'win32'
@@ -230,7 +242,7 @@ export async function inspectLocalNode(input: {
   const status = {
     ownership,
     node_name: nodeName,
-    version: rawState?.release?.version ?? 'source',
+    version: rawState?.release?.version ?? stoppedManagedVersion ?? 'source',
     autostart: value.gateway?.autostart !== false,
   } satisfies DesktopLocalInspectResponse;
   const loginStatus = { ...status, scheduled_at_login: scheduledAtLogin };

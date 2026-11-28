@@ -84,7 +84,12 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
             autostart,
             worker_runtime: "dsh",
             workers: [
-              { runtime: "dsh", available: true, resolved_path: null, detail: "Bundled" },
+              {
+                runtime: "dsh",
+                available: true,
+                resolved_path: "C:\\Users\\alice\\AppData\\Local\\CrewdenDesktop\\runtime\\node.exe",
+                detail: "内置受管 DSH 运行时已就绪",
+              },
               { runtime: "codex", available: true, resolved_path: "/opt/homebrew/bin/codex", detail: "Found" },
               { runtime: "claude", available: false, resolved_path: null, detail: "Not found" },
               { runtime: "antigravity", available: true, resolved_path: "/opt/homebrew/bin/agy", detail: "Found" },
@@ -160,14 +165,19 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
     act(() => { window.dispatchEvent(new Event("crewden:login-autostart-changed")); });
     await waitFor(() => expect(autostartSwitch).toHaveAttribute("aria-checked", "true"));
 
-    await user.click(within(localCard).getByText(/本机运行配置/));
+    await user.click(within(localCard).getByText(/高级运行设置/));
+    expect(within(localCard).getByText("外部编程工具接入")).toBeInTheDocument();
+    expect(within(localCard).getByText("内置默认引擎（开箱即用）")).toBeInTheDocument();
+    expect(within(localCard).getByText("随客户端内置 · 无需额外安装")).toBeInTheDocument();
+    expect(within(localCard).queryByText(/node\.exe|DSH/)).toBeNull();
+    expect(within(localCard).getByLabelText("安全审核模型")).toBeInTheDocument();
     expect(within(localCard).getByText(/Antigravity/)).toBeInTheDocument();
     const proxyInput = within(localCard).getByLabelText("代理地址");
     expect(proxyInput).toBeEnabled();
     await user.clear(proxyInput);
     await user.type(proxyInput, "socks5://127.0.0.1:1080");
     await waitFor(() => expect(probePayloads).toContainEqual({}));
-    await user.click(within(localCard).getByRole("button", { name: "保存并重启本机节点" }));
+    await user.click(within(localCard).getByRole("button", { name: "保存并重启生效" }));
     // Active tasks > 0 requires explicit confirmation before restarting the local node!
     expect(savedConfigPayloads).toHaveLength(0);
     await user.click(within(localCard).getByRole("button", { name: "确认立即保存并重启" }));

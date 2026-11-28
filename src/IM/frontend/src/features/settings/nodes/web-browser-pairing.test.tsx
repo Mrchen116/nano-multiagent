@@ -252,4 +252,46 @@ describe("Web IM Daily Chrome pairing across computer drawer, agent tool callout
     expect(screen.getByText("Mac-2")).toBeInTheDocument();
     expect(screen.queryByTestId("node-drawer-browser-setup")).not.toBeInTheDocument();
   });
+
+  it("clearly explains Chrome browser automation actions, signed-in session reuse, and isolated browser boundaries in ZH and EN", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const baseBrowser = {
+      supported: true,
+      state: "not_paired" as const,
+      chrome_installed: true,
+      chrome_running: true,
+      chrome_version_ok: true,
+      selected_profile: "Default",
+      extension_installed: false,
+      profiles: [{ profile: "Default", extension_installed: false }],
+    };
+
+    setLanguage("zh");
+    const zhStrip = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserPairingSection variant="desktop-strip" localDesktopTransport initialBrowser={baseBrowser} />
+      </QueryClientProvider>,
+    );
+    expect(zhStrip.getByTestId("desktop-browser-strip")).toHaveTextContent(/操作该 Chrome.*打开网页、点击、输入、读取.*截图/);
+    expect(zhStrip.getByTestId("desktop-browser-strip")).toHaveTextContent(/复用.*已登录/);
+    expect(zhStrip.getByTestId("desktop-browser-strip")).toHaveTextContent(/干净隔离浏览器.*不触碰个人数据/);
+    zhStrip.unmount();
+
+    setLanguage("en");
+    const enCallout = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserPairingSection
+          variant="agent-callout"
+          localDesktopTransport
+          initialBrowser={{ ...baseBrowser, state: "verified", paired_profile: "Default" }}
+        />
+      </QueryClientProvider>,
+    );
+    expect(enCallout.getByTestId("agent-computer-use-browser-callout")).toHaveTextContent(
+      /automate this Chrome.*open.*click.*type.*read.*screenshot/i,
+    );
+    expect(enCallout.getByTestId("agent-computer-use-browser-callout")).toHaveTextContent(/signed-in sessions/i);
+    expect(enCallout.getByTestId("agent-computer-use-browser-callout")).toHaveTextContent(/clean isolated browser/i);
+    enCallout.unmount();
+  });
 });

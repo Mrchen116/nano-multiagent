@@ -180,4 +180,22 @@ describe("agents list page", () => {
     expect(await screen.findByText(/Personal assistant unavailable/)).toBeInTheDocument();
   });
 
+  it("offers a setup continuation link when personal assistant creation is still pending", async () => {
+    fetchMock.mockImplementation(async input => {
+      const url = String(input);
+      if (url.endsWith("/im/v1/personal-agent")) {
+        return jsonResponse({
+          binding: { agent_id: "pa-pending", display_name: "Kugou", owner_user_id: "user-1", status: "pending" },
+          creation: { request_key: "rk-pending" },
+        });
+      }
+      if (url.includes("/im/v1/contacts?")) return jsonResponse({ items: [{kind:"agent",agent_id:"pa-pending",user_id:"pa-user",display_name:"Kugou"}], next_cursor: null });
+      return new Response(null, { status: 404 });
+    });
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
+    expect(await screen.findByText("Assistant setup in progress")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Continue assistant setup" })).toHaveAttribute("href", "/onboarding");
+    expect(screen.queryByRole("button", { name: /Kugou/ })).not.toBeInTheDocument();
+  });
+
 });

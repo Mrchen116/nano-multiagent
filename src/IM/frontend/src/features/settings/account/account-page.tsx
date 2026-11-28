@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getCurrentLanguage, useTranslation } from "../../../i18n";
+import { useDesktopUnsavedForm } from "../../../desktop/use-desktop-unsaved-form";
+import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useAuthStore } from "../../auth/auth-store";
 import {
   SettingsRequestError,
@@ -27,6 +29,7 @@ const ALLOWED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 /** Render personal identity editing and the account's space and management destinations. */
 export function AccountPage() {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const authUser = useAuthStore((s) => s.user);
   const client = useQueryClient();
   const query = useQuery({
@@ -59,6 +62,7 @@ export function AccountPage() {
   useEffect(() => () => releasePendingCropUrl(), [releasePendingCropUrl]);
 
   const profile = query.data;
+  useDesktopUnsavedForm(Boolean(draft !== null && draft !== (profile?.display_name ?? "")) || Boolean(cropState));
   useEffect(() => {
     if (!profile || profile.avatar_version === undefined) return;
     const current = useAuthStore.getState().user;
@@ -234,13 +238,15 @@ export function AccountPage() {
   return (
     <section className="settings-surface im-account-page">
       <div className="settings-frame">
-        <Link
-          className="settings-back"
-          data-testid="account-page-back"
-          to="/me"
-        >
-          ‹ {t("computers.account")}
-        </Link>
+        {isMobile && (
+          <Link
+            className="settings-back"
+            data-testid="account-page-back"
+            to="/me"
+          >
+            ‹ {t("me.title")}
+          </Link>
+        )}
         <header className="settings-heading">
           <h1>{t("settings.account.title")}</h1>
           <p>{t("settings.account.subtitle")}</p>

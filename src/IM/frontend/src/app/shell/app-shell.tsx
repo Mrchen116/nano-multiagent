@@ -5,6 +5,11 @@ import { computeUnreadBadgeTotal } from "@nano/product-contracts/client-parity";
 
 import { isDesktopClient } from "../../desktop/desktop-context";
 import { DesktopNodeOnboardingBanner } from "../../desktop/desktop-node-onboarding-banner";
+import {
+  DesktopNarrowUpdateBanner,
+  DesktopRailUpdatePill,
+} from "../../desktop/desktop-update-pill";
+import { useDesktopAttentionReporter } from "../../desktop/use-desktop-unsaved-form";
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { useTranslation } from "../../i18n";
 import { listConversations } from "../../features/chat/chat-api";
@@ -30,7 +35,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const { t } = useTranslation();
   const authed = useAuthStore((s) => Boolean(s.user));
   const navigate = useNavigate();
-  const location = useLocation();
+  useDesktopAttentionReporter();
 
   useEffect(() => {
     if (!isDesktopClient()) return;
@@ -47,24 +52,6 @@ export function AppShell({ children }: PropsWithChildren) {
       window.removeEventListener("crewden:navigate", onNavigate);
     };
   }, [navigate]);
-
-  useEffect(() => {
-    if (!isDesktopClient()) return;
-    const current_route = `${location.pathname}${location.search}`;
-    void fetch("/desktop/v1/attention", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ current_route }),
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { navigate_to?: string | null } | null) => {
-        if (data?.navigate_to && data.navigate_to !== current_route) {
-          navigate(data.navigate_to);
-        }
-      })
-      .catch(() => {});
-  }, [location.pathname, location.search, navigate]);
 
   const { data: conversations } = useQuery({
     queryKey: ["chat", "conversations"],
@@ -96,10 +83,12 @@ export function AppShell({ children }: PropsWithChildren) {
             <NavLink to="/tasks"><TasksNavIcon /><span>{t("shell.tabs.tasks")}</span></NavLink>
             <NavLink to="/settings/agents"><AgentsNavIcon /><span>{t("shell.tabs.agents")}</span></NavLink>
           </nav>
+          <DesktopRailUpdatePill />
           <UserMenu />
         </header>
       )}
       <main className="im-shell-main">
+        {isMobile && <DesktopNarrowUpdateBanner />}
         {children}
         <DesktopNodeOnboardingBanner />
       </main>

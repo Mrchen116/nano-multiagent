@@ -13,6 +13,7 @@ export type DesktopOriginSecurityKind =
   | "invalid";
 
 export interface DesktopWindowBootContext {
+  bundleSha?: string;
   imOrigin: string;
   contextEpoch: number;
   platform: DesktopPlatformId;
@@ -138,6 +139,7 @@ export function getDesktopBootContext(): DesktopWindowBootContext | null {
   const raw = window.__CREWDEN_DESKTOP__;
   if (!raw || typeof raw.imOrigin !== "string" || !raw.imOrigin.trim()) return null;
   return {
+    bundleSha: raw.bundleSha,
     imOrigin: raw.imOrigin.replace(/\/+$/, ""),
     contextEpoch: typeof raw.contextEpoch === "number" ? raw.contextEpoch : 1,
     platform: raw.platform === "win32-x64" ? "win32-x64" : "darwin-arm64",

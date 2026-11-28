@@ -7,6 +7,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { DesktopApiError, manageDesktopLocalBrowser } from "../../../desktop/desktop-api";
+import { useDesktopUnsavedForm } from "../../../desktop/use-desktop-unsaved-form";
 import { useTranslation } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { manageNodeBrowser, NodeBrowserRequestError } from "../im-settings-api";
@@ -72,6 +73,7 @@ export function BrowserPairingSection({
   const [browserError, setBrowserError] = useState<string | null>(null);
   const [waitingExtension, setWaitingExtension] = useState(false);
   const [tokenPageOpened, setTokenPageOpened] = useState(false);
+  useDesktopUnsavedForm(Boolean(localDesktopTransport && setupOpen && (browserToken.trim().length > 0 || tokenPageOpened)));
   const tokenInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -196,19 +198,37 @@ export function BrowserPairingSection({
     variant === "agent-callout"
       ? isConnected
         ? text(
-            "助手可在后台标签页复用该 Chrome 的已登录状态，或按需使用隔离浏览器",
-            "Assistant can reuse Chrome sign-ins in background tabs or use an isolated browser",
+            "助手可在后台标签页操作该 Chrome（打开网页、点击、输入、读取页面与截图）并复用已登录会话；无需个人登录态时可用干净隔离浏览器（独立环境，不触碰个人数据）",
+            "Assistants can automate this Chrome in background tabs (open pages, click, type, read, and screenshot) with your signed-in sessions, or use a clean isolated browser that never touches personal data",
           )
         : browser.state === "reconnect"
-          ? text("日常 Chrome 连接已失效，当前仅能使用干净隔离浏览器", "Daily Chrome needs re-pairing; only the isolated browser is currently available")
-          : text("尚未连接日常 Chrome（当前仅可使用干净隔离浏览器）", "Daily Chrome not paired yet (only the clean isolated browser is currently available)")
+          ? text(
+              "日常 Chrome 连接已失效：当前仅使用干净隔离浏览器（独立环境，不触碰个人数据）；重新配对后可恢复后台操作该 Chrome 与复用已登录会话",
+              "Daily Chrome needs re-pairing: only the clean isolated browser (no personal data touched) is available until re-paired for Chrome automation and signed-in sessions",
+            )
+          : text(
+              "尚未连接日常 Chrome：连接后助手可在后台标签页操作该 Chrome（打开网页、点击、输入、读取页面与截图）并复用已登录会话；未连接时仅使用干净隔离浏览器（独立环境，不触碰个人数据）",
+              "Daily Chrome not connected yet: pair so assistants can automate Chrome in background tabs (open pages, click, type, read, and screenshot) with your signed-in sessions; otherwise only a clean isolated browser is used (no personal data touched)",
+            )
       : browser.state === "verified"
-        ? text("助手可在后台独立标签页复用已登录账号", "Assistants can reuse signed-in sessions in background tabs")
+        ? text(
+            "助手可在后台标签页操作该 Chrome（打开网页、点击、输入、读取页面与截图）并复用已登录网站会话；无需个人登录态时可用干净隔离浏览器（不触碰个人数据）",
+            "Assistants can automate this Chrome in background tabs (open pages, click, type, read, and screenshot) with your signed-in sessions, or use a clean isolated browser without touching personal data",
+          )
         : browser.state === "paired"
-          ? text("将在首次执行日常网页任务时验证连接（免重启生效）", "Verified automatically on the first daily browser task")
+          ? text(
+              "已就绪（免重启，首次任务自动验证）：助手可在后台标签页操作该 Chrome（打开网页、点击、输入、读取页面与截图）并复用已登录会话，或按需使用干净隔离浏览器",
+              "Ready (verified on first task): assistants can automate this Chrome in background tabs (open, click, type, read, screenshot) with your signed-in sessions, or use a clean isolated browser",
+            )
           : browser.state === "reconnect"
-            ? text("扩展缺失或 Token 已变更，请重新配对", "Extension missing or token changed; pair again")
-            : text("配对一次后，助手可在后台标签页复用已登录状态（免重启生效）", "Pair once so assistants reuse your Chrome sign-ins in background tabs");
+            ? text(
+                "扩展缺失或 Token 已变更：请重新配对以恢复后台操作 Chrome 与复用已登录会话；当前仅可使用干净隔离浏览器（不触碰个人数据）",
+                "Extension missing or token changed — re-pair to restore Chrome automation and signed-in sessions; only the clean isolated browser (no personal data touched) is available now",
+              )
+            : text(
+                "配对一次后，助手可在后台标签页操作该 Chrome（打开网页、点击、输入、读取页面与截图）并复用你已登录的网站会话；未连接时使用干净隔离浏览器（独立环境，不触碰个人数据）",
+                "Pair once so assistants can automate this Chrome in background tabs (open pages, click, type, read, and screenshot) using your signed-in sessions; when unpaired, assistants use a clean isolated browser without touching personal data",
+              );
 
   const submitPair = () => {
     if (!browserToken.trim() || browserMutation.isPending) return;
@@ -246,7 +266,6 @@ export function BrowserPairingSection({
         <div className="browser-pairing-title">
           <strong style={{ fontSize: 13 }}>{text("日常 Chrome 浏览器", "Daily Chrome")}</strong>
           <span className={`browser-pairing-chip ${chipClass}`}>{chipLabel}</span>
-          <span style={{ fontSize: 12, color: "var(--im-text-muted, #68736b)" }}>{summaryNote}</span>
         </div>
         <div className="browser-pairing-actions">
           {setupOpen ? (
@@ -311,6 +330,7 @@ export function BrowserPairingSection({
           )}
         </div>
       </div>
+      <p className="browser-pairing-summary">{summaryNote}</p>
 
       {setupOpen && (
         <div className="browser-pairing-setup" data-testid={setupTestId}>
@@ -348,8 +368,8 @@ export function BrowserPairingSection({
           {!browser.chrome_installed ? (
             <p style={{ margin: 0, fontSize: 12.5, color: "#95601a" }}>
               {text(
-                "未在该电脑检测到 Google Chrome。日常登录态复用需要 Chrome 158+；不连接时助手仍可使用独立隔离浏览器。",
-                "Google Chrome was not detected on this computer. Install Chrome 158+ to attach your signed-in profile, or keep using the isolated browser.",
+                "未在该电脑检测到 Google Chrome。连接日常 Chrome 控制网页并复用已登录会话需要 Chrome 158+；不连接时助手仍可在干净隔离浏览器（独立环境，不触碰个人数据）中操作网页。",
+                "Google Chrome was not detected on this computer. Automating Daily Chrome with your signed-in sessions requires Chrome 158+; without it, assistants still automate pages in a clean isolated browser (no personal data touched).",
               )}
             </p>
           ) : (
