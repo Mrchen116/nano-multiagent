@@ -1361,6 +1361,16 @@ export function MessagePane({
     status={kind === "direct-agent" ? nodeStatus : null}
   />;
 
+  const agentActivityTrigger = directAgent && (
+    <button type="button" className={isMobile ? "chat-pane-title-trigger" : "chat-agent-activity-trigger"}
+      aria-label={t("chat.agentActivity.trigger", {name: directAgent.display_name ?? directAgent.id})}
+      aria-haspopup="dialog"
+      aria-expanded={activityAnchor?.agentId === directAgent.id && activityAnchor.element.dataset.activityAnchor === "header"}
+      data-activity-anchor="header"
+      onClick={event => openActivity({agentId: directAgent.id, name: directAgent.display_name ?? directAgent.id, element: event.currentTarget})}
+    >{isMobile ? conversation.title : headerAvatar}</button>
+  );
+
   function workHrefFor(message: Message) {
     const { sender } = message;
     if (
@@ -1388,18 +1398,11 @@ export function MessagePane({
             </svg>
           </button>
         )}
-        {conversation.type === "group" ? <GroupAvatar groupId={conversation.id} size={34} label={t("chat.list.filters.group")} />
-          : directAgent ? <button
-            type="button"
-            className="chat-agent-activity-trigger"
-            aria-label={t("chat.agentActivity.trigger", {name: directAgent.display_name ?? directAgent.id})}
-            aria-haspopup="dialog"
-            aria-expanded={activityAnchor?.agentId === directAgent.id && activityAnchor.element.dataset.activityAnchor === "header"}
-            data-activity-anchor="header"
-            onClick={event => openActivity({agentId: directAgent.id, name: directAgent.display_name ?? directAgent.id, element: event.currentTarget})}
-          >{headerAvatar}</button> : headerAvatar}
+        {!isMobile && (conversation.type === "group"
+          ? <GroupAvatar groupId={conversation.id} size={34} label={t("chat.list.filters.group")} />
+          : agentActivityTrigger ?? headerAvatar)}
         <div className="chat-pane-header-body">
-          <h2 className="chat-pane-title">{conversation.title}</h2>
+          <h2 className="chat-pane-title">{isMobile && agentActivityTrigger ? agentActivityTrigger : conversation.title}</h2>
           {isGroup && <div className="chat-pane-header-meta">
             {!conversation.is_observer && onOpenConfig
               ? <button type="button" className="chat-pane-member-count" onClick={onOpenConfig}>{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}<span aria-hidden> ›</span></button>
