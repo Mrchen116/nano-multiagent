@@ -10,6 +10,7 @@ import {
   formatByteSize,
   parseDelimitedTable,
   readBoundedTextPreview,
+  TEXT_PREVIEW_MAX_BYTES,
 } from "./attachment-preview";
 
 vi.mock("../../auth/auth-fetch", () => ({
@@ -72,6 +73,19 @@ describe("parseDelimitedTable & readBoundedTextPreview", () => {
     const binRes = new Response(new Uint8Array([0x50, 0x4b, 0x00, 0x04]));
     const bin = await readBoundedTextPreview(binRes, 64);
     expect(bin.status).toBe("binary");
+  });
+
+  test("cancels a slow response after receiving the preview prefix", async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(TEXT_PREVIEW_MAX_BYTES + 1).fill(97));
+      },
+      cancel,
+    });
+    const result = await readBoundedTextPreview(new Response(stream));
+    expect(result).toMatchObject({ status: "ok", truncated: true, byteLength: TEXT_PREVIEW_MAX_BYTES });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   test("formats byte sizes concisely", () => {
@@ -149,6 +163,25 @@ describe("AttachmentChip in-page preview modal", () => {
     expect(await screen.findByRole("columnheader", { name: "region" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "APAC" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "+18%" })).toBeInTheDocument();
+  });
+
+  test("shows errors instead of saving an interrupted attachment from the chip or preview", async () => {
+    mockedAuthFetch.mockImplementation(async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode("prefix")); },
+      pull(controller) { controller.error(new Error("connection closed")); },
+    })));
+    const save = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<AttachmentChip attachment={{
+      url: "/im/v1/conversations/c1/attachments/log", content_type: "text/plain", file_name: "server.log",
+    }} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Download server.log" }));
+    expect(await screen.findByRole("alert")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: /server\.log.*Preview/i }));
+    expect(await screen.findByText("Unable to load file preview.")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Download file" }));
+    expect(await screen.findByText("Download failed. Please try again.")).toBeVisible();
+    expect(save).not.toHaveBeenCalled();
   });
 
   test("opens PDF preview modal using a blob iframe and revokes the blob URL on close", async () => {

@@ -553,6 +553,7 @@ dependencies = [
  "futures-util",
  "http",
  "objc2",
+ "objc2-app-kit",
  "objc2-foundation",
  "rand 0.8.8",
  "reqwest 0.12.28",

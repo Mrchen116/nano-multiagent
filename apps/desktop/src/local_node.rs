@@ -1,8 +1,9 @@
 use crate::config::{append_private_jsonl, write_private_json, DesktopPaths, StoredSessionsFile};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -129,10 +130,12 @@ fn advance_managed_active_pointers_to_seed(
     version: &str,
     target_sha: &str,
     final_version_root: &Path,
-) {
+) -> Result<(), String> {
     let connections_dir = paths.nano_install_root.join("connections");
-    let Ok(entries) = fs::read_dir(&connections_dir) else {
-        return;
+    let entries = match fs::read_dir(&connections_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.to_string()),
     };
     let now_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -140,54 +143,56 @@ fn advance_managed_active_pointers_to_seed(
         .unwrap_or(0);
     let root_str = final_version_root.to_string_lossy().to_string();
     let ui_str = final_version_root.join("ui").to_string_lossy().to_string();
-    for entry in entries.flatten() {
-        let active_path = entry.path().join(".desktop-active.json");
-        if !active_path.is_file() {
+    for entry in entries {
+        let connection = entry.map_err(|e| e.to_string())?.path();
+        if !connection.is_dir() {
             continue;
         }
-        let Ok(raw) = fs::read_to_string(&active_path) else {
-            continue;
+        let active_path = connection.join(".desktop-active.json");
+        let raw = match fs::read_to_string(&active_path) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.to_string()),
         };
-        let Ok(mut val) = serde_json::from_str::<Value>(&raw) else {
+        let mut val: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        if val["managed_by"] != "crewden-desktop" {
             continue;
-        };
-        let Some(obj) = val.as_object_mut() else {
-            continue;
-        };
-        obj.insert("managed_by".to_string(), json!("crewden-desktop"));
+        }
+        let obj = val.as_object_mut().ok_or("Invalid desktop active pointer")?;
         obj.insert("sha256".to_string(), json!(target_sha));
         obj.insert("version".to_string(), json!(version));
         obj.insert("version_root".to_string(), json!(root_str));
         obj.insert("ui_root".to_string(), json!(ui_str));
         obj.insert("updated_at_epoch".to_string(), json!(now_epoch));
-        let _ = write_private_json(&active_path, &val);
+        write_private_json(&active_path, &val)?;
     }
+    Ok(())
 }
 
 /// Reconcile `seed-current.json` and `.desktop-active.json` immediately when the bundled seed `.ready` already exists
 /// and differs from `seed-current.json` (e.g. re-installing or switching installers while keeping OTA updates untouched).
-pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) {
+pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) -> Result<(), String> {
     let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
-        return;
+        return Ok(());
     };
     let manifest_path = seed_dir.join(seed_manifest_filename());
     let Ok(manifest_raw) = fs::read_to_string(&manifest_path) else {
-        return;
+        return Ok(());
     };
     let Ok(manifest) = serde_json::from_str::<Value>(&manifest_raw) else {
-        return;
+        return Ok(());
     };
     let Some(target_sha) = manifest["sha256"].as_str() else {
-        return;
+        return Ok(());
     };
     let version = manifest["version"].as_str().unwrap_or("0.1.0");
     let final_version_root = paths.desktop_home.join("versions").join(target_sha);
     if !final_version_root.join(".ready").is_file() {
-        return;
+        return Ok(());
     }
     let prev = read_seed_marker(paths);
     if prev.as_ref().map(|m| m.sha256.as_str()) == Some(target_sha) {
-        return;
+        return Ok(());
     }
     let runtime_sha = manifest["package"]
         .as_str()
@@ -196,7 +201,8 @@ pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Opti
         .and_then(|d| d["runtime"]["sha256"].as_str().map(str::to_string))
         .or_else(|| prev.map(|m| m.runtime_sha256))
         .unwrap_or_default();
-    let _ = write_private_json(
+    advance_managed_active_pointers_to_seed(paths, version, target_sha, &final_version_root)?;
+    write_private_json(
         &paths.seed_marker_path(),
         &SeedMarker {
             version: version.to_string(),
@@ -204,8 +210,7 @@ pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Opti
             runtime_sha256: runtime_sha,
             version_root: final_version_root.to_string_lossy().to_string(),
         },
-    );
-    advance_managed_active_pointers_to_seed(paths, version, target_sha, &final_version_root);
+    )
 }
 
 /// Gracefully stop all managed local node processes across saved Desktop sessions without setting `user_stopped`.
@@ -260,13 +265,100 @@ pub fn has_pending_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&
         .is_file()
 }
 
+fn file_sha256(path: &Path) -> io::Result<String> {
+    let mut hasher = Sha256::new();
+    io::copy(&mut fs::File::open(path)?, &mut hasher)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn cache_seed_asset(source: &Path, cached: &Path, expected_sha: &str) -> Result<(), String> {
+    if file_sha256(cached).is_ok_and(|sha| sha == expected_sha) {
+        return Ok(());
+    }
+
+    // The single seed worker reuses this sibling after interruption. OTA readers
+    // only see the final name once all bytes have passed verification.
+    let stage = cached.with_added_extension("seed-part");
+    let replace = || -> Result<(), String> {
+        let mut input = fs::File::open(source)
+            .map_err(|e| format!("Open bundled seed {}: {e}", source.display()))?;
+        let mut output = fs::File::create(&stage)
+            .map_err(|e| format!("Create seed cache staging file {}: {e}", stage.display()))?;
+        io::copy(&mut input, &mut output)
+            .map_err(|e| format!("Copy {} to {}: {e}", source.display(), stage.display()))?;
+        drop(output);
+        let digest = file_sha256(&stage)
+            .map_err(|e| format!("Verify seed cache {}: {e}", stage.display()))?;
+        if digest != expected_sha {
+            return Err(format!("Bundled seed {}: SHA-256 mismatch", source.display()));
+        }
+        fs::rename(&stage, cached)
+            .map_err(|e| format!("Rename {} to {}: {e}", stage.display(), cached.display()))
+    };
+    let result = replace();
+    if result.is_err() {
+        let _ = fs::remove_file(&stage);
+    }
+    result
+}
+
+fn create_seed_directory(path: &Path) -> Result<(), String> {
+    fs::create_dir_all(path).map_err(|e| format!("Create seed directory {}: {e}", path.display()))
+}
+
+fn mark_seed_ready(root: &Path, contents: &[u8]) -> Result<(), String> {
+    let path = root.join(".ready");
+    fs::write(&path, contents).map_err(|e| format!("Write seed marker {}: {e}", path.display()))
+}
+
+fn publish_seed_directory(stage: &Path, target: &Path) -> Result<(), String> {
+    let mut result = fs::rename(stage, target);
+    if cfg!(windows) {
+        // NTFS also reports access denied while a child of the staged directory is open.
+        for delay_ms in [25, 50, 100, 200, 400, 800] {
+            if !matches!(&result, Err(e) if e.raw_os_error() == Some(5)) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            result = fs::rename(stage, target);
+        }
+    }
+    result.map_err(|e| {
+        format!("Rename seed directory {} to {}: {e}", stage.display(), target.display())
+    })
+}
+
+#[cfg(windows)]
+fn publish_seed_runtime(stage: &Path, target: &Path) -> Result<(), String> {
+    // Move only a junction into the content-addressed slot. Open files in the
+    // backing directory (including the Node used for layout) can stay open.
+    let link = stage.with_added_extension("junction");
+    let node = stage.join(standalone_node_rel_path());
+    let mut cmd = Command::new(&node);
+    configure_hidden_command(&mut cmd);
+    let output = cmd
+        .args(["-e", "require('node:fs').symlinkSync(process.argv[1], process.argv[2], 'junction')", "--"])
+        .arg(stage)
+        .arg(&link)
+        .output()
+        .map_err(|e| format!("Run {} to create runtime junction {}: {e}", node.display(), link.display()))?;
+    if !output.status.success() {
+        return Err(format!("Create runtime junction {} to {}: {}",
+            link.display(), stage.display(), String::from_utf8_lossy(&output.stderr)));
+    }
+    let result = publish_seed_directory(&link, target);
+    if result.is_err() {
+        let _ = fs::remove_dir(&link);
+    }
+    result
+}
+
 /// Unpack first-install seed archives into `<desktop_home>/{cache,runtimes,versions}` so
 /// managed Node 24.22.1 works with zero global PATH tools and future updates reuse `runtime`.
 pub fn ensure_seed_bundle_installed(
     paths: &DesktopPaths,
     seed_archives_dir: Option<&Path>,
 ) -> Result<Option<PathBuf>, String> {
-    sync_seed_desktop_defaults(paths, seed_archives_dir);
     let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
         return Ok(None);
     };
@@ -275,7 +367,8 @@ pub fn ensure_seed_bundle_installed(
     if !manifest_path.is_file() {
         return Ok(None);
     }
-    let manifest_raw = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
+    let manifest_raw = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("Read seed {}: {e}", manifest_path.display()))?;
     let manifest: Value = serde_json::from_str(&manifest_raw).map_err(|e| e.to_string())?;
     let pkg_name = manifest["package"]
         .as_str()
@@ -287,12 +380,16 @@ pub fn ensure_seed_bundle_installed(
 
     let final_version_root = paths.desktop_home.join("versions").join(target_sha);
     if final_version_root.join(".ready").is_file() {
-        reconcile_ready_seed_bundle(paths, Some(&seed_dir));
+        reconcile_ready_seed_bundle(paths, Some(&seed_dir))?;
         return Ok(Some(final_version_root));
     }
 
-    let descriptor_src = seed_dir.join(pkg_name);
-    let descriptor_raw = fs::read_to_string(&descriptor_src).map_err(|e| e.to_string())?;
+    let cache_dir = paths.desktop_home.join("cache");
+    create_seed_directory(&cache_dir)?;
+    let cached_desc = cache_dir.join(format!("descriptor-{}.json", target_sha));
+    cache_seed_asset(&seed_dir.join(pkg_name), &cached_desc, target_sha)?;
+    let descriptor_raw = fs::read_to_string(&cached_desc)
+        .map_err(|e| format!("Read seed {}: {e}", cached_desc.display()))?;
     let descriptor: Value = serde_json::from_str(&descriptor_raw).map_err(|e| e.to_string())?;
     let runtime_name = descriptor["runtime"]["name"]
         .as_str()
@@ -307,33 +404,26 @@ pub fn ensure_seed_bundle_installed(
         .as_str()
         .ok_or_else(|| "Seed descriptor missing app.sha256".to_string())?;
 
-    let cache_dir = paths.desktop_home.join("cache");
     let runtimes_dir = paths.desktop_home.join("runtimes");
     let versions_dir = paths.desktop_home.join("versions");
-    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
-    fs::create_dir_all(&runtimes_dir).map_err(|e| e.to_string())?;
-    fs::create_dir_all(&versions_dir).map_err(|e| e.to_string())?;
+    create_seed_directory(&runtimes_dir)?;
+    create_seed_directory(&versions_dir)?;
 
-    // Populate cache/ so update-worker.ts sees verified cached runtime & descriptor archives.
-    let cached_desc = cache_dir.join(format!("descriptor-{}.json", target_sha));
     let cached_rt = cache_dir.join(format!("{}-{}", runtime_sha, runtime_name));
     let cached_app = cache_dir.join(format!("{}-{}", app_sha, app_name));
-    if !cached_desc.is_file() {
-        let _ = fs::copy(&descriptor_src, &cached_desc);
-    }
-    if !cached_rt.is_file() {
-        fs::copy(seed_dir.join(runtime_name), &cached_rt).map_err(|e| e.to_string())?;
-    }
-    if !cached_app.is_file() {
-        fs::copy(seed_dir.join(app_name), &cached_app).map_err(|e| e.to_string())?;
-    }
+    cache_seed_asset(&seed_dir.join(runtime_name), &cached_rt, runtime_sha)?;
+    cache_seed_asset(&seed_dir.join(app_name), &cached_app, app_sha)?;
 
     let final_runtime_root = runtimes_dir.join(runtime_sha);
     if !final_runtime_root.join(".ready").is_file() {
-        let stage = runtimes_dir.join(format!(".seed-rt-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&stage);
-        fs::create_dir_all(&stage).map_err(|e| e.to_string())?;
-        extract_tar_gz(&cached_rt, &stage)?;
+        // A published Windows junction owns this backing directory for the life of
+        // the runtime. A later install must never recycle it, even after PID reuse.
+        let backing = tempfile::Builder::new()
+            .prefix("seed-content-")
+            .tempdir_in(&runtimes_dir)
+            .map_err(|e| format!("Create runtime directory in {}: {e}", runtimes_dir.display()))?;
+        let stage = backing.path();
+        extract_tar_gz(&cached_rt, stage)?;
         let node_bin = stage.join(standalone_node_rel_path());
         #[cfg(unix)]
         {
@@ -349,23 +439,26 @@ pub fn ensure_seed_bundle_installed(
             let out = cmd
                 .arg(&layout)
                 .arg("runtime")
-                .arg(&stage)
+                .arg(stage)
                 .arg(&final_runtime_root)
                 .output()
-                .map_err(|e| format!("Failed to run runtime layout.mjs: {}", e))?;
+                .map_err(|e| format!("Run {} with {}: {e}", layout.display(), node_bin.display()))?;
             if !out.status.success() {
-                let _ = fs::remove_dir_all(&stage);
                 return Err(format!(
                     "runtime layout.mjs failed: {}",
                     String::from_utf8_lossy(&out.stderr)
                 ));
             }
         }
-        fs::write(stage.join(".ready"), b"").map_err(|e| e.to_string())?;
-        if final_runtime_root.exists() {
-            let _ = fs::remove_dir_all(&stage);
-        } else {
-            fs::rename(&stage, &final_runtime_root).map_err(|e| e.to_string())?;
+        mark_seed_ready(stage, b"")?;
+        if !final_runtime_root.join(".ready").is_file() {
+            #[cfg(windows)]
+            {
+                publish_seed_runtime(stage, &final_runtime_root)?;
+                let _ = backing.keep();
+            }
+            #[cfg(not(windows))]
+            publish_seed_directory(stage, &final_runtime_root)?;
         }
     }
 
@@ -375,8 +468,8 @@ pub fn ensure_seed_bundle_installed(
     let version_stage = versions_dir.join(format!(".seed-ver-stage-{}", std::process::id()));
     let _ = fs::remove_dir_all(&app_extract);
     let _ = fs::remove_dir_all(&version_stage);
-    fs::create_dir_all(&app_extract).map_err(|e| e.to_string())?;
-    fs::create_dir_all(&version_stage).map_err(|e| e.to_string())?;
+    create_seed_directory(&app_extract)?;
+    create_seed_directory(&version_stage)?;
 
     extract_tar_gz(&cached_app, &app_extract)?;
     let mut cmd = Command::new(&node_bin);
@@ -389,7 +482,7 @@ pub fn ensure_seed_bundle_installed(
         .arg(&final_runtime_root)
         .arg(&app_extract)
         .output()
-        .map_err(|e| format!("Failed to run version layout.mjs: {}", e))?;
+        .map_err(|e| format!("Run {} with {}: {e}", layout.display(), node_bin.display()))?;
     let _ = fs::remove_dir_all(&app_extract);
     if !out.status.success() {
         let _ = fs::remove_dir_all(&version_stage);
@@ -400,9 +493,9 @@ pub fn ensure_seed_bundle_installed(
     }
 
     write_private_json(&version_stage.join(".release-manifest.json"), &manifest)?;
-    fs::write(version_stage.join(".ready"), format!("{}\n", target_sha)).map_err(|e| e.to_string())?;
+    mark_seed_ready(&version_stage, format!("{target_sha}\n").as_bytes())?;
     if !final_version_root.exists() {
-        fs::rename(&version_stage, &final_version_root).map_err(|e| e.to_string())?;
+        publish_seed_directory(&version_stage, &final_version_root)?;
     } else {
         let _ = fs::remove_dir_all(&version_stage);
     }
@@ -410,6 +503,9 @@ pub fn ensure_seed_bundle_installed(
     let seed_changed = read_seed_marker(paths)
         .map(|m| m.sha256 != target_sha)
         .unwrap_or(true);
+    if seed_changed {
+        advance_managed_active_pointers_to_seed(paths, &version, target_sha, &final_version_root)?;
+    }
     write_private_json(
         &paths.seed_marker_path(),
         &SeedMarker {
@@ -419,9 +515,6 @@ pub fn ensure_seed_bundle_installed(
             version_root: final_version_root.to_string_lossy().to_string(),
         },
     )?;
-    if seed_changed {
-        advance_managed_active_pointers_to_seed(paths, &version, target_sha, &final_version_root);
-    }
     Ok(Some(final_version_root))
 }
 
@@ -444,10 +537,11 @@ fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), String> {
         .arg("-C")
         .arg(dest)
         .output()
-        .map_err(|e| format!("Failed to invoke tar: {}", e))?;
+        .map_err(|e| format!("Extract {} to {}: {e}", archive.display(), dest.display()))?;
     if !out.status.success() {
         return Err(format!(
-            "tar extraction failed: {}",
+            "Extract {} to {}: tar extraction failed: {}",
+            archive.display(), dest.display(),
             String::from_utf8_lossy(&out.stderr)
         ));
     }
@@ -811,7 +905,7 @@ mod tests {
             json!({ "package": "pkg.json", "version": "1.0.0", "sha256": "sha_v1" }).to_string(),
         )
         .unwrap();
-        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official)).unwrap();
 
         let active_path = paths.desktop_active_path(origin).unwrap();
         write_private_json(
@@ -840,7 +934,7 @@ mod tests {
             }),
         )
         .unwrap();
-        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official)).unwrap();
         let resolved_ota = resolve_active_bundle(&paths, origin, None).unwrap();
         assert_eq!(resolved_ota.version, "1.0.5");
         assert_eq!(resolved_ota.sha256.as_deref(), Some("sha_ota"));
@@ -851,7 +945,7 @@ mod tests {
             json!({ "package": "pkg.json", "version": "2.0.0", "sha256": "sha_v2" }).to_string(),
         )
         .unwrap();
-        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official)).unwrap();
         let resolved_v2 = resolve_active_bundle(&paths, origin, None).unwrap();
         assert_eq!(resolved_v2.version, "2.0.0");
         assert_eq!(resolved_v2.sha256.as_deref(), Some("sha_v2"));
@@ -861,3 +955,6 @@ mod tests {
         assert_eq!(updated_ptr["user_stopped"], json!(true));
     }
 }
+
+#[cfg(test)]
+mod seed_tests;
