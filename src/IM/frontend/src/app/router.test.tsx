@@ -156,7 +156,8 @@ describe("app routes", () => {
       ["/settings/account", "account-page-back"],
       ["/settings/nodes", "nodes-page-back"],
       ["/settings/policies", "policies-page-back"],
-      ["/settings/models", "models-page-back"]
+      ["/settings/models", "models-page-back"],
+      ["/settings/company", "company-page-back"]
     ] as const) {
       const view = renderRouter({ routes: appRoutes, initialEntries: [path] });
       const backLink = await screen.findByTestId(testId);

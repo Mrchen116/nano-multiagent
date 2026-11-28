@@ -75,7 +75,7 @@ Agent 解读：
 ## 修复
 
 1. **桌面与移动端个人导航按视口隔离（Issue G）**：
-   - 在 `src/IM/frontend/src/features/settings/account/account-page.tsx`、`src/IM/frontend/src/features/settings/nodes/nodes-page.tsx`、`src/IM/frontend/src/features/settings/policies/policies-page.tsx` 与 `src/IM/frontend/src/features/settings/models/models-page.tsx` 接入 `useIsMobile()`（`< 768px`）：仅在窄屏渲染返回 `/me` 的顶部链接并统一文案为 `‹ 我` / `‹ Me`（`t("me.title")`），桌面视口（`>= 768px`）隐藏所有指向 `/me` 的返回入口；
+   - 在 `src/IM/frontend/src/features/settings/account/account-page.tsx`、`src/IM/frontend/src/features/settings/nodes/nodes-page.tsx`、`src/IM/frontend/src/features/settings/policies/policies-page.tsx`、`src/IM/frontend/src/features/settings/models/models-page.tsx` 与 `src/IM/frontend/src/features/settings/company/company-members-page.tsx` 接入 `useIsMobile()`（`< 768px`）：仅在窄屏渲染返回 `/me` 的顶部链接（触控热区 `>= 44px`）并统一文案为 `‹ 我` / `‹ Me`（`t("me.title")`），桌面视口（`>= 768px`）隐藏所有指向 `/me` 的返回入口；
    - 在 `src/IM/frontend/src/features/me/me-page.tsx` 中对桌面视口（`!isMobile`）增加 `<Navigate to="/settings/account" replace />` 自动重定向（同时仅在窄屏启用 `listNodes` 查询），确保直接访问或拉宽窗口停留在 `/me` 时自动落回桌面账号设置页，完整保留 `AccountPage` 的显示名修改、头像裁剪上传与空间/团队状态能力。
 2. **「日常 Chrome 浏览器」配对卡片明确传达控制能力与隔离边界（Issue H）**：
    - 更新 `src/IM/frontend/src/features/settings/nodes/browser-pairing-section.tsx`（含 `desktop-strip`、`drawer`、`agent-callout` 三种变体及未配对/已配对/已验证/需重新配对/未装 Chrome 各状态）的中英文文案，清晰说明连接后助手可在后台标签页操作该 Chrome（打开网页、点击、输入、读取页面与截图）并复用已登录网站会话，未连接或无需个人登录态时使用干净隔离浏览器（独立环境，不触碰个人浏览器数据）；
