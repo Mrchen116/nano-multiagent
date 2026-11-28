@@ -5,7 +5,7 @@ import {
   focusManager,
 } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPage } from "./account-page";
@@ -37,10 +37,13 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function meBody(overrides: Partial<typeof SAMPLE_USER> = {}) {
+function meBody(
+  overrides: Partial<typeof SAMPLE_USER> & { avatar_version?: string | null } = {},
+) {
   return {
     ...SAMPLE_USER,
     user_id: SAMPLE_USER.id,
+    avatar_version: null as string | null,
     ...overrides,
   };
 }
@@ -83,6 +86,20 @@ function mockAccountApi() {
     if (url === "/im/v1/me" && init?.method === "PATCH") {
       stored = { ...stored, ...JSON.parse(String(init.body)) };
       return jsonResponse(stored);
+    }
+    if (url === "/im/v1/me/avatar" && init?.method === "PUT") {
+      stored = { ...stored, avatar_version: "a1b2c3d4e5f6" };
+      return jsonResponse(stored);
+    }
+    if (url === "/im/v1/me/avatar" && init?.method === "DELETE") {
+      stored = { ...stored, avatar_version: null };
+      return jsonResponse(stored);
+    }
+    if (url.startsWith("/im/v1/users/") && url.includes("/avatar")) {
+      return new Response(new Uint8Array([82, 73, 70, 70]), {
+        status: 200,
+        headers: { "Content-Type": "image/webp" },
+      });
     }
     if (url === "/im/v1/me") return jsonResponse(stored);
     if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
@@ -276,5 +293,116 @@ describe("account settings", () => {
     expect(field).toHaveValue("Accepted save");
     expect(screen.getByText("Changes saved.")).toBeInTheDocument();
     client.clear();
+  });
+
+  it("rejects invalid or oversized avatar files, downscales >2048px sources, revokes ObjectURLs, and keeps unsaved display_name draft across upload and removal", async () => {
+    const user = userEvent.setup();
+    mockAccountApi();
+
+    const createdUrls: string[] = [];
+    const revokedUrls: string[] = [];
+    const origCreateObjectURL = URL.createObjectURL;
+    const origRevokeObjectURL = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn(() => {
+      const next = `blob:test-avatar-${createdUrls.length + 1}`;
+      createdUrls.push(next);
+      return next;
+    });
+    URL.revokeObjectURL = vi.fn((u: string) => {
+      revokedUrls.push(u);
+    });
+
+    const drawnSizes: Array<[number, number]> = [];
+    const getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return {
+          clearRect: vi.fn(),
+          drawImage: vi.fn((_src: unknown, _x: number, _y: number, w: number, h: number) => {
+            drawnSizes.push([this.width, this.height]);
+            void w;
+            void h;
+          }),
+        } as unknown as CanvasRenderingContext2D;
+      });
+    const toBlobSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((cb) => {
+        cb(new Blob([new Uint8Array([1, 2, 3, 4])], { type: "image/webp" }));
+      });
+    const origImage = globalThis.Image;
+    class MockImage {
+      naturalWidth = 4096;
+      naturalHeight = 3072;
+      width = 4096;
+      height = 3072;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    globalThis.Image = MockImage as unknown as typeof Image;
+
+    try {
+      renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+      const field = await screen.findByLabelText(/display name/i);
+      await user.clear(field);
+      await user.type(field, "Draft Name Kept");
+
+      const fileInput = screen.getByTestId("account-avatar-file-input") as HTMLInputElement;
+
+      // 1. Animated/unsupported GIF rejected inline without opening dialog or touching draft.
+      const gifFile = new File([new Uint8Array([71, 73, 70])], "anim.gif", { type: "image/gif" });
+      fireEvent.change(fileInput, { target: { files: [gifFile] } });
+      expect(await screen.findByTestId("account-avatar-feedback")).toHaveTextContent(/static PNG, JPEG, or WebP/i);
+      expect(screen.queryByTestId("avatar-crop-dialog")).toBeNull();
+      expect(field).toHaveValue("Draft Name Kept");
+
+      // 2. >5 MiB PNG rejected inline.
+      const hugeFile = new File([new Uint8Array(5 * 1024 * 1024 + 16)], "huge.png", { type: "image/png" });
+      fireEvent.change(fileInput, { target: { files: [hugeFile] } });
+      expect(await screen.findByTestId("account-avatar-feedback")).toHaveTextContent(/5 MB/i);
+      expect(screen.queryByTestId("avatar-crop-dialog")).toBeNull();
+
+      // 3. Valid 4096x3072 PNG is pre-downscaled to 2048x1536, revokes temporary file ObjectURL immediately, and paints 480x480 preview canvas on open.
+      const validFile = new File([new Uint8Array([137, 80, 78, 71])], "portrait.png", { type: "image/png" });
+      fireEvent.change(fileInput, { target: { files: [validFile] } });
+      expect(await screen.findByTestId("avatar-crop-dialog")).toBeInTheDocument();
+      expect(drawnSizes).toContainEqual([2048, 1536]);
+      expect(drawnSizes).toContainEqual([480, 480]);
+      expect(revokedUrls).toContain("blob:test-avatar-1");
+
+      // Escape closes crop dialog and returns focus to upload button.
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByTestId("avatar-crop-dialog")).toBeNull());
+      expect(screen.getByTestId("account-avatar-upload-btn")).toHaveFocus();
+
+      // Re-open and confirm crop -> PUT /im/v1/me/avatar, updates authStore avatar_version, preserves Draft Name Kept.
+      fireEvent.change(fileInput, { target: { files: [validFile] } });
+      await screen.findByTestId("avatar-crop-dialog");
+      await user.click(screen.getByTestId("avatar-crop-confirm-btn"));
+
+      await waitFor(() => {
+        expect(useAuthStore.getState().user?.avatar_version).toBe("a1b2c3d4e5f6");
+      });
+      expect(field).toHaveValue("Draft Name Kept");
+      expect(screen.getByRole("button", { name: /save account/i })).toBeEnabled();
+      expect(screen.getByTestId("account-avatar-remove-btn")).toBeInTheDocument();
+
+      // Remove avatar -> DELETE /im/v1/me/avatar, clears avatar_version, still preserves Draft Name Kept.
+      await user.click(screen.getByTestId("account-avatar-remove-btn"));
+      await waitFor(() => {
+        expect(useAuthStore.getState().user?.avatar_version).toBeNull();
+      });
+      expect(field).toHaveValue("Draft Name Kept");
+      expect(screen.queryByTestId("account-avatar-remove-btn")).toBeNull();
+    } finally {
+      URL.createObjectURL = origCreateObjectURL;
+      URL.revokeObjectURL = origRevokeObjectURL;
+      getContextSpy.mockRestore();
+      toBlobSpy.mockRestore();
+      globalThis.Image = origImage;
+    }
   });
 });

@@ -141,3 +141,53 @@ it("invalidates the conversation list once when a coalesced event batch fails", 
   expect(list).toHaveBeenCalledTimes(1);
   expect(invalidate).toHaveBeenCalledTimes(1);
 });
+
+it("processes user.profile_updated across routes and refreshes contacts on stream recovery", async () => {
+  const { client } = fixture();
+  for (const k of [
+    ["contacts", "owner"],
+    ["settings", "account"],
+    ["chat", "messages", "c1"],
+    ["company", "members"],
+    ["task-graphs", "list"],
+    ["personal-agent", "b1", "incidents"],
+  ]) {
+    client.setQueryData(k, { cached: true });
+  }
+  client.setQueryData(["chat", "conversations"], []);
+
+  act(() => {
+    subscriber.onEvent({
+      eventType: "user.profile_updated",
+      payload: {
+        user_id: "owner",
+        display_name: "Owner Renamed",
+        avatar_version: "ff00aa11bb22",
+      },
+    });
+  });
+
+  expect(useAuthStore.getState().user).toMatchObject({
+    display_name: "Owner Renamed",
+    avatar_version: "ff00aa11bb22",
+  });
+  for (const k of [
+    ["contacts", "owner"],
+    ["settings", "account"],
+    ["chat", "conversations"],
+    ["chat", "messages", "c1"],
+    ["company", "members"],
+    ["task-graphs", "list"],
+    ["personal-agent", "b1", "incidents"],
+  ]) {
+    expect(client.getQueryState(k)?.isInvalidated).toBe(true);
+  }
+
+  // Stream recovery also invalidates contacts for non-chat routes like /people.
+  client.setQueryData(["contacts", "owner"], { fresh: true });
+  expect(client.getQueryState(["contacts", "owner"])?.isInvalidated).toBe(false);
+  await act(async () => {
+    await subscriber.onRecovery!();
+  });
+  expect(client.getQueryState(["contacts", "owner"])?.isInvalidated).toBe(true);
+});

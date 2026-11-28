@@ -5,6 +5,7 @@ struct SettingsAccount: Codable, Sendable, Equatable {
     let user_id: String
     let username: String
     var display_name: String
+    var avatar_version: String? = nil
     let owner_id: String
     let owned_node_ids: [String]
     var default_entry_node_id: String?
@@ -86,6 +87,7 @@ struct SettingsMember: Codable, Sendable, Identifiable {
     let id: String
     let username: String
     let display_name: String
+    var avatar_version: String? = nil
     var membership_status: String
     let is_company_admin: Bool
     let node_count: Int
@@ -138,6 +140,12 @@ extension IMClient {
     func settingsNodes() async throws -> [SettingsNode] { try await get("/im/v1/nodes") }
     func saveSettingsAccount(_ account: SettingsAccountUpdate) async throws -> SettingsAccount {
         try await send("/im/v1/me", method: "PATCH", body: account)
+    }
+    func uploadSettingsAvatar(_ data: Data, mimeType: String) async throws -> SettingsAccount {
+        try await request("/im/v1/me/avatar", method: "PUT", body: data, headers: ["Content-Type": mimeType])
+    }
+    func deleteSettingsAvatar() async throws -> SettingsAccount {
+        try await delete("/im/v1/me/avatar")
     }
     func saveSettingsNode(_ id: String, update: SettingsNodeUpdate) async throws -> SettingsNode {
         try await send("/im/v1/nodes/\(settingsPathComponent(id))/config", method: "PATCH", body: update)

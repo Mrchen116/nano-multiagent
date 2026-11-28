@@ -94,6 +94,7 @@ struct AvatarView: View {
     var size: CGFloat = 44
     var online = false
     @Environment(\.avatarDirectory) private var directory
+    @Environment(\.avatarImageStore) private var imageStore
 
     init(id: AvatarIdentity, size: CGFloat = 44, online: Bool = false) {
         self.id = id; self.size = size; self.online = online
@@ -132,10 +133,21 @@ struct AvatarView: View {
             case .group:
                 Image("group-avatar").resizable().scaledToFit().frame(width:size * 0.525)
                     .frame(width:size, height:size).background(color(swatch.background), in: RoundedRectangle(cornerRadius:size * 0.275))
-            case let .person(name):
-                Text(Self.initials(for: name))
-                    .font(.system(size:size * 0.35, weight:.semibold)).frame(width:size, height:size)
-                    .background(color(swatch.background), in:Circle())
+            case let .person(name, avatar):
+                if let avatar, let uiImage = imageStore?.image(for: avatar) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width:size, height:size)
+                        .clipShape(Circle())
+                } else {
+                    Text(Self.initials(for: name))
+                        .font(.system(size:size * 0.35, weight:.semibold)).frame(width:size, height:size)
+                        .background(color(swatch.background), in:Circle())
+                        .task(id: avatar) {
+                            if let avatar { imageStore?.loadIfNeeded(avatar) }
+                        }
+                }
             }
         }.foregroundStyle(color(swatch.foreground)).overlay(alignment:.bottomTrailing) {
             if online { Circle().fill(Color.green).frame(width:size * 0.23, height:size * 0.23)

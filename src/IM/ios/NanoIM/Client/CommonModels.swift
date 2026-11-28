@@ -4,6 +4,7 @@ struct AuthUser: Codable, Sendable, Equatable {
     var id: String
     var username: String
     var display_name: String
+    var avatar_version: String? = nil
     var owner_id: String
     var locale: String
     var membership_status: String
@@ -28,8 +29,13 @@ struct Contact: Codable, Identifiable, Sendable, Hashable {
     var collaboration_scope: String?
     var role: String?
     var avatar_variant: Int?
+    var avatar_version: String? = nil
     var id: String { user_id }
-    var actor: ActorRef { ActorRef(type: kind == "agent" ? "agent" : "user", id: agent_id ?? user_id) }
+    var actor: ActorRef {
+        ActorRef(type: kind == "agent" ? "agent" : "user", id: agent_id ?? user_id,
+                 display_name: display_name, user_id: user_id, role: role,
+                 avatar_variant: avatar_variant, avatar_version: avatar_version)
+    }
 }
 
 struct ActorRef: Codable, Sendable, Hashable {
@@ -42,6 +48,7 @@ struct ActorRef: Codable, Sendable, Hashable {
     var is_deleted: Bool?
     var role: String?
     var avatar_variant: Int?
+    var avatar_version: String? = nil
 }
 
 struct APIError: Error, LocalizedError, Sendable {

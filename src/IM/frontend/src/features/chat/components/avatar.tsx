@@ -1,6 +1,7 @@
 import AVATAR_PALETTE from "../../../../../shared/avatar-palette.json";
 import { createContext, useContext, useMemo, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AssistantPortrait } from "./assistant-portrait";
+import { markAvatarBlobBroken, useUserAvatarUrl } from "./avatar-blob-store";
 import type { Actor, Conversation } from "../chat-types";
 
 
@@ -34,6 +35,7 @@ export function initialsOf(displayName: string): string {
 // Every mounted surface reads the same account-scoped directory, including portals.
 class IdentityDirectory {
   private sources = new Map<ReadonlyMap<string, Actor>, number>();
+  private resolved = new Map<string, Actor | undefined>();
   private listeners = new Set<() => void>();
 
   subscribe = (listener: () => void) => {
@@ -43,23 +45,37 @@ class IdentityDirectory {
 
   register(actors: ReadonlyMap<string, Actor>, priority: number) {
     this.sources.set(actors, priority);
+    this.resolved.clear();
     this.listeners.forEach(listener => listener());
     return () => {
       this.sources.delete(actors);
+      this.resolved.clear();
       this.listeners.forEach(listener => listener());
     };
   }
 
   get(id: string) {
+    if (this.resolved.has(id)) return this.resolved.get(id);
     let result: Actor | undefined;
     let best = -1;
+    let bestAvatarVersion: string | null | undefined = undefined;
+    let bestAvatarPriority = -1;
     for (const [actors, priority] of this.sources) {
       const actor = actors.get(id);
-      if (actor && priority > best) {
+      if (!actor) continue;
+      if (priority >= best) {
         best = priority;
         result = actor;
       }
+      if (actor.avatar_version !== undefined && priority >= bestAvatarPriority) {
+        bestAvatarPriority = priority;
+        bestAvatarVersion = actor.avatar_version;
+      }
     }
+    if (result && result.avatar_version === undefined && bestAvatarVersion !== undefined) {
+      result = { ...result, avatar_version: bestAvatarVersion };
+    }
+    this.resolved.set(id, result);
     return result;
   }
 }
@@ -117,6 +133,10 @@ export function Avatar({ id, size = 32, status }: {
   const agentId = actor?.type === "agent" ? actor.id : undefined;
   const personal = actor?.role === "personal";
   const avatarVariant = actor?.avatar_variant;
+  const isExternal = Boolean(actor?.avatar_id?.startsWith("external:"));
+  const photoUserId = !personal && !agentId && !isExternal ? (actor?.user_id || actor?.id) : undefined;
+  const avatarVersion = !personal && !agentId && !isExternal ? actor?.avatar_version : null;
+  const blobUrl = useUserAvatarUrl(photoUserId, avatarVersion);
   const initials = initialsOf(name);
   const bg = colorForAgentSeed(name);
   const dotSize = size * 0.28;
@@ -131,11 +151,28 @@ export function Avatar({ id, size = 32, status }: {
           color: foregroundForAvatar(bg),
           fontWeight: 600,
           fontSize: size * 0.35,
-          letterSpacing: "-0.02em"
+          letterSpacing: "-0.02em",
+          overflow: personal || agentId ? undefined : "hidden",
         }}
         aria-hidden="true"
       >
-        {(personal || agentId) ? <AssistantPortrait personal={personal} seed={agentId} variant={avatarVariant} size={size} /> : initials.slice(0, 2).toUpperCase()}
+        {(personal || agentId) ? (
+          <AssistantPortrait personal={personal} seed={agentId} variant={avatarVariant} size={size} />
+        ) : blobUrl ? (
+          <img
+            src={blobUrl}
+            alt=""
+            draggable={false}
+            onError={() => {
+              if (photoUserId && typeof avatarVersion === "string" && avatarVersion) {
+                markAvatarBlobBroken(photoUserId, avatarVersion);
+              }
+            }}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "999px" }}
+          />
+        ) : (
+          initials.slice(0, 2).toUpperCase()
+        )}
       </span>
       {status && (
         <span

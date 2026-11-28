@@ -192,11 +192,17 @@ actor ChatRepository {
                 try db.execute(sql: "ALTER TABLE conversations ADD COLUMN write_blocked_reason TEXT")
             }
         }
+        migrator.registerMigration("v9_actor_avatar_version") { db in
+            let columns = try db.columns(in: "actors").map(\.name)
+            if !columns.contains("avatar_version") {
+                try db.execute(sql: "ALTER TABLE actors ADD COLUMN avatar_version TEXT")
+            }
+        }
         try migrator.migrate(queue)
         let policy = try persistence.policy()
         let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
-            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '8')")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '9')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try applyPolicy(policy, db: db)
@@ -441,6 +447,23 @@ actor ChatRepository {
                 try db.execute(sql: "INSERT OR REPLACE INTO task_card_cache(card_key, summary_json, updated_at) VALUES(?,?,?)",
                                arguments: [item.cardKey, encoded, now])
             }
+        }
+    }
+
+    func updateActorProfile(userID: String, displayName: String?, avatarVersion: String?, hasAvatarVersion: Bool) throws -> [Conversation] {
+        try write { db in
+            let now = Self.iso(Date())
+            if let displayName, hasAvatarVersion {
+                try db.execute(sql: "UPDATE actors SET display_name=?, avatar_version=?, updated_at=? WHERE (id=? OR user_id=?) AND type='user'",
+                               arguments: [displayName, avatarVersion, now, userID, userID])
+            } else if let displayName {
+                try db.execute(sql: "UPDATE actors SET display_name=?, updated_at=? WHERE (id=? OR user_id=?) AND type='user'",
+                               arguments: [displayName, now, userID, userID])
+            } else if hasAvatarVersion {
+                try db.execute(sql: "UPDATE actors SET avatar_version=?, updated_at=? WHERE (id=? OR user_id=?) AND type='user'",
+                               arguments: [avatarVersion, now, userID, userID])
+            }
+            return try Self.loadConversations(db)
         }
     }
 
@@ -988,11 +1011,11 @@ actor ChatRepository {
             // Same reason as above: an actor row is referenced by `conversation_members`, so a
             // REPLACE would have to delete a row that other conversations still point at.
             try db.execute(sql: """
-                INSERT INTO actors(id, type, display_name, user_id, is_stale, updated_at, is_deleted, role, avatar_variant) VALUES(?,?,?,?,?,?,?,?,?)
+                INSERT INTO actors(id, type, display_name, user_id, is_stale, updated_at, is_deleted, role, avatar_variant, avatar_version) VALUES(?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET type=excluded.type, display_name=excluded.display_name,
-                    role=excluded.role, avatar_variant=excluded.avatar_variant,
+                    role=excluded.role, avatar_variant=excluded.avatar_variant, avatar_version=excluded.avatar_version,
                     user_id=excluded.user_id, is_stale=excluded.is_stale, updated_at=excluded.updated_at, is_deleted=CASE WHEN actors.is_deleted=1 THEN 1 ELSE excluded.is_deleted END
-                """, arguments: [actor.id, actor.type, actor.display_name, actor.user_id, actor.is_stale.map { $0 ? 1 : 0 }, iso(Date()), actor.is_deleted.map { $0 ? 1 : 0 }, actor.role, actor.avatar_variant])
+                """, arguments: [actor.id, actor.type, actor.display_name, actor.user_id, actor.is_stale.map { $0 ? 1 : 0 }, iso(Date()), actor.is_deleted.map { $0 ? 1 : 0 }, actor.role, actor.avatar_variant, actor.avatar_version])
             try db.execute(sql: "INSERT OR REPLACE INTO conversation_members(conversation_id, actor_id, position) VALUES(?,?,?)",
                            arguments: [item.id, actor.id, position])
         }
@@ -1168,12 +1191,13 @@ actor ChatRepository {
         guard !rows.isEmpty else { return [] }
         var members: [String: [(Int, ActorRef)]] = [:]
         for row in try Row.fetchAll(db, sql: """
-            SELECT m.conversation_id, m.position, a.id, a.type, a.display_name, a.user_id, a.is_stale, a.is_deleted, a.role, a.avatar_variant
+            SELECT m.conversation_id, m.position, a.id, a.type, a.display_name, a.user_id, a.is_stale, a.is_deleted, a.role, a.avatar_variant, a.avatar_version
             FROM conversation_members m JOIN actors a ON a.id = m.actor_id
             """) {
             let actor = ActorRef(type: row["type"], id: row["id"], display_name: row["display_name"],
                                  user_id: row["user_id"], is_stale: (row["is_stale"] as Int?).map { $0 == 1 },
-                                 is_deleted: (row["is_deleted"] as Int?).map { $0 == 1 }, role: row["role"], avatar_variant: row["avatar_variant"])
+                                 is_deleted: (row["is_deleted"] as Int?).map { $0 == 1 }, role: row["role"],
+                                 avatar_variant: row["avatar_variant"], avatar_version: row["avatar_version"])
             members[row["conversation_id"], default: []].append((row["position"], actor))
         }
         return try rows.map { row in

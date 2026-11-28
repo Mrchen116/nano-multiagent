@@ -38,6 +38,7 @@ export interface Actor {
   is_deleted?: boolean;
   role?: "personal";
   avatar_variant?: number | null;
+  avatar_version?: string | null;
 }
 
 export interface Attachment {

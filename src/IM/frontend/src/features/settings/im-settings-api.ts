@@ -35,6 +35,7 @@ export interface AccountProfile {
   user_id: string;
   username: string;
   display_name: string;
+  avatar_version?: string | null;
   owner_id: string;
   owned_node_ids: string[];
   default_entry_node_id: string | null;
@@ -57,15 +58,17 @@ export interface PolicyProfile {
   rate_limit_per_min: number;
 }
 
-class SettingsRequestError extends Error {
+export class SettingsRequestError extends Error {
   status: number;
   detail: string;
+  code?: string;
 
-  constructor(input: { status: number; detail: string; method: string; path: string }) {
+  constructor(input: { status: number; detail: string; method: string; path: string; code?: string }) {
     super(`${input.method} ${input.path} failed: ${input.status} (${input.detail})`);
     this.name = "SettingsRequestError";
     this.status = input.status;
     this.detail = input.detail;
+    this.code = input.code;
   }
 }
 
@@ -74,16 +77,29 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const method = init?.method ?? "GET";
     let detail = response.statusText || "request failed";
+    let code: string | undefined;
     const rawBody = await response.text();
     if (rawBody) {
       try {
-        const parsed = JSON.parse(rawBody) as { detail?: string };
-        detail = typeof parsed.detail === "string" && parsed.detail.length > 0 ? parsed.detail : rawBody;
+        const parsed = JSON.parse(rawBody) as {
+          detail?: string | { code?: string; message?: string };
+        };
+        if (typeof parsed.detail === "string" && parsed.detail.length > 0) {
+          detail = parsed.detail;
+        } else if (parsed.detail && typeof parsed.detail === "object") {
+          code = typeof parsed.detail.code === "string" ? parsed.detail.code : undefined;
+          detail =
+            typeof parsed.detail.message === "string" && parsed.detail.message.length > 0
+              ? parsed.detail.message
+              : rawBody;
+        } else {
+          detail = rawBody;
+        }
       } catch {
         detail = rawBody;
       }
     }
-    throw new SettingsRequestError({ status: response.status, detail, method, path });
+    throw new SettingsRequestError({ status: response.status, detail, method, path, code });
   }
   return (await response.json()) as T;
 }
@@ -156,6 +172,22 @@ export async function updateAccount(next: UpdateAccountInput) {
   return requestJson<AccountProfile>(`/im/v1/me`, {
     method: "PATCH",
     body: JSON.stringify(body)
+  });
+}
+
+export async function uploadAccountAvatar(blob: Blob): Promise<AccountProfile> {
+  return requestJson<AccountProfile>("/im/v1/me/avatar", {
+    method: "PUT",
+    headers: {
+      "Content-Type": blob.type || "image/webp",
+    },
+    body: blob,
+  });
+}
+
+export async function deleteAccountAvatar(): Promise<AccountProfile> {
+  return requestJson<AccountProfile>("/im/v1/me/avatar", {
+    method: "DELETE",
   });
 }
 

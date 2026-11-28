@@ -1,4 +1,5 @@
 import { AvatarIdentities } from "../features/chat/components/avatar";
+import { clearAvatarBlobStore } from "../features/chat/components/avatar-blob-store";
 import { listContacts } from "../features/chat/contacts-api";
 import type { Actor } from "../features/chat/chat-types";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -19,9 +20,18 @@ function AccountAvatarDirectory({ children }: PropsWithChildren) {
   const actors = useMemo(() => {
     const rows: Actor[] = (contacts.data ?? []).map(contact => ({
       type: contact.kind === "agent" ? "agent" : "user", id: contact.agent_id ?? contact.user_id,
-      user_id: contact.user_id, display_name: contact.display_name, role: contact.role, avatar_variant: contact.avatar_variant,
+      user_id: contact.user_id, display_name: contact.display_name, role: contact.role,
+      avatar_variant: contact.avatar_variant, avatar_version: contact.avatar_version,
     }));
-    if (user) rows.push({ type: "user", id: user.id, display_name: user.display_name || user.username });
+    if (user) {
+      rows.push({
+        type: "user",
+        id: user.id,
+        user_id: user.id,
+        display_name: user.display_name || user.username,
+        ...(user.avatar_version !== undefined ? { avatar_version: user.avatar_version } : {}),
+      });
+    }
     return rows;
   }, [contacts.data, user]);
   return <AvatarIdentities key={user?.id ?? ""} actors={actors} source="contacts">{children}</AvatarIdentities>;
@@ -47,10 +57,13 @@ export function AppProviders({ children }: PropsWithChildren) {
     return useAuthStore.subscribe((state) => {
       const nextUserId = state.user?.id ?? null;
       if (previousUserId !== null && (previousUserId !== nextUserId || !accountEnabled(state.user) || previousMembership !== state.user?.membership_status)) {
+        clearAvatarBlobStore();
         queryClient.clear();
         forgetComposerUser(previousUserId);
         void forgetInteractionBackground(previousUserId).catch(() => {});
         window.sessionStorage.removeItem(desktopScopedKey(`im:user_stream_cursor:${previousUserId}`));
+      } else if (nextUserId === null) {
+        clearAvatarBlobStore();
       }
       previousUserId = nextUserId;
       previousMembership = state.user?.membership_status;

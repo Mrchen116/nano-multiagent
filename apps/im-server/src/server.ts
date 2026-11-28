@@ -19,6 +19,7 @@ import { Messaging, registerMessagingRoutes } from "./messaging.js";
 import { registerConversationActions } from "./conversation-actions.js";
 import { registerWorkRoutes } from "./work.js";
 import { registerMediaRoutes } from "./media.js";
+import { registerUserAvatarRoutes } from "./user-avatars.js";
 import { registerControlRoutes } from "./control-routes.js";
 import { ChannelService, registerChannelRoutes } from "./channels.js";
 import { fail, one, all, type Row, type ImContext } from "./context.js";
@@ -126,8 +127,10 @@ export async function createServer(options: ServerOptions = {}) {
       !publicIdentity.has(path) &&
       path !== '/im/v1/node-update/report' &&
       !path.startsWith("/im/v1/device-binding/")
-    )
-      (req.routeOptions.config as {workSync?:boolean}).workSync === true ? authenticateWorkSync(ctx,req) : ctx.messaging.principal(req);
+    ) {
+      const cfg = req.routeOptions.config as { workSync?: boolean; selfManagedAuth?: boolean };
+      if (!cfg.selfManagedAuth) cfg.workSync === true ? authenticateWorkSync(ctx, req) : ctx.messaging.principal(req);
+    }
   });
   app.addHook("onSend", async (req, reply, payload) => {
     const viewerAsset = req.url.split('?')[0]!.startsWith('/trajectory/');
@@ -160,8 +163,10 @@ export async function createServer(options: ServerOptions = {}) {
       !publicIdentity.has(path) &&
       path !== '/im/v1/node-update/report' &&
       !path.startsWith("/im/v1/device-binding/")
-    )
-      (req.routeOptions.config as {workSync?:boolean}).workSync === true ? authenticateWorkSync(ctx,req) : ctx.messaging.principal(req);
+    ) {
+      const cfg = req.routeOptions.config as { workSync?: boolean; selfManagedAuth?: boolean };
+      if (!cfg.selfManagedAuth) cfg.workSync === true ? authenticateWorkSync(ctx, req) : ctx.messaging.principal(req);
+    }
     return payload;
   });
   app.setErrorHandler((error, req, reply) => {
@@ -204,7 +209,8 @@ export async function createServer(options: ServerOptions = {}) {
   registerPersonalAgentRoutes(app, ctx);
   registerWorkRoutes(app, ctx);
   await registerIntelligentUIResources(app, ctx);
-  registerMediaRoutes(app, ctx);
+  await registerMediaRoutes(app, ctx);
+  await registerUserAvatarRoutes(app, ctx);
   registerSockets(app, ctx);
   registerTrajectorySockets(app, ctx);
   app.get("/im/v1/gateway/identity", (req) => {

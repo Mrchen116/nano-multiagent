@@ -282,6 +282,7 @@ export class Identity {
       default_entry_node_id: owned.includes(row.default_entry_node_id)
         ? row.default_entry_node_id
         : (owned[0] ?? null),
+      avatar_version: row.avatar_version ?? null,
     };
   }
   publicUser(user: User): Row {
@@ -300,7 +301,8 @@ export class Identity {
         "personal_space_enabled",
         "account_status",
         "is_company_admin",
-      ].map((k) => [k, user[k]]),
+        "avatar_version",
+      ].map((k) => [k, k === "avatar_version" ? (user[k] ?? null) : user[k]]),
     );
   }
   private async passwordWork<T>(

@@ -1,12 +1,28 @@
-import { Avatar } from "../../chat/components/avatar";
+import { Avatar, AvatarIdentities } from "../../chat/components/avatar";
+import { evictUserAvatarBlobs } from "../../chat/components/avatar-blob-store";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getCurrentLanguage, useTranslation } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
-import { getAccount, updateAccount } from "../im-settings-api";
+import {
+  SettingsRequestError,
+  deleteAccountAvatar,
+  getAccount,
+  updateAccount,
+  uploadAccountAvatar,
+  type AccountProfile,
+} from "../im-settings-api";
+import {
+  AvatarCropDialog,
+  loadAvatarImageSource,
+  type PreparedAvatarSource,
+} from "./avatar-crop-dialog";
 import "../settings-surfaces.css";
+
+const MAX_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 /** Render personal identity editing and the account's space and management destinations. */
 export function AccountPage() {
@@ -21,7 +37,153 @@ export function AccountPage() {
   // A draft belongs to the editor, so background query refreshes cannot replace it.
   const [draft, setDraft] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [avatarFeedback, setAvatarFeedback] = useState<{
+    kind: "ok" | "error";
+    message: string;
+  } | null>(null);
+  const [cropState, setCropState] = useState<{
+    file: File;
+    prepared: PreparedAvatarSource;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadButtonRef = useRef<HTMLButtonElement | null>(null);
+  const pendingCleanupRef = useRef<(() => void) | null>(null);
+
+  const releasePendingCropUrl = useCallback(() => {
+    if (pendingCleanupRef.current) {
+      pendingCleanupRef.current();
+      pendingCleanupRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => releasePendingCropUrl(), [releasePendingCropUrl]);
+
   const profile = query.data;
+  useEffect(() => {
+    if (!profile || profile.avatar_version === undefined) return;
+    const current = useAuthStore.getState().user;
+    const uid = profile.user_id || profile.id;
+    if (current && current.id === uid && current.avatar_version !== profile.avatar_version) {
+      useAuthStore.getState().replaceUser({
+        ...current,
+        avatar_version: profile.avatar_version,
+      });
+    }
+  }, [profile]);
+
+  const applyAvatarProfileUpdate = useCallback(
+    async (updated: AccountProfile) => {
+      await client.cancelQueries({ queryKey: ["settings", "account"], exact: true });
+      client.setQueryData(["settings", "account"], updated);
+      const uid = updated.user_id || updated.id;
+      const nextVersion = updated.avatar_version ?? null;
+      evictUserAvatarBlobs(uid, nextVersion);
+      const current = useAuthStore.getState().user;
+      if (current && current.id === uid) {
+        useAuthStore.getState().replaceUser({
+          ...current,
+          avatar_version: nextVersion,
+        });
+      }
+      void client.invalidateQueries({ queryKey: ["contacts"] });
+      void client.invalidateQueries({ queryKey: ["company", "members"] });
+    },
+    [client],
+  );
+
+  const formatAvatarMutationError = useCallback(
+    (error: unknown) => {
+      if (error instanceof SettingsRequestError) {
+        if (error.status === 413 || error.status === 415 || error.status === 422) {
+          return t("settings.account.avatar.invalidFileError");
+        }
+        if (error.status === 429) {
+          return t("settings.account.avatar.rateLimitedError");
+        }
+      }
+      return t("settings.account.avatar.saveError");
+    },
+    [t],
+  );
+
+  const uploadAvatarMutation = useMutation({
+    mutationFn: uploadAccountAvatar,
+    async onSuccess(updated) {
+      releasePendingCropUrl();
+      setCropState(null);
+      await applyAvatarProfileUpdate(updated);
+      setAvatarFeedback({
+        kind: "ok",
+        message: t("settings.account.avatar.updatedStatus"),
+      });
+    },
+    onError(error) {
+      releasePendingCropUrl();
+      setCropState(null);
+      setAvatarFeedback({
+        kind: "error",
+        message: formatAvatarMutationError(error),
+      });
+    },
+  });
+
+  const removeAvatarMutation = useMutation({
+    mutationFn: deleteAccountAvatar,
+    async onSuccess(updated) {
+      await applyAvatarProfileUpdate(updated);
+      setAvatarFeedback({
+        kind: "ok",
+        message: t("settings.account.avatar.removedStatus"),
+      });
+    },
+    onError(error) {
+      setAvatarFeedback({
+        kind: "error",
+        message: formatAvatarMutationError(error),
+      });
+    },
+  });
+
+  const avatarBusy = uploadAvatarMutation.isPending || removeAvatarMutation.isPending;
+
+  const openFilePicker = () => {
+    if (avatarBusy) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size === 0) {
+      setAvatarFeedback({
+        kind: "error",
+        message: t("settings.account.avatar.emptyError"),
+      });
+      return;
+    }
+    if (!ALLOWED_AVATAR_TYPES.has(file.type) || file.size > MAX_AVATAR_FILE_BYTES) {
+      setAvatarFeedback({
+        kind: "error",
+        message: t("settings.account.avatar.invalidFileError"),
+      });
+      return;
+    }
+    releasePendingCropUrl();
+    try {
+      const { prepared, cleanup } = await loadAvatarImageSource(file);
+      pendingCleanupRef.current = cleanup;
+      setAvatarFeedback(null);
+      setCropState({ file, prepared });
+    } catch {
+      releasePendingCropUrl();
+      setAvatarFeedback({
+        kind: "error",
+        message: t("settings.account.avatar.decodeError"),
+      });
+    }
+  };
+
   const name = draft ?? profile?.display_name ?? "";
   const dirty = profile !== undefined && name.trim() !== profile.display_name;
   const valid = name.trim().length > 0;
@@ -40,6 +202,9 @@ export function AccountPage() {
           ...current,
           display_name: updated.display_name,
           locale: updated.locale,
+          ...(updated.avatar_version !== undefined
+            ? { avatar_version: updated.avatar_version }
+            : {}),
         });
       setDraft(null);
       setSaved(true);
@@ -59,6 +224,12 @@ export function AccountPage() {
     []
   ).length;
   const displayName = profile?.display_name ?? authUser?.display_name ?? "";
+  const profileUserId = profile?.user_id || profile?.id || authUser?.id || "";
+  const effectiveAvatarVersion =
+    profile?.avatar_version !== undefined
+      ? profile.avatar_version
+      : authUser?.avatar_version ?? null;
+  const hasCustomAvatar = Boolean(effectiveAvatarVersion);
 
   return (
     <section className="settings-surface im-account-page">
@@ -94,13 +265,85 @@ export function AccountPage() {
                 <p>{t("settings.account.identity.subtitle")}</p>
               </header>
               <div className="settings-section-content">
-                <div className="settings-identity">
-                  <span data-testid="account-avatar"><Avatar id={profile.user_id || profile.id} size={52} /></span>
-                  <div>
-                    <strong>{displayName}</strong>
-                    <span>@{profile.username}</span>
+                <AvatarIdentities
+                  source="names"
+                  actors={[
+                    {
+                      type: "user",
+                      id: profileUserId,
+                      user_id: profileUserId,
+                      display_name: displayName || profile.username,
+                      avatar_version: effectiveAvatarVersion,
+                    },
+                  ]}
+                >
+                  <div className="settings-identity account-identity-editor">
+                    <button
+                      type="button"
+                      className="account-avatar-trigger"
+                      data-testid="account-avatar-trigger"
+                      aria-label={t("settings.account.avatar.changeTrigger")}
+                      title={t("settings.account.avatar.changeTrigger")}
+                      disabled={avatarBusy}
+                      onClick={openFilePicker}
+                    >
+                      <span data-testid="account-avatar">
+                        <Avatar id={profileUserId} size={56} />
+                      </span>
+                    </button>
+                    <div className="account-identity-meta">
+                      <strong>{displayName}</strong>
+                      <span>@{profile.username}</span>
+                    </div>
+                    <div className="account-avatar-actions">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        hidden
+                        data-testid="account-avatar-file-input"
+                        onChange={(event) => void handleFileChange(event)}
+                      />
+                      <button
+                        ref={uploadButtonRef}
+                        type="button"
+                        className="im-btn im-btn-muted"
+                        data-testid="account-avatar-upload-btn"
+                        disabled={avatarBusy}
+                        onClick={openFilePicker}
+                      >
+                        {t(
+                          hasCustomAvatar
+                            ? "settings.account.avatar.change"
+                            : "settings.account.avatar.upload",
+                        )}
+                      </button>
+                      {hasCustomAvatar && (
+                        <button
+                          type="button"
+                          className="im-btn im-btn-danger-ghost"
+                          data-testid="account-avatar-remove-btn"
+                          disabled={avatarBusy}
+                          onClick={() => {
+                            setAvatarFeedback(null);
+                            removeAvatarMutation.mutate();
+                          }}
+                        >
+                          {t("settings.account.avatar.remove")}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                </AvatarIdentities>
+                {avatarFeedback && (
+                  <p
+                    role={avatarFeedback.kind === "error" ? "alert" : "status"}
+                    data-testid="account-avatar-feedback"
+                    className={`avatar-inline-feedback avatar-inline-feedback--${avatarFeedback.kind}`}
+                  >
+                    {avatarFeedback.message}
+                  </p>
+                )}
                 <label
                   className="settings-field"
                   htmlFor="account-display-name"
@@ -316,6 +559,21 @@ export function AccountPage() {
             )}
           </div>
         </section>
+        <AvatarCropDialog
+          open={Boolean(cropState)}
+          prepared={cropState?.prepared ?? null}
+          sourceFile={cropState?.file ?? null}
+          saving={uploadAvatarMutation.isPending}
+          returnFocusRef={uploadButtonRef}
+          onReselect={openFilePicker}
+          onCancel={() => {
+            releasePendingCropUrl();
+            setCropState(null);
+          }}
+          onConfirm={(blob) => {
+            uploadAvatarMutation.mutate(blob);
+          }}
+        />
       </div>
     </section>
   );

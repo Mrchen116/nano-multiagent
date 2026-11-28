@@ -73,7 +73,6 @@ fn forward_to_running_instance(
             .header("x-crewden-reload-token", &existing.reload_token)
             .json(&json!({
                 "url": cli.deep_link_url,
-                "route": cli.initial_route,
             }))
             .send()
             .await;
@@ -235,6 +234,11 @@ pub fn run_from_env() -> Result<(), String> {
     let cli = DesktopCliOptions::parse_from(std::env::args())?;
     let paths = DesktopPaths::resolve(&cli)?;
 
+    if cli.prepare_seed {
+        local_node::ensure_seed_bundle_installed(&paths, cli.seed_archives_dir.as_deref())?
+            .ok_or_else(|| "Installer seed bundle missing".to_string())?;
+        return Ok(());
+    }
     let Some(_instance_lock) = acquire_instance_or_forward(&paths, &cli)? else {
         return Ok(());
     };
@@ -286,7 +290,6 @@ pub fn run_from_env() -> Result<(), String> {
     let shutdown_rx = running.take_shutdown_receiver();
 
     let start_in_background = cli.background;
-    let initial_open_route = cli.initial_route.clone();
     let coord_setup = coord.clone();
     let state_setup = host_state.clone();
     let dev_root_for_autostart = cli.dev_repo_root.clone();
@@ -308,7 +311,7 @@ pub fn run_from_env() -> Result<(), String> {
             if !start_in_background {
                 let _ = coord_setup.ensure_main_window(
                     &handle,
-                    Some(initial_open_route.as_deref().unwrap_or("/chat")),
+                    Some("/chat"),
                 );
             }
 
