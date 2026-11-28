@@ -285,14 +285,14 @@ export async function prepareDesktopUpdate(
   }
 }
 
-async function notifyDesktopHostReload(desktopHome: string): Promise<void> {
+async function notifyDesktopHostReload(desktopHome: string, imUrl: string): Promise<void> {
   try {
     const stateRaw = await readFile(join(desktopHome, 'host-state.json'), 'utf8');
     const hostState = JSON.parse(stateRaw) as { port?: number; reload_token?: string };
     if (hostState.port && hostState.reload_token) {
       await fetch(`http://127.0.0.1:${hostState.port}/desktop/internal/reload-assets`, {
         method: 'POST',
-        headers: { 'x-crewden-reload-token': hostState.reload_token },
+        headers: { 'x-crewden-reload-token': hostState.reload_token, 'x-crewden-im-origin': new URL(imUrl).origin },
         signal: AbortSignal.timeout(3000),
       }).catch(() => {});
     }
@@ -461,7 +461,7 @@ export async function runUpdate(configPath: string, operationId: string): Promis
           await rm(switchPath, {force: true});
         } else if (desktop) {
           await rm(switchPath, {force: true});
-          await notifyDesktopHostReload(desktopHome);
+          await notifyDesktopHostReload(desktopHome, config.value.im_service.url);
         }
         await terminal('succeeded').catch(async () => {
           await terminal('succeeded').catch(error => console.error(error));
@@ -483,7 +483,7 @@ export async function runUpdate(configPath: string, operationId: string): Promis
               ui_root: join(oldVersionRoot, 'ui'),
               updated_at: new Date().toISOString(),
             });
-            await notifyDesktopHostReload(desktopHome);
+            await notifyDesktopHostReload(desktopHome, config.value.im_service.url);
           }
           await cli(old, 'start');
           await verify(old.release!, failed?.pid ?? old.pid);

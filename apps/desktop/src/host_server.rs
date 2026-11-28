@@ -736,7 +736,8 @@ async fn handle_internal_reload(
     if let Err(err) = verify_reload_token(&state, &headers) {
         return err;
     }
-    crate::updater::on_internal_reload_assets(&state);
+    let origin = headers.get("x-crewden-im-origin").and_then(|header| header.to_str().ok());
+    crate::updater::on_internal_reload_assets(&state, origin);
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -2668,6 +2669,7 @@ async fn handle_static_or_spa(
     let Ok(raw_html) = fs::read_to_string(&index_path) else {
         return (StatusCode::NOT_FOUND, "Frontend index.html missing").into_response();
     };
+    crate::updater::remember_served_ui(&state.paths, &cfg.im_origin, &bundle);
     let injected = inject_desktop_boot_script(&raw_html, &state, &cfg, bundle.sha256.as_deref());
     if crate::updater::read_ui_active_file(&state.paths).previous_ui.contains_key(&cfg.im_origin) {
         if let Some(sha) = bundle.sha256 {

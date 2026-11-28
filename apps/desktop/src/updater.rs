@@ -1180,6 +1180,17 @@ fn previous_ui_pointer(bundle: &crate::local_node::ActiveBundlePaths) -> Option<
     })
 }
 
+/// Keep the last served bundle as the fallback for updates initiated remotely by a node.
+pub fn remember_served_ui(paths: &DesktopPaths, origin: &str, bundle: &crate::local_node::ActiveBundlePaths) {
+    let mut ui = read_ui_active_file(paths);
+    if !ui.origins.contains_key(origin) {
+        if let Some(pointer) = previous_ui_pointer(bundle) {
+            ui.origins.insert(origin.to_string(), pointer);
+            let _ = write_ui_active_file(paths, &ui);
+        }
+    }
+}
+
 /// Finish a provisional WebView switch only if this document still belongs to that switch.
 pub fn finish_ui_boot(state: &HostSharedState, origin: &str, sha: &str, loaded: bool) {
     let cfg = state.host_config.read().unwrap();
@@ -1353,8 +1364,10 @@ pub fn rollback_startup_promotion_if_needed(state: &HostSharedState, im_origin: 
 }
 
 /// Synchronize `desktop-ui-active.json` when `update-worker.ts` completes or rolls back and hits `/desktop/internal/reload-assets`.
-pub fn on_internal_reload_assets(state: &HostSharedState) {
-    let im_origin = state.host_config.read().unwrap().im_origin.clone();
+pub fn on_internal_reload_assets(state: &HostSharedState, expected_origin: Option<&str>) {
+    let context = state.host_config.read().unwrap();
+    let im_origin = context.im_origin.clone();
+    if expected_origin.is_some_and(|origin| origin != im_origin) { return; }
     let stored_owner = state
         .sessions
         .read()
@@ -1401,10 +1414,11 @@ pub fn on_internal_reload_assets(state: &HostSharedState) {
                                 },
                             );
                             if prev_sha.as_deref() != Some(sha) {
-                                if is_forward_upgrade {
-                                    ui_active.just_updated.insert(im_origin.clone(), ver.to_string());
+                                ui_active.just_updated.remove(&im_origin);
+                                if let Some(previous) = prev_ptr.filter(|_| is_forward_upgrade) {
+                                    ui_active.previous_ui.insert(im_origin.clone(), previous);
                                 } else {
-                                    ui_active.just_updated.remove(&im_origin);
+                                    ui_active.previous_ui.remove(&im_origin);
                                 }
                             }
                             let _ = write_ui_active_file(&state.paths, &ui_active);
@@ -1987,12 +2001,14 @@ async fn apply_desktop_update_internal(
 
     let mut ownership = "unbound".to_string();
     let mut local_node_id: Option<String> = None;
+    let mut node_at_target = false;
     let mut local_active_tasks: u64 = 0;
 
     if let (Some(owner_id), Ok(bundle)) = (
         session_owner.clone(),
         resolve_active_bundle(&state.paths, &im_origin, state.dev_repo_root.as_deref()),
     ) {
+        node_at_target = bundle.sha256.as_ref() == Some(&target.sha256);
         let paths_cl = state.paths.clone();
         let origin_cl = im_origin.clone();
         if let Ok(Ok(inspected)) = tokio::task::spawn_blocking(move || {
@@ -2024,7 +2040,7 @@ async fn apply_desktop_update_internal(
         return Ok(build_updater_snapshot(&state));
     }
 
-    if ownership == "managed_online" {
+    if ownership == "managed_online" && !node_at_target {
         if silent_auto && local_active_tasks > 0 {
             // In silent background auto-mode, never gate new incoming messages while tasks are still running.
             return Ok(build_updater_snapshot(&state));
@@ -2173,6 +2189,8 @@ fn spawn_online_node_update_poller(
                 continue;
             }
             let Ok(rows) = res.json::<Value>().await else { continue; };
+            let latest = state.host_config.read().unwrap().clone();
+            if latest.im_origin != im_origin || latest.context_epoch != context_epoch { return; }
             let Some(arr) = rows.as_array() else { continue; };
             let Some(node_row) = arr.iter().find(|n| n["node_id"].as_str() == Some(node_id.as_str())) else {
                 continue;
@@ -2205,29 +2223,10 @@ fn spawn_online_node_update_poller(
                     notify_ui_updater_changed(&state, &im_origin);
                 }
                 "succeeded" => {
-                    let ready_root = state.paths.desktop_home.join("versions").join(&target.sha256);
-                    if verify_ready_ui_version_root(&ready_root) {
-                        let mut ui_active = read_ui_active_file(&state.paths);
-                        let already_synced = ui_active
-                            .origins
-                            .get(&im_origin)
-                            .map(|p| p.sha256 == target.sha256)
-                            .unwrap_or(false);
-                        if !already_synced {
-                            ui_active.origins.insert(
-                                im_origin.clone(),
-                                DesktopUiOriginPointer {
-                                    version: target.version.clone(),
-                                    sha256: target.sha256.clone(),
-                                    version_root: ready_root.to_string_lossy().to_string(),
-                                    updated_at_epoch: now_secs(),
-                                },
-                            );
-                            ui_active.just_updated.insert(im_origin.clone(), target.version.clone());
-                            let _ = write_ui_active_file(&state.paths, &ui_active);
-                            state.updater.reload_generation.fetch_add(1, Ordering::SeqCst);
-                            state.ui_bridge.reload_webview(None);
-                        }
+                    let ui = read_ui_active_file(&state.paths);
+                    if ui.origins.get(&im_origin).map(|p| &p.sha256) != Some(&target.sha256)
+                        && ui.rollback_blocked.get(&im_origin) != Some(&target.sha256) {
+                        on_internal_reload_assets(&state, Some(&im_origin));
                     }
                     {
                         let mut map = state.updater.by_origin.lock().unwrap();
@@ -2809,6 +2808,7 @@ mod tests {
 
         // Remote upgrade via `.desktop-active.json` + `on_internal_reload_assets` advances UI to 1.4.0,
         // and subsequent worker rollback to 1.3.2 syncs UI back to 1.3.2 and clears `just_updated`!
+        remember_served_ui(&paths, &im_origin, &resolve_active_ui_bundle(&paths, &im_origin, None).unwrap());
         let root_v2 = paths.desktop_home.join("versions").join(&sha_v2);
         write_private_json(
             &alice_active_path,
@@ -2820,8 +2820,13 @@ mod tests {
             }),
         )
         .unwrap();
-        on_internal_reload_assets(&server.state);
+        let generation = server.state.updater.reload_generation.load(Ordering::SeqCst);
+        on_internal_reload_assets(&server.state, Some("https://previous.example"));
+        assert_eq!(server.state.updater.reload_generation.load(Ordering::SeqCst), generation);
+        on_internal_reload_assets(&server.state, Some(&im_origin));
         assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.4.0");
+        assert_eq!(build_updater_snapshot(&server.state).phase, "switching");
+        finish_ui_boot(&server.state, &im_origin, &sha_v2, true);
         assert_eq!(build_updater_snapshot(&server.state).just_updated_version.as_deref(), Some("1.4.0"));
 
         write_private_json(
@@ -2834,7 +2839,7 @@ mod tests {
             }),
         )
         .unwrap();
-        on_internal_reload_assets(&server.state);
+        on_internal_reload_assets(&server.state, Some(&im_origin));
         assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.3.2");
         assert_eq!(build_updater_snapshot(&server.state).just_updated_version, None);
 
