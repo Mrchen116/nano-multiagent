@@ -57,6 +57,8 @@ Agent 补充核查记录（基于当前 worktree 代码核实）：
 
 ## 修复
 
+提交 `98655817a` 完成以下最小完整修复（独立审查结论见[审查记录](review.md)）：
+
 - `src/IM/frontend/src/features/auth/auth-session.ts`：
   - `withSessionLock` 增加 `SESSION_LOCK_TIMEOUT_MS = 8_000` 超时保护与能力检测：非 `SecureContext` 下 `navigator.locks?.request` 缺失、抛错或等待超过 8 秒时，中止排队锁请求并降级至本页内存串行队列 `enqueueInTab` 执行一次；一旦锁已授予并进入 `operation()`，其业务或网络异常原样抛出、绝不重复执行。
   - `sessionChannel`、`broadcastSessionChange` 与 `localStorage` 会话变更时间戳读写补齐缺失/受限异常捕获，避免严格隐私或非安全上下文阻断单页恢复、登录与退出。
