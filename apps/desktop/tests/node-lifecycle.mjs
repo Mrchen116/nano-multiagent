@@ -118,17 +118,22 @@ try {
   await delay(10_000);
   assert.equal(await readFile(trace, 'utf8'), '', 'healthy ticks spawned local-admin or reread gateway.log');
   console.log('10s healthy: zero local-admin processes and zero gateway.log rereads');
-  process.kill(online.pid, 'SIGKILL');
-  // Simulate a force-killed lifecycle holder leaving `.gateway-lifecycle.lock` and `.gateway-owner` metadata behind; supervisor must still recover!
+  // Simulate a force-killed lifecycle holder leaving `.gateway-lifecycle.lock` and `.gateway-owner` metadata behind
+  // BEFORE killing the online gateway, so supervisor recovery deterministically traverses and reaps the dead lock.
   const staleLock = join(dir, '.gateway-lifecycle.lock');
   const staleOwnerDir = join(dir, '.gateway-owner');
   const staleOwner = join(staleOwnerDir, '.gateway-lifecycle.lock.json');
-  await mkdir(staleLock, { recursive: true });
   await mkdir(staleOwnerDir, { recursive: true });
   await writeFile(staleOwner, JSON.stringify({ pid: 999999991, process_start: 'dead-holder', acquired_at: 1 }));
-  await waitFor('gateway crash recovery across stale lifecycle lock', async () => { const s = await gateway(); return s.ready && s.pid !== online.pid; });
-  assert.equal(await access(staleLock).then(() => true, () => false), false, 'stale .gateway-lifecycle.lock should be evicted');
-  assert.equal(await access(staleOwner).then(() => true, () => false), false, 'stale .gateway-owner/.gateway-lifecycle.lock.json should be evicted');
+  await mkdir(staleLock, { recursive: true });
+  process.kill(online.pid, 'SIGKILL');
+  await waitFor('gateway crash recovery across stale lifecycle lock', async () => {
+    const s = await gateway();
+    if (!s.ready || s.pid === online.pid) return false;
+    const lockHeld = await access(staleLock).then(() => true, () => false);
+    const ownerHeld = await access(staleOwner).then(() => true, () => false);
+    return !lockHeld && !ownerHeld;
+  });
   // Keep the gateway alive across a host restart with a newly selected bundle version.
   const recovered = await gateway();
   await closeHost();

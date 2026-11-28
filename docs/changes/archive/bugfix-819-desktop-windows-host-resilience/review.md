@@ -36,6 +36,6 @@
 - 重要目标和关键设计覆盖：Issue B / C / D / E / F 全部修复并由单元与跨进程集成测试覆盖，既有 `bugfix-807` / `810` / `812` 不变量完整保留。
 - 开放问题 / pending / inconclusive：本地无未决阻塞项；Windows x64 原生安装包与任务栏/WebView2 表现由 PR 远端 `Desktop client candidates` 工作流承接。
 - 最终 delta 校对：`aligned`（`docs/specs/im/desktop-client.md`、`docs/specs/gateway/service-lifecycle.md`）。
-- 版本变化后保留 / 补验的判断与依据：`ad8d5b299` 之后仅修改 `apps/desktop/build.rs`（为 Windows MSVC 测试与正式目标统一嵌入 `Common-Controls 6.0.0.0` 清单，消除 `--lib` 测试 `0xc0000139`）与 `lib.rs` / `autostart.rs` 的 `#[cfg]` 告警门控，未改变运行时逻辑或外部契约，且已通过本地 `cargo test --locked`（22 passed）与独立 `patch` 复核（`pass`）。
+- 版本变化后保留 / 补验的判断与依据：`ad8d5b299` 之后仅修改 `apps/desktop/build.rs`（为 Windows MSVC 测试与正式目标统一嵌入 `Common-Controls 6.0.0.0` 清单，消除 `--lib` 测试 `0xc0000139`）、`lib.rs` / `autostart.rs` 的 `#[cfg]` 告警门控，以及 `apps/desktop/tests/node-lifecycle.mjs` 中跨死锁崩溃恢复断言的观察时序（在杀掉旧网关前写入死锁模拟文件，并在 `waitFor` 内等待恢复后的 `manageGateway` `finally` 释放锁目录），未改变运行时逻辑或外部契约，且已通过本地测试与独立 `patch` 复核（`pass`）。
 - 测试资源回收结果 / 例外保留项、owner 与回收触发：所有临时测试子进程与临时目录均已在测试内回收，本地 `apps/desktop/target` 编译产物已通过 `cargo clean` 清理以释放共享磁盘空间；当前开发 worktree（`/Users/czj/.t3/worktrees/nano-multiagent/unit-bugfix-819-desktop-e09bd061465827a5`）按仓库规范保留供 PR 审查，待 PR 合入 `develop` 后触发清理。
 - 交付范围与剩余事项：归档 `bugfix-819-desktop-windows-host-resilience` 后推送分支并向 `develop` 创建 PR，跟进远端必需检查（不自动 merge）。
