@@ -71,9 +71,14 @@ describe('PublicHomePage multi-platform client download entry', () => {
     expect(detectVisitorPlatform({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64)', platform: 'Linux x86_64', maxTouchPoints: 0 })).toBe('other');
   });
 
-  it('recommends macOS Desktop in Hero on Mac, shows Windows download, and honestly marks iOS as coming soon', async () => {
+  it.each([
+    [undefined, '未经 Apple 公证'],
+    ['unnotarized', '未经 Apple 公证'],
+    ['developer-id-notarized', '已通过 Apple 公证'],
+    ['unsigned-test', '测试包 · 未经 Apple 公证'],
+  ] as const)('shows the Mac distribution status for %s inside the installation guide', async (mode, label) => {
     stubNavigator('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'MacIntel');
-    injectPublicInstall(SAMPLE_MATERIALS);
+    injectPublicInstall({ ...SAMPLE_MATERIALS, desktop_darwin_arm64: { ...SAMPLE_MATERIALS.desktop_darwin_arm64, macos_distribution: mode } });
 
     render(
       <MemoryRouter initialEntries={['/about']}>
@@ -83,13 +88,22 @@ describe('PublicHomePage multi-platform client download entry', () => {
       </MemoryRouter>,
     );
 
-    const heroMacLink = await screen.findByRole('link', { name: '下载 macOS 客户端' });
+    const heroMacLink = within(screen.getByTestId('hero-smart-download')).getByRole('link', { name: '下载 Mac 版' });
     expect(heroMacLink).toHaveAttribute('href', SAMPLE_MATERIALS.desktop_darwin_arm64.download_url);
     expect(screen.getByRole('link', { name: '网页版直接使用' })).toHaveAttribute('href', '/register');
 
     const macCard = screen.getByTestId('download-card-macos');
+    expect(screen.queryByText(label)).not.toBeInTheDocument();
+    for (const entry of [screen.getByTestId('hero-smart-download'), macCard]) {
+      await userEvent.click(within(entry).getByRole('button', { name: '安装说明' }));
+      const guide = screen.getByRole('dialog', { name: 'Mac 安装说明' });
+      expect(within(guide).getByText(label)).toBeVisible();
+      expect(Boolean(within(guide).queryByText(/仍要打开/))).toBe(mode !== 'developer-id-notarized');
+      await userEvent.keyboard('{Escape}');
+    }
     expect(within(macCard).getByText('当前设备')).toBeInTheDocument();
-    expect(within(macCard).getByRole('link', { name: '下载 macOS 版' })).toHaveAttribute(
+    expect(within(macCard).getByText(/macOS 15\.0\+ · Apple Silicon/)).toBeInTheDocument();
+    expect(within(macCard).getByRole('link', { name: '下载 Mac 版' })).toHaveAttribute(
       'href',
       SAMPLE_MATERIALS.desktop_darwin_arm64.download_url,
     );

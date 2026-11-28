@@ -1,3 +1,4 @@
+import { MacInstallGuide } from '../../../desktop/mac-install-guide';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { DesktopDualInstallPicker, hasDesktopInstallAwareness } from '../../../desktop/desktop-install-picker';
@@ -67,6 +68,7 @@ export function NodeConnectGuide({ node, onRefresh }: { node?: NodeSettingsProfi
             <div className="desktop-action-row">
               <a className="desktop-btn primary" href={desktopRecoveryMaterials.download_url} target="_blank" rel="noreferrer">{text('下载最新 Crewden Desktop', 'Download latest Crewden Desktop')}</a>
               <a className="desktop-btn" href={desktopRecoveryMaterials.connect_url}>{text('打开 Crewden Desktop', 'Open Crewden Desktop')}</a>
+              {nodePlatform === 'desktop-darwin-arm64' && <MacInstallGuide materials={desktopRecoveryMaterials} />}
             </div>
           </div>
         ) : <p className="node-drawer-note">{t('computers.noInstaller')}</p>

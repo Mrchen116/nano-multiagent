@@ -36,9 +36,10 @@ permissions:
 
 jobs:
   macos-arm64:
-    runs-on: macos-26
+    runs-on: macos-15
     env:
       RELEASE_VERSION: ${{ inputs.version }}
+      MACOS_CHANNEL: ${{ inputs.version && 'unnotarized' || 'unsigned-test' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,6 +57,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
+      - name: Use the product deployment target for native code
+        run: echo "MACOSX_DEPLOYMENT_TARGET=$(jq -r '.bundle.macOS.minimumSystemVersion' apps/desktop/tauri.conf.json)" >> "$GITHUB_ENV"
       - name: Build workspace, frontend, and Tauri host
         run: |
           pnpm install --frozen-lockfile
@@ -67,6 +70,8 @@ jobs:
           cargo build --manifest-path apps/desktop/Cargo.toml --release
       - name: Package Crewden-Desktop-arm64.dmg and split archives
         run: python3 scripts/package-macos-desktop.py --out-dir dist/desktop-macos-release
+      - name: Verify and start the app copied from the candidate DMG
+        run: python3 packaging/desktop/macos/distribution.py verify dist/desktop-macos-release --mode "$MACOS_CHANNEL"
       - name: Smoke-test packaged Crewden.app seed extraction and bundled Node 24.22.1
         run: |
           ISO_ROOT="$(mktemp -d "${RUNNER_TEMP:-/tmp}/crewden-mac-smoke.XXXXXX")"
@@ -105,7 +110,7 @@ jobs:
           "$NODE_BIN" apps/desktop/tests/node-lifecycle.mjs dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop "$ISO_ROOT/desktop/versions/$SHA"
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-darwin-arm64-${{ inputs.commit || github.sha }}
+          name: ${{ env.MACOS_CHANNEL }}-desktop-darwin-arm64-${{ inputs.commit || github.sha }}
           path: dist/desktop-macos-release/
           if-no-files-found: error
           compression-level: 0

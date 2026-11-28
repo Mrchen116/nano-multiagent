@@ -115,7 +115,7 @@ export function installMaterials(
   const desktopAllowed = allowsDesktopConnectOrigin(originUrl, options?.allowPrivateHttp);
   const desktopConnectUrl = `crewden-desktop://connect?origin=${encodeURIComponent(base)}`;
   const desktop_darwin_arm64 = macDesktop?.platform === 'desktop-darwin-arm64' && desktopAllowed
-    ? { download_url: macDesktop.installer.download_url, connect_url: desktopConnectUrl, version: macDesktop.version }
+    ? { download_url: macDesktop.installer.download_url, connect_url: desktopConnectUrl, version: macDesktop.version, macos_distribution: macDesktop.macos_distribution ?? 'unnotarized' }
     : null;
   const desktop_win32_x64 = winDesktop?.platform === 'desktop-win32-x64' && desktopAllowed
     ? { download_url: winDesktop.installer.download_url, connect_url: desktopConnectUrl, version: winDesktop.version }

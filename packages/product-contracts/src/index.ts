@@ -96,7 +96,7 @@ export { parseReleaseManifest, classifyOriginSecurity, normalizeReleaseBaseUrl,
   nodeUpdateTerminal, nodeUpdateCancellable,
   type OriginSecurityKind, type OriginSecurityClassification, type ParseReleaseManifestOptions,
   type DesktopPlatform, type PlatformInstaller,
-  type ReleaseManifest, type NodeRelease, type NodeUpdateState, type NodeUpdateOperation,
+  type MacDistribution, type ReleaseManifest, type NodeRelease, type NodeUpdateState, type NodeUpdateOperation,
   type NodeUpdateView, type NodeUpdateReport } from './node-update.js';
 export * from './desktop-local.js';
 export { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryRun, type TrajectoryJson, type TrajectoryScope, type TrajectoryRequest, type TrajectoryResponse } from './trajectory.js';

@@ -1,3 +1,4 @@
+import { MacInstallGuide } from "./mac-install-guide";
 import { useState } from "react";
 import type { DesktopInstall, OnboardingState } from "../features/onboarding/onboarding-api";
 import { WindowsInstallPanel } from "../features/onboarding/windows-install";
@@ -168,6 +169,7 @@ export function DesktopDualInstallPicker({
               >
                 {text("重新下载安装包", "Download installer again")}
               </a>
+              {os === "macos" && <MacInstallGuide materials={desktopMaterials} />}
             </div>
           </div>
         ) : (
@@ -176,8 +178,8 @@ export function DesktopDualInstallPicker({
             <p>
               {os === "macos"
                 ? text(
-                    "适用于 Apple Silicon (M 系列) Mac；Intel 芯片 Mac 请选择「仅装轻量后台节点」。无需安装 Node.js 或打开终端，打开后自动准备运行环境并开启登录自启。",
-                    "For Apple Silicon (M-series) Macs; for Intel Macs choose 'Lightweight background node only'. Zero terminal or Node.js setup required, with automatic login autostart.",
+                    "适用于 macOS 15.0 及以上的 Apple Silicon (M 系列) Mac；Intel 芯片 Mac 请选择「仅装轻量后台节点」。无需安装 Node.js 或打开终端，打开后自动准备运行环境并开启登录自启。",
+                    "For Apple Silicon (M-series) Macs running macOS 15.0 or later; for Intel Macs choose 'Lightweight background node only'. Zero terminal or Node.js setup required, with automatic login autostart.",
                   )
                 : text(
                     "适用于 Windows 10 / 11 (x64) 电脑。无需安装 Node.js 或打开终端，打开后自动准备运行环境并开启登录自启。",
@@ -207,6 +209,7 @@ export function DesktopDualInstallPicker({
               >
                 {text("已安装，在桌面端打开", "Already installed? Open in Desktop")}
               </a>
+              {os === "macos" && <MacInstallGuide materials={desktopMaterials} />}
             </div>
           </div>
         )

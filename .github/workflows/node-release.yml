@@ -11,6 +11,14 @@ on:
         description: Full source commit SHA (40 lowercase hex characters)
         type: string
         required: true
+      macos_distribution:
+        description: Mac 分发方式（默认未经 Apple 公证）
+        type: choice
+        required: true
+        default: unnotarized
+        options:
+          - unnotarized
+          - developer-id-notarized
       changes:
         description: 相对上一发行版的用户可见变化（Markdown）
         type: string
@@ -45,6 +53,8 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
       - id: platform
+        env:
+          MACOS_DISTRIBUTION: ${{ inputs.macos_distribution }}
         run: |
           if test -f scripts/build-windows-installer.ps1; then
             echo "windows=true" >> "$GITHUB_OUTPUT"
@@ -52,8 +62,16 @@ jobs:
             echo "windows=false" >> "$GITHUB_OUTPUT"
           fi
           if test -f scripts/package-macos-desktop.py && test -f scripts/build-desktop-windows.ps1; then
+            if ! python3 packaging/desktop/macos/distribution.py verify --help | grep -q -- "--mode"; then
+              echo "::error::Selected desktop source predates the verified Mac distribution pipeline. Choose a release commit containing the bugfix-811 release modes."
+              exit 1
+            fi
             echo "desktop=true" >> "$GITHUB_OUTPUT"
           else
+            if [[ "$MACOS_DISTRIBUTION" == "developer-id-notarized" ]]; then
+              echo "::error::The selected source has no Mac desktop package to notarize."
+              exit 1
+            fi
             echo "desktop=false" >> "$GITHUB_OUTPUT"
           fi
   windows:
@@ -70,9 +88,71 @@ jobs:
     with:
       commit: ${{ inputs.commit }}
       version: ${{ inputs.version }}
+  sign-macos:
+    needs: [source, desktop]
+    if: needs.source.outputs.desktop == 'true' && inputs.macos_distribution == 'developer-id-notarized'
+    environment: macos-distribution
+    # Set this to a protected, pre-provisioned signing runner. On a repository
+    # without signing infrastructure the hosted runner fails with a diagnostic.
+    runs-on: ${{ vars.MACOS_SIGNING_RUNNER || 'macos-26' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: unnotarized-desktop-darwin-arm64-${{ inputs.commit }}
+          path: candidate
+      - name: Sign native code and notarize and staple the app and disk image
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_PROFILE: ${{ vars.MACOS_NOTARY_PROFILE }}
+        run: python3 packaging/desktop/macos/distribution.py sign candidate signed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-desktop-darwin-arm64-${{ inputs.commit }}
+          path: signed/
+          if-no-files-found: error
+          compression-level: 0
+  verify-macos:
+    needs: sign-macos
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-desktop-darwin-arm64-${{ inputs.commit }}
+          path: signed
+      - name: Check tickets, publisher, Gatekeeper, seed and first startup from the final DMG
+        env:
+          MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+        run: python3 packaging/desktop/macos/distribution.py verify signed --mode developer-id-notarized
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-notarized-desktop-darwin-arm64-${{ inputs.commit }}
+          path: signed/
+          if-no-files-found: error
+          compression-level: 0
   publish:
-    needs: [source, windows, desktop]
-    if: always() && needs.source.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped')
+    needs: [source, windows, desktop, verify-macos]
+    if: >-
+      always() && needs.source.result == 'success' &&
+      (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
+      (needs.desktop.result == 'success' || (needs.source.outputs.desktop == 'false' && needs.desktop.result == 'skipped')) &&
+      ((inputs.macos_distribution == 'unnotarized' && needs.verify-macos.result == 'skipped') ||
+       (inputs.macos_distribution == 'developer-id-notarized' && needs.verify-macos.result == 'success'))
     runs-on: ubuntu-latest
     steps:
       # Keep publishing policy from this workflow revision, even for older source commits.
@@ -101,7 +181,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'
         with:
-          name: desktop-darwin-arm64-${{ inputs.commit }}
+          name: ${{ inputs.macos_distribution == 'developer-id-notarized' && 'verified-notarized' || 'unnotarized' }}-desktop-darwin-arm64-${{ inputs.commit }}
           path: dist/node-release/desktop-darwin-arm64
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'
@@ -111,6 +191,7 @@ jobs:
       - name: Publish and anonymously verify the same packages
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          MACOS_DISTRIBUTION: ${{ inputs.macos_distribution }}
           RELEASE_CHANGES: ${{ inputs.changes }}
           RELEASE_UPGRADE_NOTES: ${{ inputs.upgrade_notes }}
           GH_TOKEN: ${{ github.token }}
