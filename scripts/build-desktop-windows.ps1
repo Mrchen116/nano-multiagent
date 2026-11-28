@@ -57,9 +57,7 @@ if (!$SkipHostTests) {
     Checked 'cargo' @('test', '--manifest-path', 'apps/desktop/Cargo.toml')
 }
 
-if (!(Test-Path 'apps\desktop\target\release\crewden-desktop.exe')) {
-    Checked 'cargo' @('build', '--manifest-path', 'apps/desktop/Cargo.toml', '--release')
-}
+Checked 'cargo' @('build', '--locked', '--manifest-path', 'apps/desktop/Cargo.toml', '--release')
 Copy-Item 'apps\desktop\target\release\crewden-desktop.exe' "$build\CrewdenDesktop.exe" -Force
 
 $wv2Bootstrapper = Join-Path $build 'MicrosoftEdgeWebView2Setup.exe'
@@ -111,6 +109,8 @@ foreach ($assetName in @('desktop-runtime-win32-x64.tar.gz', 'desktop-app-win32-
 }
 if (Test-Path (Join-Path $seedDir 'desktop-defaults.json')) {
     Copy-Item (Join-Path $seedDir 'desktop-defaults.json') (Join-Path $resolvedOut 'desktop-defaults.json') -Force
+} elseif (Test-Path (Join-Path $resolvedOut 'desktop-defaults.json')) {
+    Remove-Item -LiteralPath (Join-Path $resolvedOut 'desktop-defaults.json')
 }
 
 $installerHash = (Get-FileHash -Algorithm SHA256 $finalExe).Hash.ToLowerInvariant()

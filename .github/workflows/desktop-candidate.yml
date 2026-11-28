@@ -146,6 +146,23 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm.cmd --prefix src/IM/frontend run build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build private installer for overwrite regression
+        if: github.event_name == 'pull_request'
+        working-directory: src
+        shell: pwsh
+        run: |
+          ./scripts/build-desktop-windows.ps1 -SkipHostTests -DefaultImOrigin http://127.0.0.1:18712 -BaseUrl http://crewden-ci.local/releases/
+          Move-Item dist/desktop-windows-release/Crewden-Desktop-Setup-x64.exe "$env:RUNNER_TEMP/private-setup.exe"
+          # A reused target directory must still consult Cargo after source changes.
+          Add-Content apps/desktop/src/main.rs 'compile_error!("installer freshness probe");'
+          try {
+            ./scripts/build-desktop-windows.ps1 -SkipHostTests
+            throw 'Packaging ignored the changed Rust source'
+          } catch {
+            if ($_.Exception.Message -notmatch '^cargo exited with') { throw }
+          } finally {
+            git restore apps/desktop/src/main.rs
+          }
       - name: Build Crewden-Desktop-Setup-x64.exe and locked archives
         working-directory: src
         shell: pwsh
@@ -154,6 +171,11 @@ jobs:
         working-directory: src
         shell: pwsh
         run: ./packaging/desktop/windows/smoke.ps1
+      - name: Exercise private-to-official overwrite and bound-node uninstall
+        if: github.event_name == 'pull_request'
+        working-directory: src
+        shell: pwsh
+        run: ./packaging/desktop/windows/installer-lifecycle.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-win32-x64-${{ inputs.commit || github.sha }}

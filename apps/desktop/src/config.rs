@@ -12,6 +12,7 @@ pub struct DesktopCliOptions {
     pub background: bool,
     pub stop: bool,
     pub headless_host: bool,
+    pub prepare_seed: bool,
     pub im_origin: Option<String>,
     pub initial_route: Option<String>,
     pub deep_link_url: Option<String>,
@@ -44,6 +45,7 @@ impl DesktopCliOptions {
                 "--stop" => {
                     opts.stop = true;
                 }
+                "--prepare-seed" => opts.prepare_seed = true,
                 "--headless-host" => {
                     opts.headless_host = true;
                 }
