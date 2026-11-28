@@ -1,5 +1,6 @@
 import { PropsWithChildren, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
+import { withAuthRequestTimeout } from "./auth-api";
 import { authFetchJson } from "./auth-fetch";
 import { AuthUser, accountEnabled, useAuthStore } from "./auth-store";
 import { useTranslation } from "../../i18n";
@@ -28,7 +29,7 @@ export function RequireAuth({ children }: PropsWithChildren) {
       setVerified(userId);
       return;
     }
-    void authFetchJson<AuthUser>("/im/v1/auth/me").then(snapshot => {
+    void withAuthRequestTimeout(signal => authFetchJson<AuthUser>("/im/v1/auth/me", { signal })).then(snapshot => {
       if (!disposed && useAuthStore.getState().replaceUser(snapshot)) setVerified(userId);
     }).catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; };
