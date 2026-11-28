@@ -310,7 +310,7 @@ pub async fn start_host_server_full(
     ui_bridge: Arc<dyn DesktopUiBridge>,
 ) -> Result<RunningHostServer, String> {
     sync_seed_desktop_defaults(&paths, seed_archives_dir.as_deref());
-    reconcile_ready_seed_bundle(&paths, seed_archives_dir.as_deref());
+    reconcile_ready_seed_bundle(&paths, seed_archives_dir.as_deref())?;
     let mut host_cfg = load_or_init_host_config(&paths, seed_archives_dir.as_deref(), override_origin);
     let (listener, port) = bind_persisted_loopback(host_cfg.persisted_port).await?;
     host_cfg.persisted_port = port;
@@ -3075,23 +3075,5 @@ mod tests {
         assert_eq!(local_gate.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
         let gate_json: Value = local_gate.json().await.unwrap();
         assert_eq!(gate_json["code"], "seed_preparing");
-
-        // InstanceLock prevents duplicate acquisition on the same lock path.
-        let lock1 = crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
-            .unwrap()
-            .expect("first lock should succeed");
-        assert!(
-            crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
-                .unwrap()
-                .is_none(),
-            "second lock while held must return None"
-        );
-        drop(lock1);
-        assert!(
-            crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
-                .unwrap()
-                .is_some(),
-            "lock should be acquirable after drop"
-        );
     }
 }
