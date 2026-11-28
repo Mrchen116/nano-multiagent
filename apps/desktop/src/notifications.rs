@@ -1,27 +1,26 @@
-use crate::config::{append_private_jsonl, random_hex_token, DesktopPaths, StoredSessionEntry};
+use crate::config::{sha256_hex, DesktopPaths, StoredSessionEntry};
 use crate::generated_contracts::{
     UserNotificationKindContract, UserStreamNotificationHint, WireEnum,
 };
 use futures_util::{SinkExt, StreamExt};
-use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMsg;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopNotificationRecord {
-    pub id: String,
     pub kind: String,
     pub title: String,
     pub body: String,
     pub target_route: String,
-    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -35,15 +34,11 @@ pub trait DesktopUiBridge: Send + Sync {
     fn update_current_route(&self, route: &str) -> Option<String>;
     fn update_unread_badge(&self, total_unread: u64);
     fn activate_route(&self, target_route: &str);
+    fn clear_session_navigation(&self) {}
     fn focus_window(&self) {}
     fn notify_host_context_updated(&self) {}
     fn reload_webview(&self, target_route: Option<&str>);
     fn set_locale(&self, _locale: &str) {}
-    fn present_notification_popup(&self, _item: &DesktopNotificationRecord) {}
-    fn dismiss_notification_popup(&self) {}
-    fn popup_count(&self) -> u64 {
-        0
-    }
 }
 
 #[derive(Default)]
@@ -54,7 +49,6 @@ pub struct NoopUiBridge {
     pub context_update_count: Mutex<u64>,
     pub attention: RwLock<WindowAttentionState>,
     pub pending_route: Mutex<Option<String>>,
-    pub popped_count: Mutex<u64>,
 }
 
 impl DesktopUiBridge for NoopUiBridge {
@@ -86,6 +80,11 @@ impl DesktopUiBridge for NoopUiBridge {
             .push(target_route.to_string());
     }
 
+    fn clear_session_navigation(&self) {
+        self.pending_route.lock().unwrap().take();
+        self.attention.write().unwrap().current_route.clear();
+    }
+
     fn focus_window(&self) {
         *self.focus_count.lock().unwrap() += 1;
     }
@@ -95,20 +94,30 @@ impl DesktopUiBridge for NoopUiBridge {
     }
 
     fn reload_webview(&self, _target_route: Option<&str>) {}
-
-    fn present_notification_popup(&self, _item: &DesktopNotificationRecord) {
-        *self.popped_count.lock().unwrap() += 1;
-    }
-
-    fn popup_count(&self) -> u64 {
-        *self.popped_count.lock().unwrap()
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct ActiveDaemonSession {
     pub im_origin: String,
     pub session: StoredSessionEntry,
+}
+
+impl ActiveDaemonSession {
+    pub(crate) fn same_principal(&self, other: &Self) -> bool {
+        self.im_origin == other.im_origin && self.session.user_id == other.session.user_id
+    }
+
+    pub(crate) fn notification_link(&self, route: &str) -> url::Url {
+        let mut link = url::Url::parse("crewden-desktop://open").unwrap();
+        link.query_pairs_mut()
+            .append_pair("notification_scope", &self.notification_scope())
+            .append_pair("route", route);
+        link
+    }
+
+    pub(crate) fn notification_scope(&self) -> String {
+        sha256_hex(format!("{}\0{}", self.im_origin, self.session.user_id).as_bytes())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -119,7 +128,6 @@ struct ConvSummaryEntry {
 }
 
 pub struct NotificationCenterState {
-    recent: Mutex<VecDeque<DesktopNotificationRecord>>,
     unread_total: Mutex<u64>,
     conversations: Mutex<HashMap<String, ConvSummaryEntry>>,
     ws_connected: AtomicBool,
@@ -128,7 +136,6 @@ pub struct NotificationCenterState {
 impl Default for NotificationCenterState {
     fn default() -> Self {
         Self {
-            recent: Mutex::new(VecDeque::with_capacity(64)),
             unread_total: Mutex::new(0),
             conversations: Mutex::new(HashMap::new()),
             ws_connected: AtomicBool::new(false),
@@ -167,28 +174,6 @@ pub(crate) fn apply_hint_conversation_unread(
 }
 
 impl NotificationCenterState {
-    pub fn record(&self, paths: &DesktopPaths, item: DesktopNotificationRecord) {
-        append_private_jsonl(&paths.notifications_log_path(), &item);
-        let mut guard = self.recent.lock().unwrap();
-        if guard.len() >= 64 {
-            guard.pop_front();
-        }
-        guard.push_back(item);
-    }
-
-    pub fn list(&self) -> Vec<DesktopNotificationRecord> {
-        self.recent.lock().unwrap().iter().cloned().collect()
-    }
-
-    pub fn find_route(&self, id: &str) -> Option<String> {
-        self.recent
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|item| item.id == id)
-            .map(|item| item.target_route.clone())
-    }
-
     pub fn set_unread(&self, total: u64) {
         *self.unread_total.lock().unwrap() = total;
     }
@@ -495,20 +480,11 @@ pub fn classify_from_notification_hint(
     };
 
     Some(DesktopNotificationRecord {
-        id: format!("notif-{}", random_hex_token(8)),
         kind: kind.as_str().to_string(),
         title,
         body,
         target_route: hint.target_route.clone(),
-        created_at: now_epoch_secs(),
     })
-}
-
-fn now_epoch_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 fn strip_mention_xml(raw: &str) -> String {
@@ -749,7 +725,6 @@ pub fn classify_user_stream_event_localized(
                 fallback_done.to_string()
             };
             Some(DesktopNotificationRecord {
-                id: format!("notif-{}", random_hex_token(8)),
                 kind: "message_completed".to_string(),
                 title: if en {
                     format!("{} · Reply ready", sender)
@@ -758,7 +733,6 @@ pub fn classify_user_stream_event_localized(
                 },
                 body: resolved_body,
                 target_route,
-                created_at: now_epoch_secs(),
             })
         }
         "message.created" => {
@@ -830,7 +804,6 @@ pub fn classify_user_stream_event_localized(
                 "发来一条新消息".to_string()
             };
             Some(DesktopNotificationRecord {
-                id: format!("notif-{}", random_hex_token(8)),
                 kind: if is_mention {
                     "mention".to_string()
                 } else {
@@ -847,7 +820,6 @@ pub fn classify_user_stream_event_localized(
                 },
                 body: resolved_body,
                 target_route,
-                created_at: now_epoch_secs(),
             })
         }
         "permission.request" => {
@@ -880,7 +852,6 @@ pub fn classify_user_stream_event_localized(
                 .or_else(|| non_empty_str(&payload["tool"]))
                 .unwrap_or(if en { "tool action" } else { "工具执行" });
             Some(DesktopNotificationRecord {
-                id: format!("notif-{}", random_hex_token(8)),
                 kind: "chat_permission".to_string(),
                 title: if en {
                     "Tool approval requested".to_string()
@@ -893,7 +864,6 @@ pub fn classify_user_stream_event_localized(
                     format!("会话请求授权执行 {}", tool)
                 },
                 target_route,
-                created_at: now_epoch_secs(),
             })
         }
         "agent.work.updated" => {
@@ -921,7 +891,6 @@ pub fn classify_user_stream_event_localized(
                 .or_else(|| non_empty_str(&payload["agent_name"]))
                 .unwrap_or(agent_id);
             Some(DesktopNotificationRecord {
-                id: format!("notif-{}", random_hex_token(8)),
                 kind: "work_permission".to_string(),
                 title: if en {
                     format!("{} · Tool approval needed", agent_name)
@@ -934,7 +903,6 @@ pub fn classify_user_stream_event_localized(
                     "点击打开助手 Work 视图处理待决权限请求".to_string()
                 },
                 target_route,
-                created_at: now_epoch_secs(),
             })
         }
         _ => None,
@@ -942,25 +910,40 @@ pub fn classify_user_stream_event_localized(
 }
 
 #[cfg(target_os = "macos")]
-mod macos_notify {
+pub(crate) mod macos_notify {
     #![allow(deprecated)]
-    use super::DesktopUiBridge;
+    use crate::host_server::{handle_deep_link_url, HostSharedState};
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, ProtocolObject};
-    use objc2::{define_class, msg_send, ClassType};
+    use objc2::{define_class, msg_send, sel, ClassType};
+    use objc2_app_kit::{NSApplicationDidFinishLaunchingNotification, NSApplicationLaunchUserNotificationKey};
     use objc2_foundation::{
-        NSBundle, NSDictionary, NSObject, NSObjectProtocol, NSString, NSUserNotification,
+        NSBundle, NSDictionary, NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSString, NSUserNotification,
         NSUserNotificationCenter, NSUserNotificationCenterDelegate,
     };
-    use std::sync::{Arc, OnceLock, RwLock};
+    use std::sync::{OnceLock, RwLock, Weak};
 
-    static MAC_UI_BRIDGE: OnceLock<RwLock<Arc<dyn DesktopUiBridge>>> = OnceLock::new();
+    static HOST: OnceLock<RwLock<Weak<HostSharedState>>> = OnceLock::new();
     static MAC_DELEGATE_INIT: OnceLock<()> = OnceLock::new();
 
     define_class!(
         #[unsafe(super(NSObject))]
         #[name = "CrewdenDesktopNotificationDelegate"]
         struct CrewdenNotificationDelegate;
+
+        impl CrewdenNotificationDelegate {
+            // AppKit supplies cold clicks in the launch notification before regular activations.
+            #[unsafe(method(applicationLaunched:))]
+            fn application_launched(&self, launch: &NSNotification) {
+                if let Some(info) = launch.userInfo() {
+                    if let Some(value) = info.objectForKey(unsafe { NSApplicationLaunchUserNotificationKey }) {
+                        if let Some(notification) = value.downcast_ref::<NSUserNotification>() {
+                            activate(notification);
+                        }
+                    }
+                }
+            }
+        }
 
         unsafe impl NSObjectProtocol for CrewdenNotificationDelegate {}
 
@@ -971,30 +954,8 @@ mod macos_notify {
                 center: &NSUserNotificationCenter,
                 notification: &NSUserNotification,
             ) {
-                if let Some(info) = notification.userInfo() {
-                    let key = NSString::from_str("route");
-                    if let Some(val_obj) = info.objectForKey(&key) {
-                        if let Some(ns_str) = val_obj.downcast_ref::<NSString>() {
-                            let route = ns_str.to_string();
-                            if route.starts_with('/') {
-                                if let Some(lock) = MAC_UI_BRIDGE.get() {
-                                    let ui = lock.read().unwrap().clone();
-                                    ui.activate_route(&route);
-                                }
-                            }
-                        }
-                    }
-                }
+                activate(notification);
                 center.removeDeliveredNotification(notification);
-            }
-
-            #[unsafe(method(userNotificationCenter:shouldPresentNotification:))]
-            fn should_present(
-                &self,
-                _center: &NSUserNotificationCenter,
-                _notification: &NSUserNotification,
-            ) -> bool {
-                true
             }
         }
     );
@@ -1005,20 +966,53 @@ mod macos_notify {
         }
     }
 
-    pub fn send_native_notification(title: &str, body: &str, route: &str, ui: Arc<dyn DesktopUiBridge>) {
+    fn notification_link(notification: &NSUserNotification) -> Option<String> {
+        let value = notification.userInfo()?.objectForKey(&NSString::from_str("notification_link"))?;
+        Some(value.downcast_ref::<NSString>()?.to_string())
+    }
+
+    fn activate(notification: &NSUserNotification) {
+        if let (Some(link), Some(host)) = (
+            notification_link(notification),
+            HOST.get().and_then(|h| h.read().unwrap().upgrade()),
+        ) {
+            handle_deep_link_url(&host, &link);
+        }
+    }
+
+    pub fn clear_stale(scope: Option<&str>) {
+        if NSBundle::mainBundle().bundleIdentifier().is_none() {
+            return;
+        }
+        let center = NSUserNotificationCenter::defaultUserNotificationCenter();
+        if scope.is_none() {
+            center.removeAllDeliveredNotifications();
+            return;
+        }
+        let delivered = center.deliveredNotifications();
+        for i in 0..delivered.count() {
+            let notification = delivered.objectAtIndex(i);
+            if !super::matches_notification_scope(notification_link(&notification).as_deref(), scope) {
+                center.removeDeliveredNotification(&notification);
+            }
+        }
+    }
+
+    pub fn install_click_handler(host: Weak<HostSharedState>) {
         // Never swizzle NSBundle: only post native Notification Center banners when running inside
         // a real `.app` bundle (where CFBundleIdentifier is `work.crewden.desktop`).
         let main_bundle = NSBundle::mainBundle();
         if main_bundle.bundleIdentifier().is_none() {
             return;
         }
-        if let Some(lock) = MAC_UI_BRIDGE.get() {
-            *lock.write().unwrap() = ui;
-        } else {
-            let _ = MAC_UI_BRIDGE.set(RwLock::new(ui));
-        }
+        *HOST.get_or_init(RwLock::default).write().unwrap() = host;
         MAC_DELEGATE_INIT.get_or_init(|| {
             let delegate = CrewdenNotificationDelegate::new();
+            unsafe {
+                NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                    &delegate, sel!(applicationLaunched:), Some(NSApplicationDidFinishLaunchingNotification), None,
+                );
+            }
             let proto = ProtocolObject::from_retained(delegate);
             let center = NSUserNotificationCenter::defaultUserNotificationCenter();
             unsafe {
@@ -1027,12 +1021,17 @@ mod macos_notify {
             // Intentionally leak the singleton delegate so unretained NSUserNotificationCenter.delegate stays valid for process lifetime.
             std::mem::forget(proto);
         });
+    }
 
+    pub fn send_native_notification(title: &str, body: &str, link: &str) {
+        if NSBundle::mainBundle().bundleIdentifier().is_none() {
+            return;
+        }
         let notif = NSUserNotification::new();
         let ns_title = NSString::from_str(title);
         let ns_body = NSString::from_str(body);
-        let key_route = NSString::from_str("route");
-        let val_route = NSString::from_str(route);
+        let key_route = NSString::from_str("notification_link");
+        let val_route = NSString::from_str(link);
         notif.setTitle(Some(&ns_title));
         notif.setInformativeText(Some(&ns_body));
         let val_any: Retained<AnyObject> = Retained::into_super(Retained::into_super(val_route));
@@ -1105,13 +1104,33 @@ mod windows_notify {
         });
     }
 
-    pub fn send_native_toast(paths: &DesktopPaths, title: &str, body: &str, route: &str) -> bool {
+    pub fn clear_stale(scope: Option<&str>) -> windows::core::Result<()> {
+        let id = HSTRING::from(WINDOWS_AUMID);
+        let history = ToastNotificationManager::History()?;
+        if scope.is_some() {
+            let delivered = history.GetHistoryWithId(&id)?;
+            let mut stale = false;
+            for i in 0..delivered.Size()? {
+                let toast = delivered.GetAt(i)?;
+                let link = toast.Content()?.DocumentElement()?.GetAttribute(&HSTRING::from("launch"))?;
+                if !super::matches_notification_scope(Some(&link.to_string_lossy()), scope) {
+                    stale = true;
+                    break;
+                }
+            }
+            if !stale {
+                return Ok(());
+            }
+        }
+        // Legacy toasts have no tag. Windows can only withdraw them by clearing this app's history.
+        history.ClearWithId(&id)
+    }
+
+    pub fn send_native_toast(paths: &DesktopPaths, title: &str, body: &str, link: &str) -> bool {
         ensure_windows_aumid_and_protocol(paths);
-        let mut launch_url = url::Url::parse("crewden-desktop://open").unwrap();
-        launch_url.query_pairs_mut().append_pair("route", route);
         let xml_str = format!(
             "<toast activationType=\"protocol\" launch=\"{}\"><visual><binding template=\"ToastGeneric\"><text id=\"1\">{}</text><text id=\"2\">{}</text></binding></visual></toast>",
-            xml_escape(launch_url.as_str()),
+            xml_escape(link),
             xml_escape(title),
             xml_escape(body),
         );
@@ -1133,39 +1152,40 @@ mod windows_notify {
     }
 }
 
+fn matches_notification_scope(link: Option<&str>, expected: Option<&str>) -> bool {
+    link.and_then(|raw| crate::config::parse_notification_link(raw).ok().flatten())
+        .is_some_and(|(scope, _)| Some(scope.as_str()) == expected)
+}
+
+pub(crate) fn clear_stale_notifications(paths: &DesktopPaths, current: Option<&ActiveDaemonSession>) {
+    // Isolated hosts must not modify the installed application's Notification Center.
+    if paths.is_isolated_autostart() {
+        return;
+    }
+    let scope = current.map(ActiveDaemonSession::notification_scope);
+    #[cfg(target_os = "macos")]
+    macos_notify::clear_stale(scope.as_deref());
+    #[cfg(target_os = "windows")]
+    if let Err(e) = windows_notify::clear_stale(scope.as_deref()) {
+        crate::config::append_host_log(Some(paths), "WARN", &format!("Could not clear desktop toast history: {e}"));
+    }
+}
+
 fn deliver_os_notification(
-    paths: &DesktopPaths,
+    host: &crate::host_server::HostSharedState,
+    active: &ActiveDaemonSession,
     item: &DesktopNotificationRecord,
-    ui: Arc<dyn DesktopUiBridge>,
 ) {
     if std::env::var("CREWDEN_SUPPRESS_OS_NOTIFICATIONS").as_deref() == Ok("1") {
         return;
     }
-
-    #[cfg(target_os = "macos")]
-    {
-        let _ = paths;
-        // Always pop out Crewden's non-focus-stealing screen-corner floating banner (just like WeChat / Feishu)
-        // so desktop popups work reliably on modern macOS 15/26 even for ad-hoc signed builds or closed main windows!
-        ui.present_notification_popup(item);
-        macos_notify::send_native_notification(&item.title, &item.body, &item.target_route, ui);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let paths_clone = paths.clone();
-        let item_clone = item.clone();
-        std::thread::spawn(move || {
-            if !windows_notify::send_native_toast(
-                &paths_clone,
-                &item_clone.title,
-                &item_clone.body,
-                &item_clone.target_route,
-            ) {
-                ui.present_notification_popup(&item_clone);
-            }
-        });
-    }
+    host.with_notification_session(active, || {
+        let link = active.notification_link(&item.target_route);
+        #[cfg(target_os = "macos")]
+        macos_notify::send_native_notification(&item.title, &item.body, link.as_str());
+        #[cfg(target_os = "windows")]
+        windows_notify::send_native_toast(&host.paths, &item.title, &item.body, link.as_str());
+    });
 }
 
 struct SessionCursorTracker {
@@ -1193,9 +1213,6 @@ pub fn spawn_notification_daemon(
             let Some(active) = current else {
                 tracker = None;
                 host_state.notification_center.set_ws_connected(false);
-                host_state
-                    .notification_center
-                    .clear_conversations(host_state.ui_bridge.as_ref());
                 if session_rx.changed().await.is_err() {
                     return;
                 }
@@ -1239,12 +1256,14 @@ pub fn spawn_notification_daemon(
 }
 
 async fn sync_conversations_and_cursor(
-    http_client: &reqwest::Client,
-    im_origin: &str,
+    host: &crate::host_server::HostSharedState,
+    active: &ActiveDaemonSession,
     access_token: &str,
-    center: &NotificationCenterState,
-    ui: &dyn DesktopUiBridge,
 ) -> Option<u64> {
+    let center = &host.notification_center;
+    let ui = host.ui_bridge.as_ref();
+    let http_client = &host.http_client;
+    let im_origin = &active.im_origin;
     let sync_url = format!("{}/im/v1/sync", im_origin);
     if let Ok(res) = http_client
         .get(&sync_url)
@@ -1255,7 +1274,7 @@ async fn sync_conversations_and_cursor(
         if res.status().is_success() {
             if let Ok(sync_json) = res.json::<Value>().await {
                 if let Some(items) = sync_json["items"].as_array() {
-                    center.replace_conversations(items, ui);
+                    host.with_notification_session(active, || center.replace_conversations(items, ui));
                 }
                 return sync_json["max_event_id"].as_u64();
             }
@@ -1276,7 +1295,7 @@ async fn sync_conversations_and_cursor(
                     .as_array()
                     .or_else(|| conv_json.as_array())
                 {
-                    center.replace_conversations(list, ui);
+                    host.with_notification_session(active, || center.replace_conversations(list, ui));
                 }
             }
         }
@@ -1401,7 +1420,6 @@ async fn run_single_session_stream(
     active: &ActiveDaemonSession,
     tracker: &mut SessionCursorTracker,
 ) {
-    let paths = &host_state.paths;
     let http_client = &host_state.http_client;
     let center = &host_state.notification_center;
     let ui = host_state.ui_bridge.clone();
@@ -1433,11 +1451,9 @@ async fn run_single_session_stream(
 
     // 2. Seed initial unread counts, mute preferences, and baseline max_event_id from GET /im/v1/sync
     let synced_max = sync_conversations_and_cursor(
-        http_client,
-        &active.im_origin,
+        host_state,
+        active,
         &access_token,
-        center,
-        ui.as_ref(),
     )
     .await;
     let resume_cursor = match tracker.cursor {
@@ -1507,7 +1523,7 @@ async fn run_single_session_stream(
     {
         return;
     }
-    center.set_ws_connected(true);
+    host_state.with_notification_session(active, || center.set_ws_connected(true));
 
     let mut pending_agent_senders: HashMap<String, String> = HashMap::new();
     let mut pending_agent_cards: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1541,11 +1557,9 @@ async fn run_single_session_stream(
                     Some("membership_changed") => break,
                     Some("resync_required") => {
                         if let Some(latest_max) = sync_conversations_and_cursor(
-                            http_client,
-                            &active.im_origin,
+                            host_state,
+                            active,
                             &access_token,
-                            center,
-                            ui.as_ref(),
                         )
                         .await
                         {
@@ -1571,7 +1585,7 @@ async fn run_single_session_stream(
                 // Synchronize unread badge and conversation mute/title cache
                 match event_type.as_str() {
                     "conversation.updated" | "conversation.preference_updated" | "conversation.read" => {
-                        center.upsert_conversation(&payload, ui.as_ref());
+                        host_state.with_notification_session(active, || center.upsert_conversation(&payload, ui.as_ref()));
                     }
                     "conversation.membership_changed"
                     | "conversation.deleted"
@@ -1584,11 +1598,9 @@ async fn run_single_session_stream(
                             }
                         }
                         let _ = sync_conversations_and_cursor(
-                            http_client,
-                            &active.im_origin,
+                            host_state,
+                            active,
                             &access_token,
-                            center,
-                            ui.as_ref(),
                         )
                         .await;
                     }
@@ -1625,13 +1637,13 @@ async fn run_single_session_stream(
                         let focused_here = attention_now.visible_and_focused
                             && is_viewing_conversation_route(&attention_now.current_route, cid);
                         if let Some(ref hint) = frame_hint {
-                            apply_hint_conversation_unread(
+                            host_state.with_notification_session(active, || apply_hint_conversation_unread(
                                 center,
                                 ui.as_ref(),
                                 &attention_now,
                                 &payload,
                                 hint,
-                            );
+                            ));
                         } else {
                             let allowed_in_thread = is_thread_audience_allowed(&payload, &self_user_id);
                             let is_self_author = !sender_uid.is_empty()
@@ -1639,34 +1651,32 @@ async fn run_single_session_stream(
                             if non_empty_str(&payload["thread_root_message_id"]).is_some() {
                                 if allowed_in_thread && !is_self_author {
                                     let _ = sync_conversations_and_cursor(
-                                        http_client,
-                                        &active.im_origin,
+                                        host_state,
+                                        active,
                                         &access_token,
-                                        center,
-                                        ui.as_ref(),
                                     )
                                     .await;
                                 }
                             } else if allowed_in_thread && !focused_here {
-                                center.on_message_created(
+                                host_state.with_notification_session(active, || center.on_message_created(
                                     cid,
                                     is_self_author,
                                     payload["unread_count"].as_u64(),
                                     ui.as_ref(),
-                                );
+                                ));
                             }
                         }
                     }
                     "message.completed" | "permission.request" => {
                         if let Some(ref hint) = frame_hint {
                             let attention_now = ui.window_attention();
-                            apply_hint_conversation_unread(
+                            host_state.with_notification_session(active, || apply_hint_conversation_unread(
                                 center,
                                 ui.as_ref(),
                                 &attention_now,
                                 &payload,
                                 hint,
-                            );
+                            ));
                         }
                     }
                     _ => {}
@@ -1708,8 +1718,7 @@ async fn run_single_session_stream(
                             tracker.notified_dedupe_keys.pop_front();
                         }
                         tracker.notified_dedupe_keys.push_back(hint.dedupe_key.clone());
-                        center.record(paths, notif.clone());
-                        deliver_os_notification(paths, &notif, ui.clone());
+                        deliver_os_notification(host_state, active, &notif);
                     }
                     continue;
                 }
@@ -1787,8 +1796,7 @@ async fn run_single_session_stream(
                     &attention,
                     &tracker.locale,
                 ) {
-                    center.record(paths, notif.clone());
-                    deliver_os_notification(paths, &notif, ui.clone());
+                    deliver_os_notification(host_state, active, &notif);
                 }
             }
         }
