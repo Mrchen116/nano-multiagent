@@ -5,7 +5,16 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local';
-import { MemoryDocuments, proactivitySignalsLimit } from '../src/knowledge/memory-documents.js';
+import {
+  historyPageLimit,
+  MemoryDocuments,
+  proactiveEntrySectionLimit,
+  proactivityPolicyLimit,
+  proactivitySignalsLimit,
+  topicPageLimit,
+} from '../src/knowledge/memory-documents.js';
+import { substantiveSourceTokens } from '../src/knowledge/dreaming.js';
+import { consolidationPrompt, extractionPromptForRole } from '../src/knowledge/dreaming-prompts.js';
 import { qualifiedEvents } from '../src/knowledge/memory-source-view.js';
 import { MemorySources } from '../src/knowledge/memory-sources.js';
 
@@ -256,5 +265,109 @@ describe('MemorySources task-context retention and cross-night deduplication', (
     expect(deduplicated.units).toEqual([]);
     expect(deduplicated.filtered).toBeGreaterThanOrEqual(1);
     expect(deduplicated.ranges[0]?.through).toBe(1);
+  });
+});
+
+describe('Memory capacity guardrails, substantive token estimation, and anti-disclaimer prompt rules', () => {
+  it('enforces <= 2,000 proactive section quota, <= 6,000 proactivity-policy.md, and touched-only <= 16,000 / 32,000 page caps', async () => {
+    const { documents, root } = await openMemory('personal');
+    await mkdir(join(root, 'workstreams'), { recursive: true });
+    await mkdir(join(root, 'knowledge'), { recursive: true });
+    await mkdir(join(root, 'timeline/daily'), { recursive: true });
+
+    // Pre-existing legacy oversized topic page committed before the batch must NOT trigger repositoryIssues or block untouched batches!
+    const legacyOversizedPath = 'workstreams/legacy-mercury.md';
+    await writeFile(join(root, legacyOversizedPath), `# Legacy Mercury\n\n${'历史流水'.repeat(4500)}\n`);
+    commitAll(root);
+    await documents.refresh();
+    const beforeVersions = await documents.versions();
+    expect(await documents.repositoryIssues()).toEqual([]);
+    expect(await documents.consolidationIssues(beforeVersions)).toEqual([]);
+
+    // Direct no-arg consolidationIssues() flags the oversized page, and modifying or creating an oversized page in this batch flags it too!
+    expect(await documents.consolidationIssues()).toContainEqual(
+      expect.objectContaining({ path: legacyOversizedPath, reason: expect.stringContaining(`topic page limit is ${topicPageLimit}`) }),
+    );
+    await writeFile(join(root, 'workstreams/new-oversized.md'), `# New Oversized\n\n${'a'.repeat(topicPageLimit + 50)}\n`);
+    await writeFile(join(root, 'timeline/daily/2027-03-15.md'), `# Daily\n\n${'b'.repeat(historyPageLimit + 50)}\n`);
+    await writeFile(join(root, 'knowledge/proactivity-policy.md'), `# Policy\n\n${'c'.repeat(proactivityPolicyLimit + 50)}\n`);
+    await writeFile(
+      join(root, 'MEMORY.md'),
+      `# Personal memory\n\n## 主动性与介入偏好\n\n### 积极盯紧与提前备料\n- ${'规'.repeat(proactiveEntrySectionLimit)}\n\n## Topics\n\n- [Policy](knowledge/proactivity-policy.md)\n`,
+    );
+    await documents.refresh();
+    const batchIssues = await documents.consolidationIssues(beforeVersions);
+    expect(batchIssues.map(item => item.path)).toEqual(
+      expect.arrayContaining([
+        'MEMORY.md',
+        'knowledge/proactivity-policy.md',
+        'workstreams/new-oversized.md',
+        'timeline/daily/2027-03-15.md',
+      ]),
+    );
+    expect(batchIssues.some(item => item.path === legacyOversizedPath)).toBe(false);
+
+    // Valid proactivity-policy.md is allowed on PA & linked from MEMORY.md, but rejected on single_thread_expert!
+    await writeFile(join(root, 'knowledge/proactivity-policy.md'), '# Policy\n\n- Keep morning briefs concise.\n');
+    await writeFile(
+      join(root, 'MEMORY.md'),
+      '# Personal memory\n\n## 主动性与介入偏好\n\n### 积极盯紧与提前备料\n- 晨报细则见 [Policy](knowledge/proactivity-policy.md)。\n\n## Topics\n\n- Active work.\n',
+    );
+    await rm(join(root, 'workstreams/new-oversized.md'));
+    await rm(join(root, 'timeline/daily/2027-03-15.md'));
+    await documents.refresh();
+    expect(await documents.consolidationIssues(beforeVersions)).toEqual([]);
+
+    const singleThread = await openMemory('expert');
+    await mkdir(join(singleThread.root, 'knowledge'), { recursive: true });
+    await writeFile(join(singleThread.root, 'knowledge/proactivity-policy.md'), '# Unsupported for single-thread expert\n');
+    expect(await singleThread.documents.consolidationIssues()).toContainEqual(
+      expect.objectContaining({
+        path: 'knowledge/proactivity-policy.md',
+        reason: expect.stringContaining('only supported for personal assistant and global expert'),
+      }),
+    );
+  });
+
+  it('estimates substantive tokens across inbox reads, send_message payloads, and continuations while ignoring inbox check shells', () => {
+    const checkShellUnit = {
+      id: 'u-check',
+      sessionId: 's1',
+      start: 0,
+      through: 2,
+      events: [
+        { type: 'tool/call', callId: 'c1', name: 'inbox', arguments: { action: 'check' } },
+        { type: 'tool/result', callId: 'c1', isError: false, content: [{ type: 'text', text: JSON.stringify({ sources: [{ name: 'DM', unread: 1 }] }) }] },
+      ],
+    };
+    expect(substantiveSourceTokens([checkShellUnit])).toBe(0);
+
+    const globalChatUnit = {
+      id: 'u-chat',
+      sessionId: 's1',
+      start: 2,
+      through: 6,
+      events: [
+        { type: 'tool/call', callId: 'c2', name: 'inbox', arguments: { action: 'read', target: 'dm_1' } },
+        { type: 'tool/result', callId: 'c2', isError: false, content: [{ type: 'text', text: JSON.stringify({ delivery: 'participant', messages: [{ id: 'm1', content: '请帮我核对 Project Mercury 的预算表。' }] }) }] },
+        { type: 'tool/call', callId: 'c3', name: 'send_message', arguments: { target: 'dm_1', text: '已核对完毕：Q4 差旅预算剩余 $12,400，无超支项。' } },
+        { type: 'source_text_continuation', text: '补充一段跨页长文档摘要内容。' },
+      ],
+    };
+    expect(substantiveSourceTokens([globalChatUnit])).toBeGreaterThan(20);
+  });
+
+  it('encodes section quota, current-state topic cap, and anti-disclaimer rules in extraction and consolidation prompts', () => {
+    const extract = extractionPromptForRole('personal');
+    const consolidatePa = consolidationPrompt('personal');
+    const consolidateGlobal = consolidationPrompt('global_expert');
+    expect(extract).toContain('never append generic runtime-policy');
+    expect(consolidatePa).toContain('<= 2,000 UTF-16 code units');
+    expect(consolidatePa).toContain('knowledge/proactivity-policy.md');
+    expect(consolidatePa).toContain('16,000 UTF-16 code units');
+    expect(consolidatePa).toContain('NEVER append generic meta-policy disclaimers');
+    expect(consolidatePa).not.toContain('never truncate or drop confirmed conditions');
+    expect(consolidateGlobal).toContain('<= 2,000 UTF-16 code units');
+    expect(consolidateGlobal).toContain('knowledge/proactivity-policy.md');
   });
 });

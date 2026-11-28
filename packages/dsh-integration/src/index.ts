@@ -1525,21 +1525,27 @@ export default class NanoRuntime {
         }
       }
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
-      if (isProactiveWake && config && input.source.channel === 'proactive_nightly') {
+      if (isProactiveWake && config) {
         const knowledgeSvc = await this.knowledgeRuntime;
-        const ds = await knowledgeSvc.dreaming.nightlyStatus(config.agentId, this.clockNow());
-        if (!ds.completed && ds.failures < 3 && (ds.retryAt ?? 0) < ds.nightWindowEndAt) {
-          void knowledgeSvc.dreaming.tick(config.agentId, this.clockNow()).catch(() => {});
-          return { accepted: false, busy: true };
+        if (input.source.channel === 'proactive_nightly') {
+          const ds = await knowledgeSvc.dreaming.nightlyStatus(config.agentId, this.clockNow());
+          if (!ds.completed && ds.failures < 3 && (ds.retryAt ?? 0) < ds.nightWindowEndAt) {
+            void knowledgeSvc.dreaming.tick(config.agentId, this.clockNow()).catch(() => {});
+            return { accepted: false, busy: true };
+          }
         }
-        const updatedMemory = await knowledgeSvc.documents.updatedEntrySinceWindowStart(agent);
-        if (updatedMemory && content.length > 0 && content[0]?.type === 'text') {
+        const [updatedMemory, proactivePolicy] = await Promise.all([
+          knowledgeSvc.documents.updatedEntryForWindowWake(agent),
+          knowledgeSvc.documents.proactivePolicyForWindowWake(agent),
+        ]);
+        const extraTags = [updatedMemory?.renderedTag, proactivePolicy?.renderedTag].filter((tag): tag is string => Boolean(tag));
+        if (extraTags.length > 0 && content.length > 0 && content[0]?.type === 'text') {
           const firstText = content[0].text;
           const newlineIdx = firstText.indexOf('\n');
-          const memTag = `<updated-formal-memory complete="${updatedMemory.complete ? 'true' : 'preview'}">\n${updatedMemory.body}\n</updated-formal-memory>`;
+          const joinedTags = extraTags.join('\n');
           const injected = newlineIdx >= 0
-            ? `${firstText.slice(0, newlineIdx + 1)}${memTag}\n${firstText.slice(newlineIdx + 1)}`
-            : `${firstText}\n${memTag}`;
+            ? `${firstText.slice(0, newlineIdx + 1)}${joinedTags}\n${firstText.slice(newlineIdx + 1)}`
+            : `${firstText}\n${joinedTags}`;
           content = [{ type: 'text', text: injected }, ...content.slice(1)];
         }
       }

@@ -17,7 +17,7 @@ export interface DreamingOwner {
   activationAt: number; streams: Record<string, StreamProgress>; rotation: number;
   integrated: Record<string, string>;
   integratedTaskContextIds?: string[];
-  lastAttempt?: number; lastSuccessAutomatic?: number; lastCompletedCycle?: string; retryAt?: number; failures: number;
+  lastAttempt?: number; lastSuccessAutomatic?: number; lastCompletedCycle?: string; lastConsolidatedCycle?: string; retryAt?: number; failures: number;
 }
 export interface DreamingRun {
   id: string; agentId: string; rootSessionId: string; childSessionId?: string;

@@ -215,7 +215,14 @@ export class NanoMemoryCandidate implements MemoryCandidate {
         skillRoots: [{ path: this.options.builtinSkillsRoot, source: 'builtin' }],
         skillSelection: { mode: 'explicit_allowlist', names: ['nano-memory', 'nano-interactive-ui'] },
         toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance', ...contextTools] : ['read', 'glob', 'grep', 'skill', 'inbox', 'send_message'],
-        knowledge: { ...this.options.knowledge, memoryMode: 'document' } };
+        knowledge: {
+          ...this.options.knowledge,
+          memoryMode: 'document',
+          dreaming: {
+            minSourceTokens: 0,
+            ...this.options.knowledge?.dreaming,
+          },
+        } };
       run.product = this.options.createProduct({ configuration, binding, runtime: {request: typedRuntimeRequest(client.rpc.request.bind(client.rpc)), onNotification: client.rpc.onNotification.bind(client.rpc)}, directory: dir,
         nodeId, startTime: history?.sessions[0]?.timestamp ?? 0, chatSnapshot: prepared?.chatSnapshot,
         deliver: async text => { deliveries.push(text); await writeFile(join(dir, 'deliveries.json'), JSON.stringify(deliveries)); } });
