@@ -586,10 +586,15 @@ export class WorkerInspector {
       trace.items.findLast((item) => item.kind === 'tool' && item.status === 'error');
 
     const reportText = latestReportItem?.text || row.latestReport;
-    const errorText =
+    const reportFromItem = Boolean(latestReportItem?.text);
+    const errorItemCandidate =
       row.state === 'failed' || row.state === 'interrupted'
-        ? (row.latestError || latestErrorItem?.text)
-        : (row.latestError || (latestErrorItem?.kind === 'tool' ? undefined : latestErrorItem?.text));
+        ? latestErrorItem
+        : latestErrorItem?.kind === 'tool'
+          ? undefined
+          : latestErrorItem;
+    const errorText = errorItemCandidate?.text || row.latestError;
+    const errorFromItem = Boolean(errorItemCandidate?.text);
 
     const reportPreview = reportText ? previewText(reportText, SUMMARY_PREVIEW_CHARS) : undefined;
     const errorPreview = errorText ? previewText(errorText, SUMMARY_PREVIEW_CHARS) : undefined;
@@ -608,11 +613,11 @@ export class WorkerInspector {
       ...(reportPreview
         ? {
             latest_report: reportPreview.text,
-            ...(reportPreview.truncated
+            ...(reportFromItem && reportPreview.truncated
               ? {
                   latest_report_truncated: true,
                   latest_report_total_chars: reportPreview.totalChars,
-                  ...(latestReportItem ? { latest_report_item_id: latestReportItem.item_id } : {}),
+                  latest_report_item_id: latestReportItem!.item_id,
                 }
               : {}),
           }
@@ -620,11 +625,11 @@ export class WorkerInspector {
       ...(errorPreview
         ? {
             latest_error: errorPreview.text,
-            ...(errorPreview.truncated
+            ...(errorFromItem && errorPreview.truncated
               ? {
                   latest_error_truncated: true,
                   latest_error_total_chars: errorPreview.totalChars,
-                  ...(latestErrorItem ? { latest_error_item_id: latestErrorItem.item_id } : {}),
+                  latest_error_item_id: errorItemCandidate!.item_id,
                 }
               : {}),
           }

@@ -120,7 +120,7 @@ it('persists CLI worker history across confirmWork and restart, supports summary
   const longOutput = `Header api_key="secret_value_99999" ` + 'A'.repeat(5_200) + 'TAIL_MARKER';
   await launch1.onDetail('u1', { turnId: 't1', fact: { type: 'message', payload: { message_id: 'u1', role: 'user', text: 'Check why /v1/health timed out' } } });
   await launch1.onDetail('tc1', { turnId: 't1', fact: { type: 'tool_start', payload: { call_id: 'tc1', tool_name: 'commandExecution', arguments: { command: 'pytest tests/api.py' }, presentation: { summary: 'pytest tests/api.py' } } } });
-  await launch1.onDetail('tc1', { turnId: 't1', fact: { type: 'tool_end', payload: { call_id: 'tc1', tool_name: 'commandExecution', is_error: false, duration_ms: 420, presentation: { summary: 'pytest tests/api.py', detail: { content: { output: longOutput, img: 'data:image/png;base64,AAAA' } } } } } });
+  await launch1.onDetail('tc1', { turnId: 't1', fact: { type: 'tool_end', payload: { call_id: 'tc1', tool_name: 'commandExecution', is_error: false, duration_ms: 420, presentation: { detail: { content: { output: longOutput, img: 'data:image/png;base64,AAAA' } } } } } });
   await launch1.onReport('perm-1', 'Codex declined bash. {"decision":"denied"}');
   await launch1.onDetail('t1-end', { turnId: 't1', fact: { type: 'turn_end', payload: { status: 'completed', usage: { total_tokens: 4500 } } } });
   // Duplicate turn_end replay must not double-count turnCount/totalTokens even after confirmWork.
@@ -188,6 +188,20 @@ it('persists CLI worker history across confirmWork and restart, supports summary
   await expect(restarted.inspector.summary(rootA, w2.workerId)).rejects.toThrow('Worker not found or does not belong to this Global session');
   await expect(restarted.inspector.summary(rootA, 'worker-does-not-exist')).rejects.toThrow('Worker not found or does not belong to this Global session');
   await expect(restarted.inspector.list(subagent)).rejects.toThrow('Only the Global root can read workers');
+
+  // Failed CLI turn with >600-char non-keyword error must dedupe onDetail+onEnd and preserve full error metadata.
+  const longCliErr = 'Connection refused to 127.0.0.1:5432 ' + 'E'.repeat(700) + 'ERR_TAIL';
+  await launch1.onDetail('t2-end', { turnId: 't2', fact: { type: 'turn_end', payload: { status: 'failed', error: { message: longCliErr } } } });
+  await launch1.onEnd('t2', 'failed', longCliErr);
+  const failedSummary = await restarted.inspector.summary(rootA, w1.workerId);
+  expect(failedSummary.tokens_partial).toBe(true);
+  expect(failedSummary.latest_error_truncated).toBe(true);
+  expect(failedSummary.latest_error_total_chars).toBe(longCliErr.length);
+  expect(failedSummary.latest_error_item_id).toBeTruthy();
+  const errTail = await restarted.inspector.read(rootA, { workerId: w1.workerId, itemId: failedSummary.latest_error_item_id!, textOffset: 600 });
+  expect(errTail.text).toContain('ERR_TAIL');
+  const msgsAfterFail = await restarted.inspector.read(rootA, { workerId: w1.workerId, view: 'messages' });
+  expect(msgsAfterFail.items.filter((item: any) => item.kind === 'system' && item.text.includes('Connection refused'))).toHaveLength(1);
 
   // Agent permanent deletion cleans up history table too.
   await restarted.forget(new Set(['root-a']));

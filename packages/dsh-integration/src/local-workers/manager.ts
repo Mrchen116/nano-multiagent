@@ -326,7 +326,11 @@ export class LocalWorkers {
     }
 
     if (entries.some((entry) => entry.dedupeKey === item.dedupeKey)) return;
-    entries.push({ ...item, seq: nextSeq++ });
+    entries.push({
+      ...item,
+      ...(item.kind === 'tool' && !item.summary && item.toolName ? { summary: item.toolName } : {}),
+      seq: nextSeq++,
+    });
     if (entries.length > MAX_HISTORY_ENTRIES) {
       const dropped = entries.length - MAX_HISTORY_ENTRIES;
       entries.splice(0, dropped);
@@ -474,6 +478,7 @@ export class LocalWorkers {
             dedupeKey: eventId,
             time: Date.now(),
             kind: 'system',
+            status: 'error',
             text,
           });
         });
@@ -610,12 +615,17 @@ export class LocalWorkers {
             }
           } else if (item.state === 'failed' || item.state === 'interrupted') {
             if (rawText.trim()) patch.latestError = clipPreview(rawText);
-            if (rawText.trim()) {
+            const sanitized = sanitizeWorkerValue(rawText, MAX_STORED_ENTRY_CHARS);
+            if (
+              sanitized.trim() &&
+              !(lastEntry?.kind === 'system' && lastEntry.text.trim() === sanitized.trim())
+            ) {
               await this.upsertCliHistoryLocked(current.workerId, current.rootId, {
                 dedupeKey: `end:${item.eventId}`,
                 time: now,
                 kind: 'system',
-                text: sanitizeWorkerValue(rawText, MAX_STORED_ENTRY_CHARS),
+                status: 'error',
+                text: sanitized,
               });
             }
           }
@@ -625,6 +635,7 @@ export class LocalWorkers {
             dedupeKey: item.eventId,
             time: now,
             kind: 'system',
+            status: 'error',
             text: sanitizeWorkerValue(rawText, MAX_STORED_ENTRY_CHARS),
           });
         }
@@ -806,7 +817,7 @@ export class LocalWorkers {
             });
           } else if (fact.type === 'tool_end') {
             const { call_id, tool_name, is_error, duration_ms, reason_code, arguments: toolArgs, presentation } = fact.payload;
-            const summary = presentation?.summary ?? extractToolSummary(toolArgs) ?? tool_name;
+            const summary = presentation?.summary ?? extractToolSummary(toolArgs);
             const rawOutput = (presentation?.detail as { content?: unknown } | undefined)?.content;
             await this.upsertCliHistoryLocked(row.workerId, row.rootId, {
               dedupeKey: `tool:${detail.turnId}:${call_id}`,
@@ -815,7 +826,7 @@ export class LocalWorkers {
               toolName: tool_name,
               callId: call_id,
               status: is_error ? 'error' : 'ok',
-              summary,
+              ...(summary ? { summary } : {}),
               text: sanitizeWorkerValue(rawOutput, MAX_STORED_ENTRY_CHARS),
               ...(duration_ms !== undefined ? { durationMs: duration_ms } : {}),
               ...(reason_code ? { reasonCode: reason_code } : {}),
@@ -850,6 +861,7 @@ export class LocalWorkers {
                 dedupeKey: `turn_error:${detail.turnId}`,
                 time: now,
                 kind: 'system',
+                status: 'error',
                 text: sanitizeWorkerValue(errMsg, MAX_STORED_ENTRY_CHARS),
               });
             }
