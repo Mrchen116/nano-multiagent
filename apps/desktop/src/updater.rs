@@ -784,25 +784,40 @@ fn unpack_staged_hot_bundle_blocking(
             "release_base_url": target.release_base_url,
         });
         write_private_json(&version_stage.join(".release-manifest.json"), &manifest_json)?;
-        fs::write(version_stage.join(".ready"), format!("{}\n", target.sha256)).map_err(|e| e.to_string())?;
-        if !verify_ready_ui_version_root(&version_stage) {
+        if !version_stage.join(crate::local_node::node_rel_path()).is_file()
+            || !version_stage.join("ui/frontend/index.html").is_file()
+        {
             return Err("Staged version bundle is missing ui/frontend/index.html or runtime".to_string());
         }
         if !final_version_root.exists() {
             publish_seed_directory(&version_stage, &final_version_root)?;
         }
-        if layout.is_file() && final_version_root.join("workspaces.json").is_file() {
-            let mut verify_cmd = Command::new(&node_bin);
-            configure_hidden_command(&mut verify_cmd);
-            let out = verify_cmd
-                .arg(&layout)
-                .arg("verify")
-                .arg(&final_version_root)
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !out.status.success() {
-                return Err("layout.mjs verify failed".to_string());
+        if !final_version_root.join(".ready").is_file() {
+            if layout.is_file() && final_version_root.join("workspaces.json").is_file() {
+                let mut verify_cmd = Command::new(&node_bin);
+                configure_hidden_command(&mut verify_cmd);
+                let out = verify_cmd
+                    .arg(&layout)
+                    .arg("verify")
+                    .arg(&final_version_root)
+                    .output()
+                    .map_err(|e| {
+                        let _ = fs::remove_dir_all(&final_version_root);
+                        e.to_string()
+                    })?;
+                if !out.status.success() {
+                    let _ = fs::remove_dir_all(&final_version_root);
+                    return Err("layout.mjs verify failed".to_string());
+                }
             }
+            if let Err(err) = fs::write(final_version_root.join(".ready"), format!("{}\n", target.sha256)) {
+                let _ = fs::remove_dir_all(&final_version_root);
+                return Err(err.to_string());
+            }
+        }
+        if !verify_ready_ui_version_root(&final_version_root) {
+            let _ = fs::remove_dir_all(&final_version_root);
+            return Err("Verified version bundle failed final readiness check".to_string());
         }
         Ok(())
     })();
@@ -1054,6 +1069,99 @@ pub fn maybe_auto_apply_when_hidden(state: &Arc<HostSharedState>) {
     }
 }
 
+/// Extract `node.user_id` from a real multi-line `js-yaml` `config.yaml` (or JSON fallback).
+pub(crate) fn parse_node_owner_id_from_config(raw: &str) -> Option<String> {
+    let trimmed_all = raw.trim();
+    if trimmed_all.is_empty() {
+        return None;
+    }
+    if let Ok(val) = serde_json::from_str::<Value>(trimmed_all) {
+        return val["node"]["user_id"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+    }
+
+    let mut in_node_block = false;
+    let mut node_child_indent: Option<usize> = None;
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed == "---" || trimmed == "..." {
+            continue;
+        }
+        let indent = line.len() - line.trim_start_matches(' ').len();
+        if indent == 0 {
+            if let Some(rest) = trimmed.strip_prefix("node:") {
+                let rest_trim = rest.trim();
+                if rest_trim.is_empty() || rest_trim.starts_with('#') {
+                    in_node_block = true;
+                    node_child_indent = None;
+                    continue;
+                }
+                if let Ok(inline_val) = serde_json::from_str::<Value>(rest_trim) {
+                    if let Some(uid) = inline_val["user_id"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                        return Some(uid.to_string());
+                    }
+                }
+            }
+            in_node_block = false;
+            node_child_indent = None;
+            continue;
+        }
+        if !in_node_block {
+            continue;
+        }
+        let expected_indent = *node_child_indent.get_or_insert(indent);
+        if indent != expected_indent {
+            continue;
+        }
+        let Some(raw_val) = trimmed.strip_prefix("user_id:") else {
+            continue;
+        };
+        let v = raw_val.trim();
+        if v.is_empty() || v == "~" || v == "null" {
+            return None;
+        }
+        let unquoted = if v.starts_with('\'') && v.len() >= 2 {
+            // Single-quoted YAML scalar: find closing single quote ('' escapes a literal ').
+            let bytes = v.as_bytes();
+            let mut idx = 1;
+            let mut out = String::new();
+            while idx < bytes.len() {
+                if bytes[idx] == b'\'' {
+                    if idx + 1 < bytes.len() && bytes[idx + 1] == b'\'' {
+                        out.push('\'');
+                        idx += 2;
+                        continue;
+                    }
+                    break;
+                }
+                if let Some(ch) = v[idx..].chars().next() {
+                    out.push(ch);
+                    idx += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            out
+        } else if v.starts_with('"') {
+            serde_json::from_str::<String>(v)
+                .ok()
+                .or_else(|| v.strip_prefix('"')?.split('"').next().map(str::to_string))?
+        } else {
+            let without_comment = match v.find(" #") {
+                Some(pos) => &v[..pos],
+                None => v,
+            };
+            without_comment.trim().to_string()
+        };
+        let cleaned = unquoted.trim();
+        return if cleaned.is_empty() { None } else { Some(cleaned.to_string()) };
+    }
+    None
+}
+
 /// Safely promote an already-staged `.ready` hot update on startup ONLY when the local node is NOT already online,
 /// saving a rollback backup in case `supervise_node`'s initial `start` fails.
 pub fn try_promote_staged_update_on_startup(state: &HostSharedState, im_origin: &str, owner_id: Option<&str>) {
@@ -1119,8 +1227,8 @@ pub fn try_promote_staged_update_on_startup(state: &HostSharedState, im_origin: 
         if active_path.is_file() && cfg_path.is_file() {
             let same_owner = owner_id.and_then(|oid| {
                 let raw_cfg = fs::read_to_string(&cfg_path).ok()?;
-                let val_cfg = serde_json::from_str::<Value>(&raw_cfg).ok()?;
-                Some(val_cfg["node"]["user_id"].as_str() == Some(oid))
+                let cfg_owner = parse_node_owner_id_from_config(&raw_cfg)?;
+                Some(cfg_owner == oid)
             }) == Some(true);
             if same_owner {
                 if let Ok(raw_ptr) = fs::read_to_string(&active_path) {
@@ -1226,8 +1334,8 @@ pub fn on_internal_reload_assets(state: &HostSharedState) {
         let active_path = conn_dir.join(".desktop-active.json");
         let same_owner = fs::read_to_string(&cfg_path)
             .ok()
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-            .map(|v| v["node"]["user_id"].as_str() == Some(owner_id.as_str()))
+            .and_then(|raw| parse_node_owner_id_from_config(&raw))
+            .map(|uid| uid == owner_id)
             .unwrap_or(false);
 
         if same_owner && active_path.is_file() {
@@ -1240,7 +1348,15 @@ pub fn on_internal_reload_assets(state: &HostSharedState) {
                     ) {
                         if verify_ready_ui_version_root(Path::new(vroot)) {
                             let mut ui_active = read_ui_active_file(&state.paths);
-                            let prev_sha = ui_active.origins.get(&im_origin).map(|p| p.sha256.clone());
+                            let prev_ptr = ui_active.origins.get(&im_origin).cloned();
+                            let prev_sha = prev_ptr.as_ref().map(|p| p.sha256.clone());
+                            let is_forward_upgrade = match prev_ptr.as_ref() {
+                                Some(prev) => match (parse_strict_semver(ver), parse_strict_semver(&prev.version)) {
+                                    (Some(next_v), Some(prev_v)) => next_v > prev_v,
+                                    _ => prev.sha256 != sha,
+                                },
+                                None => true,
+                            };
                             ui_active.origins.insert(
                                 im_origin.clone(),
                                 DesktopUiOriginPointer {
@@ -1251,7 +1367,11 @@ pub fn on_internal_reload_assets(state: &HostSharedState) {
                                 },
                             );
                             if prev_sha.as_deref() != Some(sha) {
-                                ui_active.just_updated.insert(im_origin.clone(), ver.to_string());
+                                if is_forward_upgrade {
+                                    ui_active.just_updated.insert(im_origin.clone(), ver.to_string());
+                                } else {
+                                    ui_active.just_updated.remove(&im_origin);
+                                }
                             }
                             let _ = write_ui_active_file(&state.paths, &ui_active);
                             prune_stale_update_cache(&state.paths, &[sha.to_string()]);
@@ -1336,7 +1456,8 @@ pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> Des
         }
     };
 
-    if response.status().as_u16() == 404 || response.status().as_u16() == 503 {
+    let status_code = response.status().as_u16();
+    if status_code == 404 {
         let mut map = state.updater.by_origin.lock().unwrap();
         let rt = map.entry(im_origin.clone()).or_default();
         rt.phase = "unpublished".to_string();
@@ -1344,6 +1465,33 @@ pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> Des
         rt.target = None;
         rt.progress = None;
         rt.error_code = None;
+        rt.last_checked_at = Some(now_iso_string());
+        drop(map);
+        notify_ui_updater_changed(&state, &im_origin);
+        return build_updater_snapshot(&state);
+    }
+
+    if status_code == 503 {
+        let body_text = response.text().await.unwrap_or_default();
+        if body_text.to_ascii_lowercase().contains("not published") {
+            let mut map = state.updater.by_origin.lock().unwrap();
+            let rt = map.entry(im_origin.clone()).or_default();
+            rt.phase = "unpublished".to_string();
+            rt.mode = None;
+            rt.target = None;
+            rt.progress = None;
+            rt.error_code = None;
+            rt.last_checked_at = Some(now_iso_string());
+            drop(map);
+            notify_ui_updater_changed(&state, &im_origin);
+            return build_updater_snapshot(&state);
+        }
+        let mut map = state.updater.by_origin.lock().unwrap();
+        let rt = map.entry(im_origin.clone()).or_default();
+        if manual || rt.phase.is_empty() || rt.phase == "checking" {
+            rt.phase = "failed".to_string();
+            rt.error_code = Some("network_unreachable".to_string());
+        }
         rt.last_checked_at = Some(now_iso_string());
         drop(map);
         notify_ui_updater_changed(&state, &im_origin);
@@ -1555,6 +1703,11 @@ pub fn dismiss_updater_notice(state: &HostSharedState, kind: &str) -> DesktopUpd
         let mut map = state.updater.by_origin.lock().unwrap();
         if let Some(rt) = map.get_mut(&im_origin) {
             rt.dismissed_version = rt.target.as_ref().map(|t| t.version.clone());
+        }
+    } else if kind == "reopen_capsule" {
+        let mut map = state.updater.by_origin.lock().unwrap();
+        if let Some(rt) = map.get_mut(&im_origin) {
+            rt.dismissed_version = None;
         }
     }
     notify_ui_updater_changed(state, &im_origin);
@@ -2521,6 +2674,122 @@ mod tests {
             build_updater_snapshot(&server.state).error_code.as_deref(),
             Some("switch_rolled_back")
         );
+
+        // Verify real multi-line `js-yaml` `config.yaml` startup promotion, rollback, and `on_internal_reload_assets` sync!
+        assert_eq!(
+            parse_node_owner_id_from_config(
+                "agents:\n  - agent_id: a1\n    user_id: wrong-nested\nnode:\n  node_id: computer-1234\n  user_id: owner-alice # comment\n  node_name: Studio-Mac\n"
+            ),
+            Some("owner-alice".to_string())
+        );
+        assert_eq!(
+            parse_node_owner_id_from_config("node:\n  user_id: 'owner''s-id'\n"),
+            Some("owner's-id".to_string())
+        );
+        assert_eq!(
+            parse_node_owner_id_from_config("node:\n  user_id: \"owner-quoted\"\n"),
+            Some("owner-quoted".to_string())
+        );
+        assert_eq!(
+            parse_node_owner_id_from_config("node:\n  user_id: ''\n"),
+            None
+        );
+
+        // Clear rollback_blocked and plant a real YAML `config.yaml` owned by `owner-alice`
+        write_ui_active_file(&paths, &DesktopUiActiveFile::default()).unwrap();
+        server.state.sessions.write().unwrap().by_origin.insert(
+            im_origin.clone(),
+            crate::config::StoredSessionEntry {
+                refresh_token: "rt-1".to_string(),
+                user_id: "owner-alice".to_string(),
+                owner_id: "owner-alice".to_string(),
+                username: "alice".to_string(),
+                updated_at: 1,
+            },
+        );
+        let alice_conn = paths.connection_dir(&im_origin).unwrap();
+        fs::create_dir_all(&alice_conn).unwrap();
+        fs::write(
+            alice_conn.join("config.yaml"),
+            "node:\n  node_id: node-alice\n  user_id: owner-alice\n  node_name: Alice-Mac\nim_service:\n  url: http://127.0.0.1\n  token: tok\n",
+        )
+        .unwrap();
+        let alice_active_path = alice_conn.join(".desktop-active.json");
+        write_private_json(
+            &alice_active_path,
+            &json!({
+                "managed_by": "crewden-desktop",
+                "version": "1.3.2",
+                "sha256": sha_v1,
+                "version_root": root_v1.to_string_lossy()
+            }),
+        )
+        .unwrap();
+
+        try_promote_staged_update_on_startup(&server.state, &im_origin, Some("owner-alice"));
+        assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.4.0");
+        assert_eq!(resolve_active_bundle(&paths, &im_origin, None).unwrap().version, "1.4.0");
+
+        // Startup failure rolls back BOTH `desktop-ui-active.json` AND `.desktop-active.json`!
+        assert!(rollback_startup_promotion_if_needed(&server.state, &im_origin));
+        assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.3.2");
+        assert_eq!(resolve_active_bundle(&paths, &im_origin, None).unwrap().version, "1.3.2");
+
+        // Remote upgrade via `.desktop-active.json` + `on_internal_reload_assets` advances UI to 1.4.0,
+        // and subsequent worker rollback to 1.3.2 syncs UI back to 1.3.2 and clears `just_updated`!
+        let root_v2 = paths.desktop_home.join("versions").join(&sha_v2);
+        write_private_json(
+            &alice_active_path,
+            &json!({
+                "managed_by": "crewden-desktop",
+                "version": "1.4.0",
+                "sha256": sha_v2,
+                "version_root": root_v2.to_string_lossy()
+            }),
+        )
+        .unwrap();
+        on_internal_reload_assets(&server.state);
+        assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.4.0");
+        assert_eq!(build_updater_snapshot(&server.state).just_updated_version.as_deref(), Some("1.4.0"));
+
+        write_private_json(
+            &alice_active_path,
+            &json!({
+                "managed_by": "crewden-desktop",
+                "version": "1.3.2",
+                "sha256": sha_v1,
+                "version_root": root_v1.to_string_lossy()
+            }),
+        )
+        .unwrap();
+        on_internal_reload_assets(&server.state);
+        assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.3.2");
+        assert_eq!(build_updater_snapshot(&server.state).just_updated_version, None);
+
+        // Verify `capsule` dismiss + `reopen_capsule` host-synced roundtrip
+        {
+            let mut map = server.state.updater.by_origin.lock().unwrap();
+            let rt = map.entry(im_origin.clone()).or_default();
+            rt.phase = "ready_to_switch".to_string();
+            rt.mode = Some(UpdaterMode::HotBundle);
+            let parsed_m = serde_json::from_value::<Value>(manifest_state.lock().unwrap().clone()).unwrap();
+            let mut m140 = parsed_m;
+            m140["version"] = json!("1.4.0");
+            m140["sha256"] = json!(sha_v2);
+            m140["shell_protocol"] = json!(1);
+            rt.target = parse_desktop_release_manifest(
+                &m140,
+                &plat,
+                &TrustedReleaseConfig {
+                    trusted_bases: vec![release_base.trim_end_matches('/').to_string()],
+                    allow_private_http: true,
+                },
+            );
+        }
+        let dismissed = dismiss_updater_notice(&server.state, "capsule");
+        assert!(dismissed.capsule_dismissed);
+        let reopened = dismiss_updater_notice(&server.state, "reopen_capsule");
+        assert!(!reopened.capsule_dismissed);
 
         let _ = server.take_shutdown_receiver();
     }

@@ -56,7 +56,6 @@ export function DesktopRailUpdatePill() {
   const zh = i18n.language.startsWith("zh");
   const text = (cn: string, en: string) => (zh ? cn : en);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [reopenedVersion, setReopenedVersion] = useState<string | null>(null);
 
   if (!desktop || !updater.snapshot) return null;
   const snap = updater.snapshot;
@@ -77,8 +76,7 @@ export function DesktopRailUpdatePill() {
   if (!showTrigger) return null;
 
   const targetVer = snap.target?.version ?? "";
-  const isDismissed =
-    snap.capsule_dismissed && reopenedVersion !== targetVer && (hasReadyHot || hasInstaller);
+  const isDismissed = snap.capsule_dismissed && (hasReadyHot || hasInstaller);
   const suppressCard = menuOpen || onNodesPage || isDismissed;
 
   const notes = splitReleaseNotes(snap.target?.release_notes);
@@ -97,8 +95,18 @@ export function DesktopRailUpdatePill() {
         className={`desktop-rail-update-pill${hasJustUpdated ? " mint" : ""}`}
         data-testid="desktop-rail-update-trigger"
         onClick={() => {
+          if (hasJustUpdated) {
+            void updater.triggerDismiss("just_updated");
+            return;
+          }
+          if (onNodesPage) {
+            document
+              .querySelector('[data-testid="desktop-client-update-card"]')
+              ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+            return;
+          }
           if (isDismissed) {
-            setReopenedVersion(targetVer);
+            void updater.triggerDismiss("reopen_capsule");
             return;
           }
           if (hasReadyHot) {
@@ -170,7 +178,6 @@ export function DesktopRailUpdatePill() {
               className="desktop-capsule-close"
               aria-label={text("稍后换新", "Later")}
               onClick={() => {
-                setReopenedVersion(null);
                 void updater.triggerDismiss("capsule");
               }}
             >
@@ -224,7 +231,6 @@ export function DesktopRailUpdatePill() {
               type="button"
               className="desktop-btn compact"
               onClick={() => {
-                setReopenedVersion(null);
                 void updater.triggerDismiss("capsule");
               }}
             >
@@ -289,7 +295,6 @@ export function DesktopRailUpdatePill() {
                 className="desktop-capsule-close"
                 aria-label={text("稍后", "Later")}
                 onClick={() => {
-                setReopenedVersion(null);
                 void updater.triggerDismiss("capsule");
               }}
               >
@@ -380,7 +385,6 @@ export function DesktopRailUpdatePill() {
                   type="button"
                   className="desktop-btn compact"
                   onClick={() => {
-                setReopenedVersion(null);
                 void updater.triggerDismiss("capsule");
               }}
                 >

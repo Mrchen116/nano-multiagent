@@ -7,6 +7,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { desktopScopedKey, isDesktopClient } from '../../desktop/desktop-context';
 import { DesktopDualInstallPicker, hasDesktopInstallAwareness } from '../../desktop/desktop-install-picker';
 import { DesktopNodeOnboardingBanner } from '../../desktop/desktop-node-onboarding-banner';
+import { useDesktopUnsavedForm } from '../../desktop/use-desktop-unsaved-form';
 import { useIsMobile } from '../../hooks/use-is-mobile';
 import { OnboardingWelcome } from './onboarding-welcome';
 import { ProductHeader } from '../home/product-header';
@@ -77,6 +78,7 @@ export function OnboardingPage() {
   useEffect(() => { if (viewStep === null && setup.data && !configured && !existingAgent && node?.status === 'online') setViewStep(1); }, [viewStep, setup.data, configured, existingAgent, node?.status]);
   const operation = setup.data?.operation;
   const working = operation?.state === 'waiting' || operation?.state === 'testing';
+  useDesktopUnsavedForm(editingModel || working || (step === 2 && !existingAgent));
   const create = useMutation({
     mutationFn: () => {
       const displayName = existingAgent?.display_name ?? name.trim();

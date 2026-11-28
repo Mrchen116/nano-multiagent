@@ -194,7 +194,7 @@ export interface DesktopUpdaterPreferencesInput {
 }
 
 export interface DesktopUpdaterDismissInput {
-  kind: 'just_updated' | 'capsule';
+  kind: 'just_updated' | 'capsule' | 'reopen_capsule';
 }
 
 /** Validate an HTTP(S) proxy URL and reject unsupported schemes such as socks://.

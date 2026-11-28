@@ -201,10 +201,15 @@ export function DesktopClientUpdateCard() {
               "新版磁盘映像已准备完毕，账号登录态、连接的服务地址与本地工作区全部保留。",
               "Verified disk image is ready. Your account session, server address, and local workspaces are preserved.",
             )
-        : text(
-            "本次更新包含新版桌面窗口客户端，点击即可从当前受信源安全下载完整安装包平滑升级。",
-            "This update includes an upgraded desktop app shell. Download and upgrade directly in one click.",
-          );
+        : snap.phase === "downloading_installer"
+          ? text(
+              "正在从当前服务受信源安全下载并校验新版客户端安装包，下载期间可照常聊天与工作。",
+              "Downloading and verifying the upgraded desktop installer in the background. You can keep chatting normally.",
+            )
+          : text(
+              "本次更新包含新版桌面窗口客户端，点击即可从当前受信源安全下载完整安装包平滑升级。",
+              "This update includes an upgraded desktop app shell. Download and upgrade directly in one click.",
+            );
     cta =
       snap.phase === "downloading_installer" ? (
         <button

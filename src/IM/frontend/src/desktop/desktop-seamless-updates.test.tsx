@@ -25,7 +25,10 @@ import {
   DesktopNarrowUpdateBanner,
   DesktopRailUpdatePill,
 } from "./desktop-update-pill";
-import { useDesktopUnsavedForm } from "./use-desktop-unsaved-form";
+import {
+  resetDesktopAttentionReporterForTest,
+  useDesktopUnsavedForm,
+} from "./use-desktop-unsaved-form";
 import { buildReloadTargetUrl, setDesktopUserMenuOpen } from "./use-desktop-updater";
 
 function makeSnapshot(overrides: Partial<DesktopUpdaterSnapshot> = {}): DesktopUpdaterSnapshot {
@@ -54,6 +57,7 @@ describe("Crewden Desktop seamless updates, draft preservation, and zero-jargon 
   beforeEach(() => {
     setLanguage("zh");
     setDesktopUserMenuOpen(false);
+    resetDesktopAttentionReporterForTest();
     resetComposerStores();
     localStorage.clear();
     sessionStorage.clear();
@@ -657,5 +661,125 @@ describe("Crewden Desktop seamless updates, draft preservation, and zero-jargon 
         }),
       ),
     );
+  });
+
+  it("reports /onboarding route and has_unsaved_form=true outside AppShell and syncs reopen_capsule to host", async () => {
+    const user = userEvent.setup();
+    setDesktopBootContextForTest({
+      imOrigin: "https://im.crewden.work",
+      contextEpoch: 1,
+      platform: "darwin-arm64",
+    });
+
+    const attentionPayloads: Array<Record<string, unknown>> = [];
+    let currentSnap = makeSnapshot({
+      phase: "ready_to_switch",
+      mode: "hot_bundle",
+      capsule_dismissed: true,
+      target: { version: "1.4.0" },
+    });
+    const dismissKinds: string[] = [];
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/desktop/v1/attention" && init?.method === "POST") {
+        attentionPayloads.push(JSON.parse(String(init.body ?? "{}")));
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "/desktop/v1/updater") {
+        return new Response(JSON.stringify(currentSnap), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "/desktop/v1/updater/dismiss" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body ?? "{}")) as { kind: string };
+        dismissKinds.push(body.kind);
+        currentSnap = {
+          ...currentSnap,
+          capsule_dismissed: body.kind === "capsule",
+        };
+        return new Response(JSON.stringify(currentSnap), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "/im/v1/onboarding") {
+        return new Response(
+          JSON.stringify({
+            nodes: [{ node_id: "node-1", node_name: "Mac", status: "online", alias: null }],
+            install: { available: true, origin: "https://im.crewden.work", command: "curl" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/im/v1/nodes/node-1/setup")) {
+        return new Response(
+          JSON.stringify({
+            default_model: "gpt-5",
+            models: [{ model: "gpt-5", display_name: "GPT-5" }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url === "/im/v1/personal-agent") {
+        return new Response(JSON.stringify({ binding: null, creation: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.startsWith("/desktop/v1/local-node/inspect")) {
+        return new Response(JSON.stringify({ ownership: "managed_online", node_id: "node-1", node_name: "Mac" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "/im/v1/nodes") {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+
+    const { unmount } = renderRouter({ routes: appRoutes, initialEntries: ["/onboarding"] });
+    await screen.findByText("给你的个人助手起个名字");
+    await waitFor(() =>
+      expect(attentionPayloads).toContainEqual(
+        expect.objectContaining({
+          current_route: "/onboarding",
+          has_unsaved_form: true,
+        }),
+      ),
+    );
+    unmount();
+
+    // Reopening a dismissed capsule from the rail badge clears `capsule_dismissed` on the host so NarrowBanner also stays open!
+    renderRouter({
+      routes: [
+        {
+          path: "/chat",
+          element: (
+            <div>
+              <DesktopRailUpdatePill />
+              <DesktopNarrowUpdateBanner />
+            </div>
+          ),
+        },
+      ],
+      initialEntries: ["/chat"],
+    });
+    const trigger = await screen.findByTestId("desktop-rail-update-trigger");
+    expect(screen.queryByTestId("desktop-capsule-ready")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("desktop-narrow-ready")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+    await waitFor(() => expect(dismissKinds).toContain("reopen_capsule"));
+    expect(await screen.findByTestId("desktop-capsule-ready")).toBeInTheDocument();
+    expect(await screen.findByTestId("desktop-narrow-ready")).toBeInTheDocument();
   });
 });

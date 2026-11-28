@@ -262,14 +262,21 @@ export async function prepareDesktopUpdate(
     }
     await atomicPrivate(join(versionStage, '.release-manifest.json'), target);
     await verifyReleaseMetadata(versionStage, target);
-    await atomicPrivate(join(versionStage, '.ready'), `${target.sha256}\n`);
     try {
       await rename(versionStage, finalVersionRoot);
     } catch (error) {
       if (!['ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
     }
-    if (existsSync(layoutScript) && existsSync(join(finalVersionRoot, 'workspaces.json'))) {
-      await exec(execNode, [layoutScript, 'verify', finalVersionRoot], { signal, timeout: 60000, windowsHide: true });
+    if (!existsSync(join(finalVersionRoot, '.ready'))) {
+      try {
+        if (existsSync(layoutScript) && existsSync(join(finalVersionRoot, 'workspaces.json'))) {
+          await exec(execNode, [layoutScript, 'verify', finalVersionRoot], { signal, timeout: 60000, windowsHide: true });
+        }
+        await atomicPrivate(join(finalVersionRoot, '.ready'), `${target.sha256}\n`);
+      } catch (verifyError) {
+        await rm(finalVersionRoot, { recursive: true, force: true }).catch(() => {});
+        throw verifyError;
+      }
     }
     return { versionRoot: finalVersionRoot, runtimeReused };
   } finally {

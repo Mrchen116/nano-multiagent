@@ -71,7 +71,7 @@ export interface MergedDesktopUpdaterView {
   triggerCancel: () => Promise<void>;
   triggerOpenInstaller: () => Promise<void>;
   triggerToggleAutoUpdate: (enabled: boolean) => Promise<void>;
-  triggerDismiss: (kind: "just_updated" | "capsule") => Promise<void>;
+  triggerDismiss: (kind: "just_updated" | "capsule" | "reopen_capsule") => Promise<void>;
   triggerRecoverLocalNode: () => Promise<void>;
 }
 
@@ -256,7 +256,8 @@ export function useDesktopUpdater(): MergedDesktopUpdaterView {
   });
 
   const dismissMutation = useMutation({
-    mutationFn: (kind: "just_updated" | "capsule") => dismissDesktopUpdaterNotice({ kind }),
+    mutationFn: (kind: "just_updated" | "capsule" | "reopen_capsule") =>
+      dismissDesktopUpdaterNotice({ kind }),
     onSuccess: syncSnapshot,
   });
 
