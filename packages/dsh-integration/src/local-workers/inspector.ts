@@ -350,7 +350,9 @@ function projectDshSession(
       const existing = toolByCallId.get(callId);
       const text = renderBlocks(event.data.message.content);
       if (existing) {
-        existing.status = event.data.message.isError ? 'error' : 'ok';
+        const nonZeroBash =
+          existing.tool_name === 'bash' && /\[exit code:\s*[1-9]\d*\]/.test(text);
+        existing.status = event.data.message.isError || nonZeroBash ? 'error' : 'ok';
         existing.text = text;
       }
     } else if (event.type === 'assistant/message') {
