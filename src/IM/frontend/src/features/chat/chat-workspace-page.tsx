@@ -1659,7 +1659,7 @@ export function ChatWorkspacePage() {
             }
           />
         ) : conversationId ? (
-          <PendingConversationPane conversation={localConversations.find(chat => chat.id === conversationId)}
+          <PendingConversationPane isMobile={isMobile} conversation={localConversations.find(chat => chat.id === conversationId)}
             selfUserId={selfUserId}>
             {historyStatus}
           </PendingConversationPane>

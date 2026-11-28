@@ -1,6 +1,6 @@
-use crate::autostart::{get_desktop_login_autostart, set_desktop_login_autostart};
-use crate::config::DesktopPaths;
-use crate::host_server::HostSharedState;
+use crate::autostart::get_desktop_login_autostart;
+use crate::config::{show_error_dialog, DesktopPaths};
+use crate::host_server::{register_login, set_managed_login, HostSharedState};
 use crate::local_node::{open_external_url, resolve_active_bundle, run_local_admin_sync};
 use crate::notifications::{DesktopUiBridge, WindowAttentionState};
 use serde_json::json;
@@ -276,6 +276,15 @@ impl DesktopUiBridge for TauriUiCoordinator {
         });
     }
 
+    fn login_autostart_changed(&self, enabled: bool) {
+        if let Some(item) = self.autostart_item.lock().unwrap().clone() {
+            let _ = item.set_checked(enabled);
+        }
+        if let Some(win) = self.app_handle.lock().unwrap().as_ref().and_then(|app| app.get_webview_window(MAIN_WINDOW_LABEL)) {
+            let _ = win.eval("window.dispatchEvent(new Event('crewden:login-autostart-changed'))");
+        }
+    }
+
     fn set_locale(&self, locale: &str) {
         let normalized = if locale.trim().to_ascii_lowercase().starts_with("en") {
             "en".to_string()
@@ -485,35 +494,11 @@ pub fn install_system_tray(
                             .get(&state_for_menu.host_config.read().unwrap().im_origin)
                             .map(|s| s.owner_id.clone()),
                         action,
+                        state_for_menu.node_lifecycle.clone(),
                     );
                 }
                 "toggle_autostart" => {
-                    let next_enabled = !get_desktop_login_autostart(&state_for_menu.paths);
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = set_desktop_login_autostart(&state_for_menu.paths, &exe, next_enabled);
-                    }
-                    if let Some(ref item) = *coord_for_menu.autostart_item.lock().unwrap() {
-                        let _ = item.set_checked(next_enabled);
-                    }
-                    let origin = state_for_menu.host_config.read().unwrap().im_origin.clone();
-                    let owner = state_for_menu
-                        .sessions
-                        .read()
-                        .unwrap()
-                        .by_origin
-                        .get(&origin)
-                        .map(|s| s.owner_id.clone());
-                    spawn_tray_lifecycle_action(
-                        state_for_menu.paths.clone(),
-                        state_for_menu.dev_repo_root.clone(),
-                        origin,
-                        owner,
-                        if next_enabled {
-                            "autostart-on"
-                        } else {
-                            "autostart-off"
-                        },
-                    );
+                    spawn_tray_login_toggle(state_for_menu.clone());
                 }
                 "quit" => {
                     coord_for_menu.explicit_quit.store(true, Ordering::SeqCst);
@@ -536,11 +521,13 @@ fn spawn_tray_lifecycle_action(
     im_origin: String,
     owner_id: Option<String>,
     action: &'static str,
+    lock: Arc<Mutex<()>>,
 ) {
     let Some(owner) = owner_id else {
         return;
     };
     std::thread::spawn(move || {
+        let _guard = lock.lock().unwrap();
         if let Ok(bundle) = resolve_active_bundle(&paths, &im_origin, dev_repo_root.as_deref()) {
             let _ = run_local_admin_sync(
                 &paths,
@@ -551,6 +538,48 @@ fn spawn_tray_lifecycle_action(
                 None,
                 Some(&json!({ "action": action })),
             );
+        }
+    });
+}
+
+fn spawn_tray_login_toggle(state: Arc<HostSharedState>) {
+    let origin = state.host_config.read().unwrap().im_origin.clone();
+    let owner = state
+        .sessions
+        .read()
+        .unwrap()
+        .by_origin
+        .get(&origin)
+        .map(|s| s.owner_id.clone());
+    std::thread::spawn(move || {
+        let result = {
+            let _guard = state.node_lifecycle.lock().unwrap();
+            let enabled = !get_desktop_login_autostart(&state.paths);
+            (|| {
+                if !state.paths.desktop_active_path(&origin)?.is_file() {
+                    let result = register_login(&state, enabled);
+                    state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&state.paths));
+                    return result;
+                }
+                let Some(owner) = owner.as_deref() else {
+                    state.ui_bridge.login_autostart_changed(!enabled);
+                    return Err("请先登录本机节点所属账号".into());
+                };
+                let bundle =
+                    resolve_active_bundle(&state.paths, &origin, state.dev_repo_root.as_deref())?;
+                let out = set_managed_login(&state, &bundle, &origin, owner, None)?;
+                if out.ok {
+                    Ok(())
+                } else {
+                    Err(out.body["detail"]
+                        .as_str()
+                        .unwrap_or("本机设置失败")
+                        .to_owned())
+                }
+            })()
+        };
+        if let Err(error) = result {
+            show_error_dialog(&error);
         }
     });
 }

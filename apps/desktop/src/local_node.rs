@@ -667,11 +667,14 @@ pub fn run_local_admin_sync(
 ) -> Result<LocalAdminResult, String> {
     let mut cmd = Command::new(&bundle.node_bin);
     configure_hidden_command(&mut cmd);
-    cmd.arg(&bundle.cli_js)
-        .arg("local-admin")
-        .arg(subcommand)
-        .arg("--origin")
-        .arg(im_origin);
+    cmd.arg(&bundle.cli_js).arg("local-admin");
+    if subcommand == "supervise" {
+        // Earlier active bundles accept inspect and ignore the extra positional.
+        cmd.args(["inspect", "supervision"]);
+    } else {
+        cmd.arg(subcommand);
+    }
+    cmd.arg("--origin").arg(im_origin);
     if let Some(owner) = owner_id {
         if !owner.is_empty() {
             cmd.arg("--owner-id").arg(owner);
@@ -721,11 +724,14 @@ pub fn run_local_admin_sync(
             let ok = parsed["ok"].as_bool().unwrap_or(false);
             let status = parsed["status"].as_u64().unwrap_or(if ok { 200 } else { 500 }) as u16;
             if ok {
-                return Ok(LocalAdminResult {
-                    status,
-                    ok: true,
-                    body: parsed["data"].clone(),
-                });
+                let mut body = parsed["data"].clone();
+                if matches!(subcommand, "inspect" | "supervise") && matches!(body["ownership"].as_str(), Some("managed_online" | "managed_stopped")) {
+                    let task = body.as_object_mut().and_then(|obj| obj.remove("scheduled_at_login"));
+                    let enabled = task.as_ref().and_then(Value::as_bool) == Some(true)
+                        || (body["autostart"] == true && crate::autostart::get_desktop_login_autostart(paths));
+                    body["autostart"] = json!(enabled);
+                }
+                return Ok(LocalAdminResult { status, ok: true, body });
             }
             let message = parsed["message"]
                 .as_str()
