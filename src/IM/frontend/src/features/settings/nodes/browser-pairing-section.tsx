@@ -7,6 +7,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { DesktopApiError, manageDesktopLocalBrowser } from "../../../desktop/desktop-api";
+import { useDesktopUnsavedForm } from "../../../desktop/use-desktop-unsaved-form";
 import { useTranslation } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { manageNodeBrowser, NodeBrowserRequestError } from "../im-settings-api";
@@ -72,6 +73,7 @@ export function BrowserPairingSection({
   const [browserError, setBrowserError] = useState<string | null>(null);
   const [waitingExtension, setWaitingExtension] = useState(false);
   const [tokenPageOpened, setTokenPageOpened] = useState(false);
+  useDesktopUnsavedForm(Boolean(localDesktopTransport && setupOpen && (browserToken.trim().length > 0 || tokenPageOpened)));
   const tokenInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {

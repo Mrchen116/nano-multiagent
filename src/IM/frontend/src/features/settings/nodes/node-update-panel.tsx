@@ -31,7 +31,8 @@ export function nodeUpdateLabel(update?: NodeUpdateView): string | null {
 export function NodeUpdatePanel({ nodeId, update, onInstructions }: {
   nodeId: string; update: NodeUpdateView; onInstructions?(): void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const zh = i18n.language.startsWith('zh');
   const client = useQueryClient();
   const requestId = useRef<string | null>(null);
   const op = update.operation;
@@ -58,16 +59,28 @@ export function NodeUpdatePanel({ nodeId, update, onInstructions }: {
   const canCancel = !!op && cancellable.includes(op.state);
   const canUpdate = !active && update.available;
   const step = cancellable.includes(state) ? (state === 'waiting' ? 1 : 0) : 2;
-  const title = state === 'available' ? t('computers.releaseReady', { version: update.target?.version }) : t(`nodeUpdate.${state}.title`);
+  const isDesktopTarget =
+    update.current?.platform === 'desktop-darwin-arm64' ||
+    update.current?.platform === 'desktop-win32-x64';
+  const title =
+    state === 'available'
+      ? t('computers.releaseReady', { version: update.target?.version })
+      : state === 'incompatible' && isDesktopTarget
+        ? (zh ? '需要升级新版桌面客户端' : 'Desktop app upgrade available')
+        : t(`nodeUpdate.${state}.title`);
   return <div data-testid={`node-update-${nodeId}`} className={`node-update-band ${error ? 'warning' : ['source', 'legacy', 'unpublished', 'offline', 'cancelled'].includes(state) ? 'neutral' : ''}`}>
     <span className="node-update-symbol"><NodeIcon name={state === 'succeeded' ? 'check' : state === 'waiting' ? 'clock' : error || bridge ? 'info' : 'update'} spin={active && state !== 'waiting'}/></span>
     <div className="node-update-copy"><h3 aria-live="polite">{title}</h3>
       <p>{state === 'available' && update.target?.release_notes ? update.target.release_notes
+        : state === 'incompatible' && isDesktopTarget
+          ? (zh
+            ? '请在这台电脑打开 Crewden 桌面端一键下载安装新版客户端，聊天记录与本地工作区均会保留。'
+            : 'Open Crewden Desktop on that computer to download and install the upgraded app in one click. Chats and workspaces are kept.')
         : state === 'recovery_required' && ['win32-x64', 'desktop-darwin-arm64', 'desktop-win32-x64'].includes(update.current?.platform ?? '') ? t('computers.recoveryBody') : t(`nodeUpdate.${state}.body`)}</p>
       {active && <div className="node-update-steps" aria-label={t('computers.updateStages')}>{['prepare', 'idle', 'switch'].map((stage, index) => <span key={stage} className={index === step ? 'current' : index < step ? 'done' : ''}>{t(`computers.stage.${stage}`)}</span>)}</div>}
     </div>
     {canCancel ? <button className="node-button" disabled={cancel.isPending || op!.cancel_requested} onClick={() => cancel.mutate()}>{t(op!.cancel_requested || cancel.isPending ? 'nodeUpdate.cancelling' : 'nodeUpdate.cancel')}</button>
-      : bridge ? <button className="node-button primary" onClick={onInstructions}>{t(state === 'legacy' ? 'nodeUpdate.bridge' : 'nodeUpdate.recover')}</button>
+      : bridge && !(state === 'incompatible' && isDesktopTarget) ? <button className="node-button primary" onClick={onInstructions}>{t(state === 'legacy' ? 'nodeUpdate.bridge' : 'nodeUpdate.recover')}</button>
       : canUpdate ? <button className="node-button primary" disabled={start.isPending} onClick={() => start.mutate()}>{t(start.isPending ? 'nodeUpdate.starting' : error ? 'common.retry' : 'nodeUpdate.update')}</button> : null}
     {(start.isError || cancel.isError) && <p className="node-update-error" role="alert">{t('nodeUpdate.requestError')}</p>}
   </div>;

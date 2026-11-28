@@ -434,6 +434,14 @@ impl DesktopPaths {
         self.desktop_home.join("desktop-host.log")
     }
 
+    pub fn updater_prefs_path(&self) -> PathBuf {
+        self.desktop_home.join("updater-prefs.json")
+    }
+
+    pub fn desktop_ui_active_path(&self) -> PathBuf {
+        self.desktop_home.join("desktop-ui-active.json")
+    }
+
     pub fn webview_ui_cache_marker_path(&self) -> PathBuf {
         self.desktop_home.join("webview-ui-cache.json")
     }
@@ -593,6 +601,40 @@ pub struct StoredSessionEntry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StoredSessionsFile {
     pub by_origin: HashMap<String, StoredSessionEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdaterPrefsFile {
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
+}
+
+impl Default for UpdaterPrefsFile {
+    fn default() -> Self {
+        Self { auto_update: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DesktopUiOriginPointer {
+    pub version: String,
+    pub sha256: String,
+    pub version_root: String,
+    pub updated_at_epoch: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DesktopUiActiveFile {
+    #[serde(default)]
+    pub origins: HashMap<String, DesktopUiOriginPointer>,
+    #[serde(default)]
+    pub previous_ui: HashMap<String, DesktopUiOriginPointer>,
+    #[serde(default)]
+    pub just_updated: HashMap<String, String>,
+    #[serde(default)]
+    pub rollback_blocked: HashMap<String, String>,
+    #[serde(default)]
+    pub deferred_auto: HashMap<String, String>,
 }
 
 pub fn write_private_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {

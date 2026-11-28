@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { accountEnabled, useAuthStore } from "../features/auth/auth-store";
 import { useTranslation } from "../i18n";
 import {
@@ -28,6 +29,7 @@ export function DesktopNodeOnboardingBanner({
   onConnected?(nodeId: string): void;
 }) {
   const { i18n } = useTranslation();
+  const location = useLocation();
   const zh = i18n.language.startsWith("zh");
   const text = (cn: string, en: string) => (zh ? cn : en);
   const user = useAuthStore((s) => s.user);
@@ -73,7 +75,7 @@ export function DesktopNodeOnboardingBanner({
   });
 
   if (!enabled || !user) return null;
-  if (!inline && dismissed) return null;
+  if (!inline && (dismissed || location.pathname.startsWith("/settings/nodes"))) return null;
   const inspect = inspectQuery.data;
   if (!inspect) return null;
   if (inspect.ownership === "managed_online" || inspect.ownership === "managed_stopped") {

@@ -18,6 +18,7 @@ import { NodesPage } from "../features/settings/nodes/nodes-page";
 import { PoliciesPage } from "../features/settings/policies/policies-page";
 import { SettingsPageShell } from "../features/settings/settings-page-shell";
 import { PublicHomePage } from '../features/home/public-home-page';
+import { DesktopRouteAttentionLayout } from "../desktop/use-desktop-unsaved-form";
 
 // Agent pages should not download the chat editor and task graph renderer.
 const ModelsPage=lazy(()=>import('../features/settings/models/models-page').then(m=>({default:m.ModelsPage})));
@@ -26,6 +27,9 @@ const TaskGraphsPage=lazy(()=>import('../features/tasks/task-graphs-page').then(
 const ChatWorkspacePage=lazy(()=>import('../features/chat/chat-workspace-page').then(m=>({default:m.ChatWorkspacePage})));
 
 export const appRoutes: RouteObject[] = [
+  {
+    element: <DesktopRouteAttentionLayout />,
+    children: [
   { path: "/", element: <PublicHomePage restoreSession /> },
   { path: "/about", element: <PublicHomePage /> },
   { path: "/onboarding", element: <RequireAuth><Suspense fallback={null}><OnboardingPage /></Suspense></RequireAuth> },
@@ -96,6 +100,8 @@ export const appRoutes: RouteObject[] = [
           }
         ]
       }
+    ]
+  }
     ]
   }
 ];

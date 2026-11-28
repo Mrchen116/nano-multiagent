@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { getCurrentLanguage, useTranslation } from '../../../i18n';
+import { useDesktopUnsavedForm } from '../../../desktop/use-desktop-unsaved-form';
 import { useAuthStore } from '../../auth/auth-store';
 import { setupNode, type ModelService, type OnboardingNode, type SetupError, type SetupInput, type SetupStatus } from '../../onboarding/onboarding-api';
 import { ModelServiceEditor, newServiceDraft, serviceDraft, type ServiceDraft } from './model-service-editor';
@@ -72,6 +73,7 @@ export function ModelServicesPanel({ node, initialAdd = false, formId, onPrimary
   });
   const busy = mutation.isPending || running;
   const canWrite = !!data && !offline && !busy;
+  useDesktopUnsavedForm(Boolean(draft || removing));
   useEffect(() => { onEditingChange?.(!!draft || !!removing); }, [draft, removing, onEditingChange]);
   useEffect(() => {
     if (offline && draft) setNeedsReview(true);

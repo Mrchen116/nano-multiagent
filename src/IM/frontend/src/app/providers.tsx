@@ -10,7 +10,10 @@ import { DesktopServerSwitchModal } from "../desktop/desktop-server-switch-modal
 import { useMobileViewport } from "../hooks/use-mobile-viewport";
 import { accountEnabled, useAuthStore } from "../features/auth/auth-store";
 
-import { forgetComposerUser } from "../features/chat/components/composer-draft-store";
+import {
+  clearDesktopComposerDraftStorage,
+  forgetComposerUser,
+} from "../features/chat/components/composer-draft-store";
 import { forgetInteractionBackground } from '../features/chat/interaction-background';
 
 function AccountAvatarDirectory({ children }: PropsWithChildren) {
@@ -64,6 +67,7 @@ export function AppProviders({ children }: PropsWithChildren) {
         window.sessionStorage.removeItem(desktopScopedKey(`im:user_stream_cursor:${previousUserId}`));
       } else if (nextUserId === null) {
         clearAvatarBlobStore();
+        clearDesktopComposerDraftStorage();
       }
       previousUserId = nextUserId;
       previousMembership = state.user?.membership_status;

@@ -21,6 +21,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
+import { useDesktopUnsavedForm } from "../../../desktop/use-desktop-unsaved-form";
 import { useTranslation } from "../../../i18n";
 import { createConversation } from "../../chat/chat-api";
 import { Avatar, agentAvatarId } from "../../chat/components/avatar";
@@ -1446,6 +1447,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const catalogInvalid = catalogCurrent && (missingModels.length > 0 || missingTools.length > 0 || missingAllowedSkills.length > 0);
   const configDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current, capabilities, personal));
   const isDirty = configDirty || roleEditor.dirty;
+  useDesktopUnsavedForm(isDirty);
   const versionConflict = configDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
   const queryErrorDetail =
     detailQuery.error instanceof Error

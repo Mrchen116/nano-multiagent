@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getCurrentLanguage, useTranslation } from "../../../i18n";
+import { useDesktopUnsavedForm } from "../../../desktop/use-desktop-unsaved-form";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useAuthStore } from "../../auth/auth-store";
 import {
@@ -61,6 +62,7 @@ export function AccountPage() {
   useEffect(() => () => releasePendingCropUrl(), [releasePendingCropUrl]);
 
   const profile = query.data;
+  useDesktopUnsavedForm(Boolean(draft !== null && draft !== (profile?.display_name ?? "")) || Boolean(cropState));
   useEffect(() => {
     if (!profile || profile.avatar_version === undefined) return;
     const current = useAuthStore.getState().user;

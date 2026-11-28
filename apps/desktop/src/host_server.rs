@@ -8,7 +8,7 @@ use crate::config::{
 use crate::local_node::{
     ensure_seed_bundle_installed, has_pending_seed_bundle, open_external_url,
     open_or_reveal_workspace_path, reconcile_ready_seed_bundle, reconcile_webview_ui_cache,
-    resolve_active_bundle, run_local_admin_sync, seed_error_guidance,
+    resolve_active_bundle, resolve_active_ui_bundle, run_local_admin_sync, seed_error_guidance,
     stop_all_managed_local_nodes, sync_seed_desktop_defaults, ActiveBundlePaths, LocalAdminResult,
 };
 use crate::notifications::{
@@ -87,6 +87,7 @@ pub struct HostSharedState {
     pub shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub node_lifecycle: Arc<Mutex<()>>,
     pub refresh_lock: tokio::sync::Mutex<()>,
+    pub updater: crate::updater::DesktopUpdaterController,
 }
 
 impl HostSharedState {
@@ -427,7 +428,29 @@ pub async fn start_host_server_full(
         shutdown_tx: Mutex::new(Some(shutdown_tx)),
         node_lifecycle: Arc::new(Mutex::new(())),
         refresh_lock: tokio::sync::Mutex::new(()),
+        updater: crate::updater::DesktopUpdaterController::default(),
     });
+
+    if state.is_seed_ready() {
+        let initial_owner = state
+            .sessions
+            .read()
+            .unwrap()
+            .by_origin
+            .get(&host_cfg.im_origin)
+            .map(|s| s.owner_id.clone());
+        crate::updater::try_promote_staged_update_on_startup(
+            &state,
+            &host_cfg.im_origin,
+            initial_owner.as_deref(),
+        );
+        let _ = reconcile_webview_ui_cache(
+            &state.paths,
+            &host_cfg.im_origin,
+            state.dev_repo_root.as_deref(),
+            state.seed_archives_dir.as_deref(),
+        );
+    }
 
     #[cfg(target_os = "macos")]
     crate::notifications::macos_notify::install_click_handler(Arc::downgrade(&state));
@@ -443,6 +466,7 @@ pub async fn start_host_server_full(
     }
 
     spawn_notification_daemon(state.clone(), session_rx);
+    crate::updater::spawn_updater_daemon(state.clone());
 
     let router = build_router(state.clone());
     tokio::spawn(async move {
@@ -471,6 +495,19 @@ fn build_router(state: Arc<HostSharedState>) -> Router {
         .route("/desktop/internal/shutdown", post(handle_internal_shutdown))
         .route("/desktop/v1/context", get(handle_get_context))
         .route("/desktop/v1/attention", post(handle_v1_attention))
+        .route("/desktop/v1/updater", get(handle_get_updater))
+        .route("/desktop/v1/updater/check", post(handle_post_updater_check))
+        .route(
+            "/desktop/v1/updater/preferences",
+            put(handle_put_updater_preferences),
+        )
+        .route("/desktop/v1/updater/apply", post(handle_post_updater_apply))
+        .route("/desktop/v1/updater/cancel", post(handle_post_updater_cancel))
+        .route(
+            "/desktop/v1/updater/open-installer",
+            post(handle_post_updater_open_installer),
+        )
+        .route("/desktop/v1/updater/dismiss", post(handle_post_updater_dismiss))
         .route("/desktop/v1/server", put(handle_put_server))
         .route(
             "/desktop/v1/server/pending/dismiss",
@@ -664,7 +701,7 @@ async fn handle_internal_status(
     let cfg = state.host_config.read().unwrap().clone();
     let seed_ready = state.is_seed_ready();
     let bundle = if seed_ready {
-        resolve_active_bundle(&state.paths, &cfg.im_origin, state.dev_repo_root.as_deref()).ok()
+        resolve_active_ui_bundle(&state.paths, &cfg.im_origin, state.dev_repo_root.as_deref()).ok()
     } else {
         None
     };
@@ -682,7 +719,9 @@ async fn handle_internal_status(
         "deep_link_error": state.deep_link_error.lock().unwrap().clone(),
         "ws_connected": state.notification_center.is_ws_connected(),
         "unread_total": state.notification_center.unread(),
+        "window_visible": attn.window_visible,
         "window_focused": attn.visible_and_focused,
+        "has_unsaved_form": attn.has_unsaved_form,
         "current_route": attn.current_route,
         "active_ui_version": bundle.as_ref().map(|b| &b.version),
         "active_node_bin": bundle.as_ref().map(|b| b.node_bin.to_string_lossy()),
@@ -697,14 +736,10 @@ async fn handle_internal_reload(
     if let Err(err) = verify_reload_token(&state, &headers) {
         return err;
     }
-    let im_origin = state.host_config.read().unwrap().im_origin.clone();
-    let _ = reconcile_webview_ui_cache(
-        &state.paths,
-        &im_origin,
-        state.dev_repo_root.as_deref(),
-        state.seed_archives_dir.as_deref(),
-    );
-    state.ui_bridge.reload_webview(None);
+    let origin = headers.get("x-crewden-im-origin").and_then(|header| header.to_str().ok());
+    if let Some(origin) = origin {
+        crate::updater::on_internal_reload_assets(&state, origin);
+    }
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -746,6 +781,9 @@ async fn handle_internal_deep_link(
 struct AttentionBody {
     #[serde(default)]
     current_route: String,
+    has_unsaved_form: Option<bool>,
+    window_visible: Option<bool>,
+    loaded_ui_sha: Option<String>,
 }
 
 async fn handle_internal_attention(
@@ -756,7 +794,18 @@ async fn handle_internal_attention(
     if let Err(err) = verify_reload_token(&state, &headers) {
         return err;
     }
-    let redirect = state.ui_bridge.update_current_route(&body.current_route);
+    if let Some(visible) = body.window_visible {
+        state.ui_bridge.set_window_visibility(visible);
+    }
+    if let Some(dirty) = body.has_unsaved_form {
+        state.ui_bridge.set_unsaved_form(dirty);
+    }
+    let redirect = if body.current_route.is_empty() {
+        None
+    } else {
+        state.ui_bridge.update_current_route(&body.current_route)
+    };
+    crate::updater::maybe_auto_apply_when_hidden(&state);
     Json(json!({ "ok": true, "route": redirect.as_deref().unwrap_or(&body.current_route), "navigate_to": redirect })).into_response()
 }
 
@@ -768,8 +817,120 @@ async fn handle_v1_attention(
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
     }
+    if let Some(sha) = &body.loaded_ui_sha {
+        let origin = state.host_config.read().unwrap().im_origin.clone();
+        crate::updater::finish_ui_boot(&state, &origin, sha, true);
+    }
+    if let Some(dirty) = body.has_unsaved_form {
+        state.ui_bridge.set_unsaved_form(dirty);
+    }
     let redirect = state.ui_bridge.update_current_route(&body.current_route);
+    crate::updater::maybe_auto_apply_when_hidden(&state);
     Json(json!({ "ok": true, "route": redirect.as_deref().unwrap_or(&body.current_route), "navigate_to": redirect })).into_response()
+}
+
+#[derive(Deserialize, Default)]
+struct UpdaterCheckBody {
+    #[serde(default)]
+    manual: bool,
+}
+
+#[derive(Deserialize)]
+struct UpdaterPrefsBody {
+    auto_update: bool,
+}
+
+#[derive(Deserialize)]
+struct UpdaterDismissBody {
+    kind: String,
+}
+
+async fn handle_get_updater(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    Json(crate::updater::build_updater_snapshot(&state)).into_response()
+}
+
+async fn handle_post_updater_check(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+    body: Option<Json<UpdaterCheckBody>>,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    let manual = body.map(|Json(b)| b.manual).unwrap_or(true);
+    Json(crate::updater::check_for_updates(state, manual).await).into_response()
+}
+
+async fn handle_put_updater_preferences(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+    Json(body): Json<UpdaterPrefsBody>,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    match crate::updater::set_auto_update_preference(state, body.auto_update).await {
+        Ok(snap) => Json(snap).into_response(),
+        Err(err) => json_error(StatusCode::INTERNAL_SERVER_ERROR, err),
+    }
+}
+
+async fn handle_post_updater_apply(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    let bearer = extract_bearer_token(&headers);
+    match crate::updater::apply_desktop_update(state, bearer).await {
+        Ok(snap) => Json(snap).into_response(),
+        Err(err) => json_error(StatusCode::CONFLICT, err),
+    }
+}
+
+async fn handle_post_updater_cancel(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    let bearer = extract_bearer_token(&headers);
+    match crate::updater::cancel_desktop_update(state, bearer).await {
+        Ok(snap) => Json(snap).into_response(),
+        Err(err) => json_error(StatusCode::CONFLICT, err),
+    }
+}
+
+async fn handle_post_updater_open_installer(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    match crate::updater::open_downloaded_installer(&state) {
+        Ok(snap) => Json(snap).into_response(),
+        Err(err) => json_error(StatusCode::BAD_REQUEST, err),
+    }
+}
+
+async fn handle_post_updater_dismiss(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+    Json(body): Json<UpdaterDismissBody>,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    Json(crate::updater::dismiss_updater_notice(&state, &body.kind)).into_response()
 }
 
 async fn handle_internal_shutdown(
@@ -869,8 +1030,12 @@ async fn handle_put_server(
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
     }
+    let prev_origin = state.host_config.read().unwrap().im_origin.clone();
     match apply_server_switch(&state, &body.im_origin) {
-        Ok(_cfg) => Json(build_context_payload(&state)).into_response(),
+        Ok(cfg) => {
+            crate::updater::on_server_switched(&state, &prev_origin, &cfg.im_origin);
+            Json(build_context_payload(&state)).into_response()
+        }
         Err(msg) => json_error(StatusCode::BAD_REQUEST, msg),
     }
 }
@@ -2267,8 +2432,9 @@ fn mime_for_path(path: &Path) -> &'static str {
     }
 }
 
-fn inject_desktop_boot_script(html: &str, state: &HostSharedState, cfg: &PersistedHostConfig) -> String {
+fn inject_desktop_boot_script(html: &str, state: &HostSharedState, cfg: &PersistedHostConfig, bundle_sha: Option<&str>) -> String {
     let payload = json!({
+        "bundleSha": bundle_sha,
         "imOrigin": cfg.im_origin,
         "contextEpoch": cfg.context_epoch,
         "platform": current_desktop_platform_id(),
@@ -2445,7 +2611,7 @@ async fn handle_static_or_spa(
             .unwrap();
     }
     let cfg = state.host_config.read().unwrap().clone();
-    let Ok(bundle) = resolve_active_bundle(&state.paths, &cfg.im_origin, state.dev_repo_root.as_deref())
+    let Ok(bundle) = resolve_active_ui_bundle(&state.paths, &cfg.im_origin, state.dev_repo_root.as_deref())
     else {
         return (StatusCode::SERVICE_UNAVAILABLE, "Desktop UI bundle unavailable").into_response();
     };
@@ -2505,7 +2671,17 @@ async fn handle_static_or_spa(
     let Ok(raw_html) = fs::read_to_string(&index_path) else {
         return (StatusCode::NOT_FOUND, "Frontend index.html missing").into_response();
     };
-    let injected = inject_desktop_boot_script(&raw_html, &state, &cfg);
+    crate::updater::remember_served_ui(&state.paths, &cfg.im_origin, &bundle);
+    let injected = inject_desktop_boot_script(&raw_html, &state, &cfg, bundle.sha256.as_deref());
+    if crate::updater::read_ui_active_file(&state.paths).previous_ui.contains_key(&cfg.im_origin) {
+        if let Some(sha) = bundle.sha256 {
+            let check_state = state.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                crate::updater::finish_ui_boot(&check_state, &cfg.im_origin, &sha, false);
+            });
+        }
+    }
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/html; charset=utf-8")

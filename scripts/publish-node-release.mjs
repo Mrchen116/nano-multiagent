@@ -116,13 +116,13 @@ for (const spec of desktopSpecs) {
     throw new Error(`macOS release requires the verified ${macMode} artifact; received ${dm.macos_distribution ?? 'unmarked'}`);
   if (dm.package !== spec.descriptorName || dm.platform !== spec.platform
       || dm.version !== version || dm.source_commit !== revision
-      || dm.updater_protocol !== 1 || dm.data_epoch !== 1 || dm.shell_protocol !== 1
+      || ![dm.updater_protocol, dm.data_epoch, dm.shell_protocol].every(n => Number.isSafeInteger(n) && n >= 1)
       || dm.node_major !== 24 || dm.pnpm_version !== '11.7.0'
       || dm.download_url !== base + dm.package || dm.installer?.download_url !== base + spec.installerName)
     throw new Error(`Desktop candidate (${spec.platform}) does not match the requested release`);
   const descriptor = JSON.parse(await readFile(join(sub, dm.package), 'utf8'));
   if (descriptor.version !== version || descriptor.source_commit !== revision
-      || descriptor.updater_protocol !== 1 || descriptor.data_epoch !== 1 || descriptor.shell_protocol !== 1
+      || descriptor.updater_protocol !== dm.updater_protocol || descriptor.data_epoch !== dm.data_epoch || descriptor.shell_protocol !== dm.shell_protocol
       || descriptor.runtime?.name !== spec.runtimeName || descriptor.app?.name !== spec.appName)
     throw new Error(`Desktop descriptor (${spec.platform}) has an incompatible source or asset layout`);
   for (const [name, asset] of [[dm.package, dm], [spec.installerName, dm.installer],
@@ -132,7 +132,7 @@ for (const spec of desktopSpecs) {
       throw new Error(`Desktop asset failed size or SHA-256 verification: ${name}`);
     extraAssets.push({name, path, url: base + name, sha256: asset.sha256});
   }
-  promotedManifests.push({name: spec.manifestName, payload: dm});
+  promotedManifests.push({name: spec.manifestName, payload: {...dm, release_notes: changes.slice(0, 2000)}});
 }
 
 const visibility = execFileSync('gh', ['repo', 'view', repository, '--json', 'visibility', '--jq', '.visibility'], { encoding: 'utf8' }).trim();

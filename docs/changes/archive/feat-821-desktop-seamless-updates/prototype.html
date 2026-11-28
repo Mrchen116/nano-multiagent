@@ -1,0 +1,1337 @@
+<!doctype html>
+<html lang="zh-CN" data-crewden-desktop="true">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crewden Desktop — 无感自动更新与一键换新交互原型 (feat-821)</title>
+  <style>
+    :root {
+      --im-bg: #ffffff;
+      --im-surface: #ffffff;
+      --im-surface-2: #f6f5fa;
+      --im-rail: #f7f5fc;
+      --im-accent: #6b43d8;
+      --im-accent-2: #5732bf;
+      --im-accent-soft: #eee7fc;
+      --im-accent-border: #d1bff3;
+      --im-butter: #fff0b5;
+      --im-butter-soft: #fff8db;
+      --im-butter-border: #ebd47a;
+      --im-text: #30263e;
+      --im-text-muted: #6d6676;
+      --im-border: #e9e6ec;
+      --im-border-strong: #dad6e0;
+      --im-success: #20835d;
+      --im-success-soft: #e7f5ec;
+      --im-warning: #95601a;
+      --im-warning-soft: #fff7e9;
+      --im-warning-border: #edd8b5;
+      --im-danger: #c44747;
+      --im-font-sans: "Helvetica Neue", "PingFang SC", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: var(--im-font-sans);
+      color: var(--im-text);
+      background: #ece9f4;
+      overflow: hidden;
+      font-variant-numeric: tabular-nums;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Outer Prototype Harness (Explicitly separated from product UI; hidden with ?clean=1) */
+    .proto-harness {
+      flex-shrink: 0;
+      background: #231b32;
+      color: #f4f1fb;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    body.clean-mode .proto-harness {
+      display: none;
+    }
+
+    .proto-legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .proto-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 11px;
+      background: rgba(255, 240, 181, 0.18);
+      color: #fff0b5;
+    }
+
+    .proto-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .proto-controls button {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.08);
+      color: #f4f1fb;
+      border-radius: 7px;
+      padding: 4px 9px;
+      font: inherit;
+      font-size: 11.5px;
+      cursor: pointer;
+    }
+
+    .proto-controls button[aria-pressed="true"] {
+      background: #fff0b5;
+      color: #231b32;
+      border-color: #fff0b5;
+      font-weight: 650;
+    }
+
+    /* Product Window Frame */
+    .app-viewport {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      background: var(--im-bg);
+      position: relative;
+    }
+
+    /* Left Navigation Rail (Existing AppShell baseline) */
+    .im-shell-rail {
+      width: 88px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      padding: 20px 10px 16px;
+      background: var(--im-rail);
+      border-right: 1px solid var(--im-border);
+      position: relative;
+      z-index: 40;
+    }
+
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 17px 17px 17px 5px;
+      background: var(--im-butter);
+      color: var(--im-accent);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .rail-tabs {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      flex: 1;
+    }
+
+    .rail-tab {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 62px;
+      padding: 8px 4px;
+      border-radius: 14px;
+      border: 0;
+      background: transparent;
+      color: var(--im-text-muted);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .rail-tab.active {
+      background: #ffffff;
+      color: var(--im-accent);
+      box-shadow: 0 2px 6px rgba(48, 38, 62, 0.06);
+    }
+
+    .rail-bottom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      position: relative;
+    }
+
+    /* Compact Rail Update Trigger Badge */
+    .rail-update-pill {
+      width: 68px;
+      padding: 7px 6px;
+      border-radius: 13px;
+      border: 1px solid var(--im-butter-border);
+      background: linear-gradient(180deg, #fff9df 0%, #fff0b5 100%);
+      color: #4a3510;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      box-shadow: 0 6px 16px -8px rgba(107, 67, 216, 0.28);
+      transition: transform 0.14s ease, box-shadow 0.14s ease;
+    }
+
+    .rail-update-pill:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px -6px rgba(107, 67, 216, 0.34);
+    }
+
+    .rail-update-pill .spark {
+      color: var(--im-accent);
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .rail-update-pill.mint {
+      background: var(--im-success-soft);
+      border-color: #b7e1c9;
+      color: var(--im-success);
+    }
+
+    /* Floating Non-Blocking Update Capsule Card:
+       Width 248px fits strictly within the 268px left sidebar column (98px..346px < 356px),
+       never overlapping the active conversation messages or chat composer! */
+    .update-capsule-card {
+      position: absolute;
+      left: calc(100% + 10px);
+      bottom: 54px;
+      width: 248px;
+      background: #ffffff;
+      border: 1px solid var(--im-accent-border);
+      border-radius: 16px;
+      padding: 13px 14px;
+      box-shadow: 0 16px 40px -12px rgba(48, 38, 62, 0.22);
+      z-index: 55;
+    }
+
+    .capsule-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .capsule-badge-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--im-butter-soft);
+      border: 1px solid var(--im-butter-border);
+      color: #553c10;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .capsule-badge-row.mint {
+      background: var(--im-success-soft);
+      border-color: #b7e1c9;
+      color: var(--im-success);
+    }
+
+    .capsule-badge-row.amber {
+      background: var(--im-warning-soft);
+      border-color: var(--im-warning-border);
+      color: var(--im-warning);
+    }
+
+    .capsule-close {
+      border: 0;
+      background: transparent;
+      color: var(--im-text-muted);
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    .capsule-close:hover {
+      background: var(--im-surface-2);
+      color: var(--im-text);
+    }
+
+    .capsule-title {
+      margin: 8px 0 3px;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+      color: var(--im-text);
+    }
+
+    .capsule-copy {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--im-text-muted);
+    }
+
+    .capsule-notes-toggle {
+      margin-top: 7px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--im-accent);
+      font: inherit;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .capsule-notes-box {
+      margin-top: 7px;
+      padding: 8px 10px;
+      border-radius: 9px;
+      background: var(--im-surface-2);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--im-text);
+    }
+
+    .capsule-notes-box ul {
+      margin: 0;
+      padding-left: 15px;
+    }
+
+    .capsule-actions {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .btn-primary-spark {
+      flex: 1;
+      min-height: 34px;
+      padding: 6px 12px;
+      border-radius: 9px;
+      border: 0;
+      background: var(--im-accent);
+      color: #ffffff;
+      font: inherit;
+      font-size: 12.5px;
+      font-weight: 650;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .btn-primary-spark:hover {
+      background: var(--im-accent-2);
+    }
+
+    .btn-ghost {
+      min-height: 34px;
+      padding: 6px 10px;
+      border-radius: 9px;
+      border: 1px solid var(--im-border-strong);
+      background: #ffffff;
+      color: var(--im-text);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-ghost:hover {
+      background: var(--im-surface-2);
+    }
+
+    /* User Avatar & UserMenu Popover */
+    .avatar-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 0;
+      background: #ffe8c9;
+      color: #795839;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .avatar-dot {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--im-accent);
+      border: 2px solid var(--im-rail);
+    }
+
+    .user-menu-popover {
+      position: absolute;
+      bottom: 0;
+      left: calc(100% + 14px);
+      width: 292px;
+      padding: 8px;
+      background: #ffffff;
+      border: 1px solid var(--im-border);
+      border-radius: 18px;
+      box-shadow: 0 14px 44px rgba(41, 53, 47, 0.16);
+      z-index: 60;
+    }
+
+    .um-identity {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 14px 12px;
+      background: var(--im-butter-soft);
+      border-radius: 12px;
+      margin-bottom: 6px;
+    }
+
+    .um-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #ffe8c9;
+      color: #795839;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+    }
+
+    .um-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      min-height: 40px;
+      padding: 8px 11px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--im-text);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .um-item:hover {
+      background: var(--im-surface-2);
+    }
+
+    .um-update-box {
+      margin: 4px 0;
+      padding: 9px 11px;
+      border-radius: 11px;
+      background: var(--im-surface-2);
+      border: 1px solid var(--im-border);
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .um-update-box.ready {
+      background: #faf7ff;
+      border-color: var(--im-accent-border);
+    }
+
+    .um-update-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12.5px;
+    }
+
+    .um-mini-btn {
+      border: 0;
+      border-radius: 7px;
+      padding: 4px 9px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 650;
+      background: #ffffff;
+      border: 1px solid var(--im-border-strong);
+      color: var(--im-text);
+      cursor: pointer;
+    }
+
+    .um-mini-btn.primary {
+      background: var(--im-accent);
+      border-color: var(--im-accent);
+      color: #ffffff;
+    }
+
+    .um-auto-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--im-text-muted);
+      padding-top: 6px;
+      border-top: 1px dashed var(--im-border);
+    }
+
+    .switch {
+      position: relative;
+      width: 38px;
+      height: 22px;
+      border-radius: 999px;
+      border: 0;
+      background: #c8c3d1;
+      padding: 2px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .switch[aria-checked="true"] {
+      background: var(--im-accent);
+    }
+
+    .switch i {
+      display: block;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ffffff;
+      transition: transform 0.15s ease;
+    }
+
+    .switch[aria-checked="true"] i {
+      transform: translateX(16px);
+    }
+
+    /* Main Workspace Content */
+    .workspace-main {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+    }
+
+    .chat-list-col {
+      width: 268px;
+      border-right: 1px solid var(--im-border);
+      padding: 18px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: #fcfbfe;
+      flex-shrink: 0;
+    }
+
+    .chat-list-title {
+      font-size: 16px;
+      font-weight: 750;
+      padding: 0 8px 8px;
+    }
+
+    .chat-item {
+      padding: 11px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+    }
+
+    .chat-item.active {
+      background: var(--im-accent-soft);
+      font-weight: 650;
+    }
+
+    .chat-item small {
+      display: block;
+      color: var(--im-text-muted);
+      font-weight: 400;
+      margin-top: 3px;
+      font-size: 12px;
+    }
+
+    .chat-thread-col {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: #ffffff;
+      position: relative;
+    }
+
+    .chat-header {
+      min-height: 56px;
+      padding: 8px 20px;
+      border-bottom: 1px solid var(--im-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 22px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .msg {
+      max-width: 520px;
+      padding: 12px 15px;
+      border-radius: 15px;
+      font-size: 13.5px;
+      line-height: 1.55;
+      background: var(--im-surface-2);
+    }
+
+    .msg.self {
+      align-self: flex-end;
+      background: var(--im-butter);
+      color: #443424;
+    }
+
+    .chat-composer {
+      padding: 14px 22px 18px;
+      border-top: 1px solid var(--im-border);
+    }
+
+    .composer-box {
+      border: 1.5px solid var(--im-accent-border);
+      border-radius: 14px;
+      padding: 11px 14px;
+      background: #ffffff;
+    }
+
+    .composer-quote {
+      font-size: 12px;
+      color: var(--im-accent);
+      background: var(--im-surface-2);
+      padding: 5px 9px;
+      border-radius: 7px;
+      margin-bottom: 7px;
+      display: inline-block;
+    }
+
+    .composer-textarea {
+      width: 100%;
+      border: 0;
+      outline: none;
+      resize: none;
+      font: inherit;
+      font-size: 13.5px;
+      color: var(--im-text);
+      min-height: 40px;
+    }
+
+    /* Computers Page (/settings/nodes) View */
+    .computers-view {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 32px;
+      background: #fbfafd;
+    }
+
+    .computers-container {
+      max-width: 780px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .update-hero-card {
+      background: #ffffff;
+      border: 1px solid var(--im-accent-border);
+      border-radius: 16px;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 8px 26px -18px rgba(87, 50, 191, 0.28);
+    }
+
+    .update-hero-main {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .update-hero-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .update-hero-title h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 650;
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+      white-space: nowrap;
+    }
+
+    .chip.mint {
+      background: var(--im-success-soft);
+      color: var(--im-success);
+    }
+
+    .chip.butter {
+      background: var(--im-butter);
+      color: #553c10;
+    }
+
+    .chip.amber {
+      background: var(--im-warning-soft);
+      color: var(--im-warning);
+    }
+
+    .update-auto-strip {
+      padding-top: 12px;
+      border-top: 1px solid var(--im-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .local-node-card {
+      background: #ffffff;
+      border: 1px solid var(--im-border);
+      border-radius: 16px;
+      padding: 18px 22px;
+    }
+
+    .mac-dmg-steps {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 9px;
+      background: var(--im-butter-soft);
+      border: 1px solid var(--im-butter-border);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #4a3510;
+    }
+
+    /* Narrow Window (< 768px): slim floating top pill below header so composer is NEVER covered! */
+    .mobile-bottom-bar, .mobile-top-pill {
+      display: none;
+    }
+
+    @media (max-width: 767px) {
+      .app-viewport {
+        flex-direction: column;
+      }
+      .im-shell-rail {
+        display: none;
+      }
+      .chat-list-col {
+        display: none;
+      }
+      .mobile-bottom-bar {
+        display: flex;
+        height: 58px;
+        border-top: 1px solid var(--im-border);
+        background: #ffffff;
+        align-items: center;
+        justify-content: space-around;
+        flex-shrink: 0;
+        font-size: 12.5px;
+      }
+      .mobile-top-pill {
+        display: flex;
+        flex-shrink: 0;
+        margin: 8px 12px 0;
+        background: linear-gradient(90deg, #fffdf4 0%, #faf6ff 100%);
+        border: 1px solid var(--im-accent-border);
+        border-radius: 12px;
+        padding: 8px 12px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .mobile-top-pill:empty {
+        display: none;
+      }
+      .computers-view {
+        padding: 18px 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <aside class="proto-harness" aria-label="原型演示控制台（非产品界面）">
+    <div class="proto-legend">
+      <span class="proto-tag">仅演示控制台</span>
+      <span>背景：现有聊天 / 电脑页 · 增量：左下角灵动换新胶囊 + 个人菜单更新栏 + 桌面版本卡片</span>
+    </div>
+    <div class="proto-controls">
+      <button type="button" data-view="chat" aria-pressed="true">聊天主界面</button>
+      <button type="button" data-view="menu" aria-pressed="false">个人菜单展开</button>
+      <button type="button" data-view="computers-unbound" aria-pressed="false">电脑页(未绑定纯聊天)</button>
+      <button type="button" data-view="computers-bound" aria-pressed="false">电脑页(已绑定节点)</button>
+      <button type="button" data-view="me" aria-pressed="false">窄屏个人页(/me)</button>
+      <span style="opacity:0.4">|</span>
+      <button type="button" data-phase="ready_to_switch" aria-pressed="true">热更新就绪</button>
+      <button type="button" data-phase="waiting_for_tasks" aria-pressed="false">等任务收尾</button>
+      <button type="button" data-phase="installer" aria-pressed="false">客户端壳升级(DMG/EXE)</button>
+      <button type="button" data-phase="up_to_date" aria-pressed="false">已是最新</button>
+      <button type="button" data-phase="failed" aria-pressed="false">弱网重试</button>
+    </div>
+  </aside>
+
+  <div class="app-viewport">
+    <header class="im-shell-rail" role="banner">
+      <div class="brand-mark" aria-label="Crewden">C</div>
+      <nav class="rail-tabs" aria-label="主导航">
+        <button type="button" class="rail-tab active" id="nav-chat">💬<span>聊天</span></button>
+        <button type="button" class="rail-tab">👥<span>同事</span></button>
+        <button type="button" class="rail-tab">📋<span>任务</span></button>
+        <button type="button" class="rail-tab" id="nav-computers">💻<span>电脑</span></button>
+      </nav>
+
+      <div class="rail-bottom">
+        <div id="rail-pill-slot"></div>
+        <div id="floating-capsule-slot"></div>
+        <button type="button" class="avatar-btn" id="avatar-trigger" aria-label="小鹿">
+          鹿
+          <span class="avatar-dot" id="avatar-dot"></span>
+        </button>
+        <div id="user-menu-slot"></div>
+      </div>
+    </header>
+
+    <div class="mobile-top-pill" id="mobile-capsule-slot"></div>
+    <main class="workspace-main" id="workspace-main"></main>
+    <nav class="mobile-bottom-bar" aria-label="窄屏底栏">
+      <button type="button" style="border:0;background:transparent;font:inherit;cursor:pointer" onclick="setView('chat')">💬 聊天</button>
+      <span>👥 同事</span>
+      <span>📋 任务</span>
+      <button type="button" style="border:0;background:transparent;font:inherit;cursor:pointer" onclick="setView('me')">👤 我</button>
+    </nav>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("clean") === "1") {
+      document.body.classList.add("clean-mode");
+    }
+
+    const state = {
+      view: params.get("view") || "chat",
+      phase: params.get("phase") || "ready_to_switch",
+      platform: params.get("platform") || "darwin-arm64",
+      macosDistribution: params.get("dist") || "unnotarized",
+      autoUpdate: params.get("auto") !== "0",
+      notesOpen: params.get("notes") === "1",
+      capsuleDismissed: false,
+      installerReady: params.get("installer_ready") === "1",
+      draftText: "大家看看第二版交互稿，@阿哲 我把自动更新做成了左下角不挡视线的胶囊，写一半的话也不会丢～",
+      currentVersion: "1.3.2",
+      targetVersion: "1.4.0",
+    };
+
+    function renderCapsuleHtml() {
+      // Avoid duplicate primary CTAs when UserMenu is open or user is already viewing /settings/nodes
+      if (state.view === "menu" || state.view.startsWith("computers")) return "";
+      if (state.phase === "up_to_date" && !state.justSwitched) return "";
+      if (state.capsuleDismissed && state.phase === "ready_to_switch") return "";
+
+      if (state.justSwitched) {
+        return `
+          <section class="update-capsule-card" role="status" data-testid="proto-capsule-updated">
+            <div class="capsule-head">
+              <span class="capsule-badge-row mint">✓ 已换上 v${state.currentVersion}</span>
+              <button type="button" class="capsule-close" onclick="dismissJustSwitched()" aria-label="收起">×</button>
+            </div>
+            <p class="capsule-title">换新完成，一切都在原位</p>
+            <p class="capsule-copy">刚才所在的会话、未发送草稿与登录状态均完整保留。</p>
+          </section>
+        `;
+      }
+
+      if (state.phase === "ready_to_switch") {
+        return `
+          <section class="update-capsule-card" role="region" aria-label="新版本已准备就绪" data-testid="proto-capsule-ready">
+            <div class="capsule-head">
+              <span class="capsule-badge-row">✨ 新版 v${state.targetVersion} 已备好</span>
+              <button type="button" class="capsule-close" onclick="collapseCapsule()" aria-label="稍后换新">×</button>
+            </div>
+            <p class="capsule-title">点一下几秒换新</p>
+            <p class="capsule-copy">正在聊的会话与输入框草稿都会原样保留。</p>
+            <button type="button" class="capsule-notes-toggle" onclick="toggleNotes()">
+              ${state.notesOpen ? "收起更新亮点 ▴" : "看看更新了什么 ▾"}
+            </button>
+            ${state.notesOpen ? `
+              <div class="capsule-notes-box">
+                <ul>
+                  <li>支持公网与自部署 IM 自动发现新版本</li>
+                  <li>热切换全程保留当前路由与输入草稿</li>
+                </ul>
+              </div>
+            ` : ""}
+            <div class="capsule-actions">
+              <button type="button" class="btn-primary-spark" onclick="triggerHotSwitch()">点一下秒换新</button>
+              <button type="button" class="btn-ghost" onclick="collapseCapsule()">稍后</button>
+            </div>
+          </section>
+        `;
+      }
+
+      if (state.phase === "waiting_for_tasks") {
+        return `
+          <section class="update-capsule-card" role="status" data-testid="proto-capsule-waiting">
+            <div class="capsule-head">
+              <span class="capsule-badge-row amber">⏳ 等待任务收尾</span>
+            </div>
+            <p class="capsule-title">跑完这 1 项任务自动换新</p>
+            <p class="capsule-copy">不会中断正在工作的助手，切换前随时可取消。</p>
+            <div class="capsule-actions">
+              <button type="button" class="btn-ghost" style="width:100%" onclick="cancelWaiting()">取消本次换新</button>
+            </div>
+          </section>
+        `;
+      }
+
+      if (state.phase === "installer") {
+        const isWin = state.platform === "win32-x64";
+        const needsGatekeeperHint = !isWin && state.macosDistribution !== "developer-id-notarized";
+        return `
+          <section class="update-capsule-card" role="region" aria-label="桌面客户端升级" data-testid="proto-capsule-installer">
+            <div class="capsule-head">
+              <span class="capsule-badge-row">🚀 客户端 v2.0.0</span>
+              <button type="button" class="capsule-close" onclick="collapseCapsule()" aria-label="稍后">×</button>
+            </div>
+            <p class="capsule-title">${state.installerReady ? "新版安装包已就绪" : "升级新版桌面客户端"}</p>
+            <p class="capsule-copy">
+              ${state.installerReady
+                ? (isWin ? "点一下即可自动关闭旧窗口、覆盖升级并重新打开。" : "已为你打开新版磁盘映像，账号与本地工作区全部保留。")
+                : "从当前服务受信源安全下载，登录会话与工作区完整保留。"}
+            </p>
+            ${state.installerReady && !isWin ? `
+              <div class="mac-dmg-steps">
+                1. 将弹出窗口中的 <strong>Crewden</strong> 拖入 <strong>Applications</strong> 替换后重开。<br/>
+                ${needsGatekeeperHint ? "2. 首次打开若提示未验证开发者，在「系统设置 → 隐私与安全性」点「仍要打开」即可。" : ""}
+              </div>
+            ` : ""}
+            <div class="capsule-actions">
+              <button type="button" class="btn-primary-spark" onclick="triggerInstaller()">
+                ${state.installerReady ? (isWin ? "立即覆盖升级" : "再次打开映像") : "下载并升级客户端"}
+              </button>
+              <button type="button" class="btn-ghost" onclick="collapseCapsule()">稍后</button>
+            </div>
+          </section>
+        `;
+      }
+
+      return "";
+    }
+
+    function renderMobilePillHtml() {
+      if (state.view.startsWith("computers") || state.view === "me" || state.capsuleDismissed) return "";
+      if (state.justSwitched) {
+        return `
+          <span style="font-size:12.5px;font-weight:600;color:var(--im-success)">✓ 已换上 v${state.currentVersion}，草稿已保留</span>
+          <button type="button" class="capsule-close" onclick="dismissJustSwitched()" aria-label="收起">×</button>
+        `;
+      }
+      if (state.phase === "ready_to_switch") {
+        return `
+          <div style="min-width:0">
+            <strong style="font-size:12.5px;display:block">✨ 新版 v${state.targetVersion} 已备好</strong>
+            <span style="font-size:11.5px;color:var(--im-text-muted)">点一下几秒换新，不丢草稿</span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+            <button type="button" class="btn-primary-spark" style="flex:none" onclick="triggerHotSwitch()">秒换新</button>
+            <button type="button" class="capsule-close" onclick="collapseCapsule()" aria-label="稍后">×</button>
+          </div>
+        `;
+      }
+      if (state.phase === "waiting_for_tasks") {
+        return `
+          <div style="min-width:0">
+            <strong style="font-size:12.5px;display:block;color:var(--im-warning)">⏳ 等待 1 项任务收尾</strong>
+            <span style="font-size:11.5px;color:var(--im-text-muted)">跑完后自动换上 v${state.targetVersion}</span>
+          </div>
+          <button type="button" class="btn-ghost" style="flex-shrink:0" onclick="cancelWaiting()">取消换新</button>
+        `;
+      }
+      if (state.phase === "installer") {
+        const isWin = state.platform === "win32-x64";
+        return `
+          <div style="min-width:0">
+            <strong style="font-size:12.5px;display:block">🚀 客户端 v2.0.0 ${state.installerReady ? "安装包已就绪" : "可升级"}</strong>
+            <span style="font-size:11.5px;color:var(--im-text-muted)">${state.installerReady ? (isWin ? "点一下覆盖安装并重开" : "拖入 Applications 替换即可") : "账号与本地工作区完整保留"}</span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+            <button type="button" class="btn-primary-spark" style="flex:none" onclick="triggerInstaller()">${state.installerReady ? (isWin ? "覆盖升级" : "打开映像") : "下载升级"}</button>
+            <button type="button" class="capsule-close" onclick="collapseCapsule()" aria-label="稍后">×</button>
+          </div>
+        `;
+      }
+      if (state.phase === "failed") {
+        return `
+          <div style="min-width:0">
+            <strong style="font-size:12.5px;display:block;color:var(--im-warning)">暂时连不上更新源</strong>
+            <span style="font-size:11.5px;color:var(--im-text-muted)">当前 v${state.currentVersion} 可照常使用</span>
+          </div>
+          <button type="button" class="btn-ghost" style="flex-shrink:0" onclick="setPhase('ready_to_switch')">重试</button>
+        `;
+      }
+      return "";
+    }
+
+    function buildCompactUpdateBoxHtml(testId) {
+      const isWin = state.platform === "win32-x64";
+      const isReady = state.phase === "ready_to_switch" || state.phase === "installer";
+      let statusLabel = `当前 v${state.currentVersion} · 已是最新 ✓`;
+      let subLabel = "聊天草稿与本机数据保留";
+      let actionHtml = `<button type="button" class="um-mini-btn" onclick="manualCheck()">检查更新</button>`;
+      let extraGuide = "";
+      if (state.phase === "ready_to_switch") {
+        statusLabel = `新版 v${state.targetVersion} 已备好`;
+        actionHtml = `<button type="button" class="um-mini-btn primary" onclick="triggerHotSwitch()">秒换新</button>`;
+      } else if (state.phase === "waiting_for_tasks") {
+        statusLabel = `等待任务收尾后换新`;
+        subLabel = `跑完当前任务自动升至 v${state.targetVersion}`;
+        actionHtml = `<button type="button" class="um-mini-btn" onclick="cancelWaiting()">取消</button>`;
+      } else if (state.phase === "installer") {
+        statusLabel = state.installerReady ? `客户端 v2.0.0 安装包已就绪` : `新版客户端 v2.0.0 可升级`;
+        subLabel = state.installerReady ? (isWin ? "一键关闭旧窗口覆盖升级" : "已下载校验新版磁盘映像") : "安全下载安装包，工作区保留";
+        actionHtml = `<button type="button" class="um-mini-btn primary" onclick="triggerInstaller()">${state.installerReady ? (isWin ? "立即安装" : "打开映像") : "升级客户端"}</button>`;
+        if (state.installerReady && !isWin) {
+          extraGuide = `<div class="mac-dmg-steps">拖入 <strong>Applications</strong> 替换即可${state.macosDistribution !== "developer-id-notarized" ? "；首次打开若受阻可在「隐私与安全性」点「仍要打开」" : ""}。</div>`;
+        }
+      } else if (state.phase === "failed") {
+        statusLabel = `暂时连不上更新源`;
+        subLabel = `当前 v${state.currentVersion} 可照常使用`;
+        actionHtml = `<button type="button" class="um-mini-btn" onclick="setPhase('ready_to_switch')">重试</button>`;
+      }
+      return `
+        <div class="um-update-box ${isReady ? "ready" : ""}" data-testid="${testId}">
+          <div class="um-update-top">
+            <div>
+              <strong style="display:block;font-size:12.5px">${statusLabel}</strong>
+              <span style="font-size:11.5px;color:var(--im-text-muted)">${subLabel}</span>
+            </div>
+            ${actionHtml}
+          </div>
+          ${extraGuide}
+          <div class="um-auto-row">
+            <span>自动保持最新</span>
+            <button type="button" class="switch" role="switch" aria-label="自动保持最新" aria-checked="${state.autoUpdate}" onclick="toggleAuto()"><i></i></button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderUserMenuHtml() {
+      if (state.view !== "menu") return "";
+      return `
+        <div class="user-menu-popover" role="menu" data-testid="proto-user-menu">
+          <div class="um-identity">
+            <div class="um-avatar">鹿</div>
+            <div>
+              <div style="font-weight:700;font-size:14.5px">小鹿</div>
+              <div style="font-size:12px;color:var(--im-text-muted)">@xiaolu · 内网服务 10.24.8.15</div>
+            </div>
+          </div>
+          ${buildCompactUpdateBoxHtml("proto-um-update-box")}
+          <button type="button" class="um-item"><span>账号资料</span><span>›</span></button>
+          <button type="button" class="um-item" onclick="setView('computers-unbound')"><span>电脑</span><small style="color:var(--im-text-muted)">这台电脑</small></button>
+          <button type="button" class="um-item"><span>AI 模型与 API</span><span>›</span></button>
+          <button type="button" class="um-item" style="color:var(--im-danger)"><span>退出登录 / 切换服务</span></button>
+        </div>
+      `;
+    }
+
+    function renderMePageHtml() {
+      return `
+        <div class="computers-view" data-testid="proto-me-view">
+          <div class="computers-container" style="max-width:460px">
+            <section class="local-node-card" style="display:flex;align-items:center;gap:12px">
+              <div class="um-avatar" style="width:48px;height:48px;font-size:17px">鹿</div>
+              <div>
+                <strong style="font-size:16px;display:block">小鹿</strong>
+                <span style="font-size:12.5px;color:var(--im-text-muted)">@xiaolu · 内网服务 10.24.8.15</span>
+              </div>
+            </section>
+            ${buildCompactUpdateBoxHtml("proto-me-update-box")}
+            <section class="local-node-card" style="padding:8px">
+              <button type="button" class="um-item" onclick="setView('computers-unbound')"><span>电脑</span><span>›</span></button>
+              <button type="button" class="um-item"><span>账号与资料</span><span>›</span></button>
+              <button type="button" class="um-item"><span>模型服务</span><span>›</span></button>
+            </section>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderComputersHtml(bound) {
+      const isWin = state.platform === "win32-x64";
+      let badge = `<span class="chip mint">已是最新版本</span>`;
+      let desc = "已连接当前 IM 服务的桌面发布通道，有新版本时会在后台静默准备就绪。";
+      let cta = `<button type="button" class="btn-ghost" onclick="manualCheck()">检查更新</button>`;
+      let installerGuide = "";
+
+      if (state.phase === "ready_to_switch") {
+        badge = `<span class="chip butter">✨ 新版 v${state.targetVersion} 已就绪</span>`;
+        desc = "新版本已在本地校验就绪，点击秒换新将在几秒内平滑生效，不丢失登录态与草稿。";
+        cta = `<button type="button" class="btn-primary-spark" style="flex:none" onclick="triggerHotSwitch()">点一下秒换新</button>`;
+      } else if (state.phase === "waiting_for_tasks") {
+        badge = `<span class="chip amber">⏳ 等待任务收尾后换新</span>`;
+        desc = "本机还有 1 项助手任务正在运行，任务完成后会自动换上 v1.4.0。";
+        cta = `<button type="button" class="btn-ghost" onclick="cancelWaiting()">取消本次换新</button>`;
+      } else if (state.phase === "installer") {
+        badge = `<span class="chip butter">🚀 客户端 v2.0.0 ${state.installerReady ? "安装包已就绪" : "可升级"}</span>`;
+        desc = state.installerReady
+          ? (isWin ? "新版安装程序已校验完毕，点击即可自动关闭旧窗口、覆盖安装并重新打开。" : "新版磁盘映像已校验并打开，账号登录态与本地工作区全部保留。")
+          : "本次更新包含新版桌面窗口宿主，点击即可从当前受信源下载安装包平滑覆盖升级。";
+        cta = `<button type="button" class="btn-primary-spark" style="flex:none" onclick="triggerInstaller()">${state.installerReady ? (isWin ? "立即覆盖升级" : "再次打开映像") : "下载并升级客户端"}</button>`;
+        if (state.installerReady && !isWin) {
+          installerGuide = `<div class="mac-dmg-steps">将弹出窗口中的 <strong>Crewden</strong> 拖入 <strong>Applications</strong> 替换后重开即可${state.macosDistribution !== "developer-id-notarized" ? "；首次打开若提示未验证开发者，在「系统设置 → 隐私与安全性」点击「仍要打开」" : ""}。</div>`;
+        }
+      } else if (state.phase === "failed") {
+        badge = `<span class="chip amber">更新未完成 · 原版本正常可用</span>`;
+        desc = "暂时无法从更新源完成下载，你当前使用的 v1.3.2 不受任何影响，网络恢复后点一下重试即可。";
+        cta = `<button type="button" class="btn-primary-spark" style="flex:none" onclick="setPhase('ready_to_switch')">重试更新</button>`;
+      }
+
+      return `
+        <div class="computers-view" data-testid="proto-computers-view">
+          <div class="computers-container">
+            <div>
+              <h1 style="margin:0 0 4px;font-size:22px">电脑</h1>
+              <p style="margin:0;color:var(--im-text-muted);font-size:13.5px">管理当前桌面客户端版本与你连接的电脑节点</p>
+            </div>
+
+            <section class="update-hero-card" aria-label="Crewden 桌面客户端更新">
+              <div class="update-hero-main">
+                <div style="flex:1 1 280px;min-width:0">
+                  <div class="update-hero-title">
+                    <h2>Crewden 桌面端</h2>
+                    <span class="chip">v${state.currentVersion}</span>
+                    ${badge}
+                  </div>
+                  <p style="margin:7px 0 0;font-size:13px;color:var(--im-text-muted);line-height:1.55">${desc}</p>
+                  ${installerGuide}
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">${cta}</div>
+              </div>
+              <div class="update-auto-strip">
+                <div>
+                  <strong style="font-size:13px">自动保持最新</strong>
+                  <span style="font-size:12px;color:var(--im-text-muted);margin-left:8px">发现新版本后静默准备，空闲或下次打开时无感换新</span>
+                </div>
+                <button type="button" class="switch" role="switch" aria-label="自动保持最新" aria-checked="${state.autoUpdate}" onclick="toggleAuto()"><i></i></button>
+              </div>
+            </section>
+
+            ${bound ? `
+              <section class="local-node-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+                  <div>
+                    <div style="display:flex;justify-content:flex-start;align-items:center;gap:8px;flex-wrap:wrap">
+                      <strong style="font-size:16px">小鹿的 MacBook Air</strong>
+                      <span class="chip">这台电脑</span>
+                      <span class="chip mint">● 本机在线 · 运行时正常</span>
+                    </div>
+                    <div style="font-size:12.5px;color:var(--im-text-muted);margin-top:6px">2 位助手（鹿鹿助理、前端搭子） · 开机登录自启已开启</div>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button type="button" class="btn-ghost">+ 新建助手</button>
+                    <button type="button" class="btn-ghost">重启</button>
+                  </div>
+                </div>
+              </section>
+            ` : `
+              <section class="local-node-card">
+                <span class="chip">纯聊天桌面模式 · 未绑定本机节点</span>
+                <h3 style="margin:10px 0 6px;font-size:16px">将这台电脑连接到当前账号（可选）</h3>
+                <p style="margin:0 0 14px;font-size:13px;color:var(--im-text-muted);line-height:1.55">
+                  不绑定也可以正常聊天并保持桌面端自动更新；连接后可让个人助手直接在这台电脑后台工作。
+                </p>
+                <button type="button" class="btn-primary-spark" style="flex:none">绑定并启动这台电脑</button>
+              </section>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderChatHtml() {
+      return `
+        <aside class="chat-list-col" aria-label="会话列表">
+          <div class="chat-list-title">消息</div>
+          <div class="chat-item active">
+            🎨 产品体验打磨群
+            <small>[草稿] 大家看看第二版交互稿…</small>
+          </div>
+          <div class="chat-item">
+            ✨ 鹿鹿助理 (PA)
+            <small>今天下午 3 点的评审纪要已整理好</small>
+          </div>
+          <div class="chat-item">
+            🛠️ 研发日常
+            <small>阿哲：内网发布源已经切到 1.4.0 了</small>
+          </div>
+        </aside>
+        <section class="chat-thread-col" aria-label="当前会话">
+          <div class="chat-header">
+            <div style="min-width:0">
+              <strong style="font-size:15px">🎨 产品体验打磨群</strong>
+              <span style="font-size:12px;color:var(--im-text-muted);margin-left:8px">4 位成员 · #桌面无感更新</span>
+            </div>
+            <span class="chip mint">已连接 · v${state.currentVersion}</span>
+          </div>
+          <div class="chat-messages">
+            <div class="msg">
+              <strong>阿哲</strong><br/>
+              我刚在测试服推了 <code>v1.4.0</code> 更新包！大家在桌面端试试看会不会打断正在敲的字？
+            </div>
+            <div class="msg self">
+              收到！我正在群里敲回复，看下左下角的换新胶囊效果 👀
+            </div>
+          </div>
+          <div class="chat-composer">
+            <div class="composer-box">
+              <div class="composer-quote">回复 阿哲：我刚在测试服推了 v1.4.0 更新包…</div>
+              <textarea class="composer-textarea" aria-label="消息输入框" oninput="state.draftText=this.value">${state.draftText}</textarea>
+            </div>
+          </div>
+        </section>
+      `;
+    }
+
+    function render() {
+      const hasUpdate = state.phase === "ready_to_switch" || state.phase === "installer" || state.phase === "waiting_for_tasks";
+      document.getElementById("avatar-dot").style.display = hasUpdate ? "block" : "none";
+
+      const railPillSlot = document.getElementById("rail-pill-slot");
+      if (state.justSwitched) {
+        railPillSlot.innerHTML = `<button type="button" class="rail-update-pill mint" onclick="state.capsuleDismissed=false;render()"><span>✓ 已换新</span><span>v${state.currentVersion}</span></button>`;
+      } else if (hasUpdate) {
+        railPillSlot.innerHTML = `<button type="button" class="rail-update-pill" onclick="state.capsuleDismissed=false;render()"><span class="spark">✨ 新版</span><span>v${state.phase === 'installer' ? '2.0.0' : state.targetVersion}</span></button>`;
+      } else {
+        railPillSlot.innerHTML = "";
+      }
+
+      document.getElementById("floating-capsule-slot").innerHTML = renderCapsuleHtml();
+      document.getElementById("mobile-capsule-slot").innerHTML = renderMobilePillHtml();
+      document.getElementById("user-menu-slot").innerHTML = renderUserMenuHtml();
+
+      const main = document.getElementById("workspace-main");
+      if (state.view === "computers-unbound") {
+        main.innerHTML = renderComputersHtml(false);
+      } else if (state.view === "computers-bound") {
+        main.innerHTML = renderComputersHtml(true);
+      } else if (state.view === "me") {
+        main.innerHTML = renderMePageHtml();
+      } else {
+        main.innerHTML = renderChatHtml();
+      }
+
+      document.getElementById("nav-chat").classList.toggle("active", state.view === "chat" || state.view === "menu");
+      document.getElementById("nav-computers").classList.toggle("active", state.view.startsWith("computers"));
+
+      document.querySelectorAll("[data-view]").forEach((btn) => {
+        btn.setAttribute("aria-pressed", String(btn.dataset.view === state.view));
+      });
+      document.querySelectorAll("[data-phase]").forEach((btn) => {
+        btn.setAttribute("aria-pressed", String(btn.dataset.phase === state.phase));
+      });
+    }
+
+    window.toggleNotes = () => { state.notesOpen = !state.notesOpen; render(); };
+    window.collapseCapsule = () => { state.capsuleDismissed = true; render(); };
+    window.dismissJustSwitched = () => { state.justSwitched = false; render(); };
+    window.toggleAuto = () => { state.autoUpdate = !state.autoUpdate; render(); };
+    window.manualCheck = () => { state.phase = "up_to_date"; state.justSwitched = false; render(); };
+    window.cancelWaiting = () => { state.phase = "ready_to_switch"; render(); };
+    window.triggerHotSwitch = () => {
+      state.currentVersion = state.targetVersion;
+      state.phase = "up_to_date";
+      state.justSwitched = true;
+      state.view = state.view === "menu" ? "chat" : state.view;
+      render();
+    };
+    window.triggerInstaller = () => {
+      state.installerReady = true;
+      render();
+    };
+    window.setView = (v) => { state.view = v; state.justSwitched = false; render(); };
+    window.setPhase = (p) => { state.phase = p; state.capsuleDismissed = false; state.justSwitched = false; state.installerReady = false; render(); };
+
+    document.querySelectorAll("[data-view]").forEach((btn) => {
+      btn.addEventListener("click", () => window.setView(btn.dataset.view));
+    });
+    document.querySelectorAll("[data-phase]").forEach((btn) => {
+      btn.addEventListener("click", () => window.setPhase(btn.dataset.phase));
+    });
+    document.getElementById("avatar-trigger").addEventListener("click", () => {
+      window.setView(state.view === "menu" ? "chat" : "menu");
+    });
+    document.getElementById("nav-chat").addEventListener("click", () => window.setView("chat"));
+    document.getElementById("nav-computers").addEventListener("click", () => window.setView("computers-unbound"));
+
+    render();
+  </script>
+</body>
+</html>
