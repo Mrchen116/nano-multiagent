@@ -183,7 +183,10 @@ export function apply(ctx) {
       ).toBeTruthy();
     };
 
-    // 1. Day 1 short onboarding turn (< 600 tokens) -> Night 1 (2027-03-16 03:05) bypasses minSourceTokens because MEMORY.md is still initial seed!
+    // 1. First turn of a fresh window as proactive_review must not duplicate initial MEMORY.md snapshot (F2),
+    // and Day 1 short onboarding turn (< 600 tokens) -> Night 1 (2027-03-16 03:05) bypasses minSourceTokens because MEMORY.md is still initial seed!
+    const initialSeedEntry = await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8');
+    await submitTurn('day1-first-wake', '<proactive-review-wake local_time="2027-03-15T15:01:00+08:00" quiet_minutes="15" quiet_hours="false">\nguidance: initial wake\n</proactive-review-wake>', 'proactive_review');
     await submitTurn('day1-short', '我是林默，以后汇报结论先行。', 'web');
     await client.rpc.request('runtime.clock.advance', { nowMs: Date.parse('2027-03-16T03:05:00+08:00'), settle: true });
     let reviews = (await client.rpc.request('knowledge.facts', {}) as { reviews: { status: string }[] }).reviews;
@@ -194,19 +197,33 @@ export function apply(ctx) {
     // 2. Night 1 proactive_nightly receives <updated-formal-memory> AND <proactive-policy> once.
     await submitTurn('night1-wake', '<proactive-nightly-wake local_time="2027-03-16T03:25:00+08:00" quiet_minutes="745" quiet_hours="true">\nguidance: nightly\n</proactive-nightly-wake>', 'proactive_nightly');
 
-    // 3. Day 2 daytime: short chat (< 600 tokens) + two proactive_review wakes in the SAME window -> zero duplicate tags, prefix unchanged!
+    // 3. Day 2 daytime: short chat (< 600 tokens) + proactive_review wakes in the SAME window -> zero duplicate tags, prefix unchanged, and withdrawal/revert supersedes once (F1)!
     await client.rpc.request('runtime.clock.advance', { nowMs: Date.parse('2027-03-16T10:00:00+08:00'), settle: true });
     await submitTurn('day2-short', '收到，下午还有个短会。', 'web');
     await submitTurn('day2-review-1', '<proactive-review-wake local_time="2027-03-16T10:15:00+08:00" quiet_minutes="15" quiet_hours="false">\nguidance: review 1\n</proactive-review-wake>', 'proactive_review');
 
-    // Simulate updated proactivity-policy.md committed in formal repo -> next proactive_review injects ONLY the updated <proactive-policy>, and a subsequent proactive_review does not repeat it!
     const memRoot = join(home, '.nanoassistant/memory');
+    const night1Entry = await readFile(join(memRoot, 'MEMORY.md'), 'utf8');
     await writeFile(join(memRoot, 'knowledge/proactivity-policy.md'), '# 主动策略细则\n\n- 晨报合并待拍板卡与当日最高优事项，单条不超过 3 点。\n');
     execFileSync('git', ['add', '--', 'knowledge/proactivity-policy.md'], { cwd: memRoot });
     execFileSync('git', ['-c', 'user.name=Nano', '-c', 'user.email=memory@localhost', 'commit', '-qm', 'update-policy'], { cwd: memRoot });
 
     await submitTurn('day2-review-2', '<proactive-review-wake local_time="2027-03-16T10:30:00+08:00" quiet_minutes="30" quiet_hours="false">\nguidance: review 2\n</proactive-review-wake>', 'proactive_review');
     await submitTurn('day2-review-3', '<proactive-review-wake local_time="2027-03-16T10:45:00+08:00" quiet_minutes="45" quiet_hours="false">\nguidance: review 3\n</proactive-review-wake>', 'proactive_review');
+
+    // Simulate reverting MEMORY.md to window-initial M0 and deleting proactivity-policy.md inside the SAME window (F1):
+    await rm(join(memRoot, 'knowledge/proactivity-policy.md'));
+    await writeFile(join(memRoot, 'MEMORY.md'), initialSeedEntry);
+    execFileSync('git', ['add', '-A'], { cwd: memRoot });
+    execFileSync('git', ['-c', 'user.name=Nano', '-c', 'user.email=memory@localhost', 'commit', '-qm', 'revert-entry-and-delete-policy'], { cwd: memRoot });
+    await submitTurn('day2-review-4', '<proactive-review-wake local_time="2027-03-16T11:00:00+08:00" quiet_minutes="60" quiet_hours="false">\nguidance: review 4\n</proactive-review-wake>', 'proactive_review');
+    await submitTurn('day2-review-5', '<proactive-review-wake local_time="2027-03-16T11:15:00+08:00" quiet_minutes="75" quiet_hours="false">\nguidance: review 5\n</proactive-review-wake>', 'proactive_review');
+
+    // Restore non-seed MEMORY.md and policy before Night 2 so Night 2 tests non-seed minSourceTokens deferral!
+    await writeFile(join(memRoot, 'MEMORY.md'), night1Entry);
+    await writeFile(join(memRoot, 'knowledge/proactivity-policy.md'), '# 主动策略细则\n\n- 晨报合并待拍板卡与当日最高优事项，单条不超过 3 点。\n');
+    execFileSync('git', ['add', '-A'], { cwd: memRoot });
+    execFileSync('git', ['-c', 'user.name=Nano', '-c', 'user.email=memory@localhost', 'commit', '-qm', 'restore-post-f1-check'], { cwd: memRoot });
 
     const rootCalls = (await readFile(join(home, 'llm-calls.jsonl'), 'utf8'))
       .trim()
@@ -222,6 +239,8 @@ export function apply(ctx) {
     }
     const lastMessages = rootCalls.at(-1)!.messages as Array<{ id?: string; content: Array<{ type: string; text?: string }> }>;
     const textOf = (id: string) => lastMessages.find(m => m.id === id)?.content.map(b => b.text ?? '').join('\n') ?? '';
+    expect(textOf('day1-first-wake')).not.toContain('<updated-formal-memory');
+    expect(textOf('day1-first-wake')).not.toContain('<proactive-policy>');
     expect(textOf('night1-wake')).toContain('<updated-formal-memory complete="true">');
     expect(textOf('night1-wake')).toContain('<proactive-policy>');
     expect(textOf('day2-review-1')).not.toContain('<updated-formal-memory');
@@ -229,6 +248,10 @@ export function apply(ctx) {
     expect(textOf('day2-review-2')).not.toContain('<updated-formal-memory');
     expect(textOf('day2-review-2')).toContain('单条不超过 3 点');
     expect(textOf('day2-review-3')).not.toContain('<proactive-policy>');
+    expect(textOf('day2-review-4')).toContain('No topics saved yet.');
+    expect(textOf('day2-review-4')).toContain('<proactive-policy>\n(none)\n</proactive-policy>');
+    expect(textOf('day2-review-5')).not.toContain('<updated-formal-memory');
+    expect(textOf('day2-review-5')).not.toContain('<proactive-policy>');
 
     // 4. Night 2 (2027-03-17 03:05) + Agent-authored task-context (actor.type === "agent"): MUST NOT bypass minSourceTokens!
     unconsumedPending = [{

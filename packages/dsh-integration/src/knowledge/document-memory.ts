@@ -382,11 +382,21 @@ export class DocumentMemory {
   }
   /** Return `<updated-formal-memory>` for a proactive wake only when unseen in the current context window. */
   async updatedEntryForWindowWake(agent: Agent): Promise<{ body: string; complete: boolean; renderedTag: string } | undefined> {
-    const updated = await this.updatedEntrySinceWindowStart(agent);
-    if (!updated) return undefined;
-    const renderedTag = `<updated-formal-memory complete="${updated.complete ? 'true' : 'preview'}">\n${updated.body}\n</updated-formal-memory>`;
-    if (latestWindowWakeBlocks(agent).memoryTag === renderedTag) return undefined;
-    return { ...updated, renderedTag };
+    const config = this.options.configOf(agent);
+    if (!config || config.knowledge?.memoryMode === 'legacy') return undefined;
+    const documents = await this.forConfig(config);
+    const latest = latestWindowWakeBlocks(agent);
+    const windowEntry = savedEntry(agent);
+    // When this turn is the very first turn of a new window, system-prompt/assemble embeds fresh MEMORY.md directly.
+    if (windowEntry === undefined && latest.memoryTag === undefined) return undefined;
+    const currentRendered = await this.entry(documents, true);
+    if (latest.memoryTag === undefined && currentRendered === windowEntry) return undefined;
+    const view = await documents.context({ includePreview: true });
+    const body = (view.entry ?? view.entryPreview ?? '').trim();
+    if (!body) return undefined;
+    const renderedTag = `<updated-formal-memory complete="${view.entry !== undefined ? 'true' : 'preview'}">\n${body}\n</updated-formal-memory>`;
+    if (latest.memoryTag === renderedTag) return undefined;
+    return { body, complete: view.entry !== undefined, renderedTag };
   }
   /** Return `<proactive-policy>` from `knowledge/proactivity-policy.md` only when valid, bounded, and unseen in this window. */
   async proactivePolicyForWindowWake(agent: Agent): Promise<{ body: string; renderedTag: string } | undefined> {
@@ -395,18 +405,30 @@ export class DocumentMemory {
       return undefined;
     }
     const documents = await this.forConfig(config);
+    const latest = latestWindowWakeBlocks(agent);
     const policyAbs = join(documents.root, 'knowledge', 'proactivity-policy.md');
     const info = await lstat(policyAbs).catch(error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw error;
     });
-    if (!info?.isFile()) return undefined;
+    if (!info) {
+      if (latest.policyBody !== undefined && latest.policyBody !== '(none)') {
+        return { body: '(none)', renderedTag: '<proactive-policy>\n(none)\n</proactive-policy>' };
+      }
+      return undefined;
+    }
+    if (!info.isFile()) return undefined;
     if (await realpath(policyAbs).catch(() => '') !== policyAbs) return undefined;
     const raw = await readFile(policyAbs, 'utf8');
     if (raw.length > proactivityPolicyLimit) return undefined;
     const body = raw.trim();
-    if (!body) return undefined;
-    if (latestWindowWakeBlocks(agent).policyBody === body) return undefined;
+    if (!body) {
+      if (latest.policyBody !== undefined && latest.policyBody !== '(none)') {
+        return { body: '(none)', renderedTag: '<proactive-policy>\n(none)\n</proactive-policy>' };
+      }
+      return undefined;
+    }
+    if (latest.policyBody === body) return undefined;
     return { body, renderedTag: `<proactive-policy>\n${body}\n</proactive-policy>` };
   }
   async stop() { await Promise.allSettled(this.pending); for (const library of this.libraries.values()) await (await library.value).close(); this.libraries.clear(); }

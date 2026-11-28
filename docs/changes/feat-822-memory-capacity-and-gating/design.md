@@ -90,8 +90,8 @@ flowchart TD
    - **可见变化**：`systemPrompt` 结构与窗口首轮 `MEMORY.md` 快照机制完全不变；因 `## 主动性与介入偏好` 限制在 `<= 2,000` 码元且剔除了被动 SOP 与免责尾巴，`MEMORY.md` 中 `## Topics` 的实体、项目与偏好索引覆盖率大幅提升；前台需要读取详细主动策略时亦可通过普通 `read` 访问 `knowledge/proactivity-policy.md`（但仍严禁访问 `knowledge/proactivity-signals.md`）。
 2. **主会话主动唤醒（`proactive_review` 与 `proactive_nightly`）**：
    - **交付时点、同窗去重与格式**：由于主动唤醒经 `agent.followup(message)` 持久留在当前上下文窗口直至 `compact-checkpoint`，`packages/dsh-integration/src/index.ts` 在受理 `proactive_review` 或 `proactive_nightly` 时执行窗口内版本去重：
-     - `<updated-formal-memory complete="true|preview">...</updated-formal-memory>`：仅当当前 `MEMORY.md` 同时异于窗口首轮 `nano-document-memory-entry` 快照**且**异于当前窗口内最近一次已注入的 `<updated-formal-memory>` 正文时附带；
-     - `<proactive-policy>\n...\n</proactive-policy>`：仅当 `knowledge/proactivity-policy.md` 为库内常规非空文件（`<= 6,000` 码元）**且**异于当前窗口内最近一次已注入的 `<proactive-policy>` 正文时附带（同窗未变时不重复追加，换窗后在下一窗口首次主动唤醒自动恢复附带）。
+     - `<updated-formal-memory complete="true|preview">...</updated-formal-memory>`：新窗口首轮尚无快照且无已注入唤醒块时不重复附带；此后仅当异于当前窗口最近一次已内联的 `<updated-formal-memory>`（若尚未内联过则对比窗口首轮 `nano-document-memory-entry` 快照，支持同窗撤回至初始态时覆盖旧版本）时附带；
+     - `<proactive-policy>\n...\n</proactive-policy>`：当 `knowledge/proactivity-policy.md` 为库内常规非空文件（`<= 6,000` 码元）且异于当前窗口最近一次已内联正文时附带；若同窗早先已内联过策略而后文件被删除或清空，则输出一次 `<proactive-policy>\n(none)\n</proactive-policy>` 覆盖旧策略，后续未变轮次不重复追加。
      两者均位于当轮尾部系统唤醒消息内，既不改变窗口前缀缓存，也不在高频 `proactive_review` 下膨胀日常对话窗口。
 3. **后台 `Dreaming` 整合会话**：
    - **首轮输入**：除内联 `MEMORY.md` 与（若存在）`knowledge/proactivity-signals.md` 外，若存在库内常规文件 `knowledge/proactivity-policy.md`：长度 `<= 6,000` 码元时直接内联当前正文（计入首轮 70% 容量预算），外部异常超限时仅给出路径修复提示而不内联超限正文。
