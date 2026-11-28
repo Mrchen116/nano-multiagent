@@ -45,7 +45,7 @@ export function OnboardingPage() {
   }, [targetKey]);
   const [started, setStarted] = useState(Boolean(draft.started));
   const [installExpanded, setInstallExpanded] = useState(false);
-  const [requestKey] = useState<string>(() => draft.requestKey ?? crypto.randomUUID());
+  const [requestKey, setRequestKey] = useState<string>(() => draft.requestKey ?? crypto.randomUUID());
   const [nodeId, setNodeId] = useState<string>(draft.nodeId ?? '');
   const [name, setName] = useState<string>(draft.name ?? text('小助理', 'My assistant'));
   const [avatar, setAvatar] = useState<number>(draft.avatar ?? avatarVariantFor(user.id));
@@ -85,14 +85,28 @@ export function OnboardingPage() {
       const effectiveScope = existingAgent
         ? (existingAgent.collaboration_scope ?? personal.data?.creation?.collaboration_scope ?? (samePendingDraft && draft.collaborationScope ? scope : undefined))
         : scope;
+      const pending = personal.data?.creation;
+      let key = pending?.request_key ?? requestKey;
+      if (pending && existingAgent) {
+        setName(displayName);
+        if (effectiveScope) setScope(effectiveScope);
+        if (existingAgent.avatar_variant != null) setAvatar(existingAgent.avatar_variant);
+        if (node.node_id !== existingAgent.node_id) {
+          // A new key lets the server replace an orphan after reconciling any outstanding receipt.
+          key = samePendingDraft ? crypto.randomUUID() : requestKey;
+          setRequestKey(key);
+        }
+      }
+      const variant = existingAgent?.avatar_variant ?? (!existingAgent || samePendingDraft ? avatar : undefined);
       return createPersonalAgent({
-        request_key: personal.data?.creation?.request_key ?? requestKey,
-        node_id: existingAgent?.node_id ?? node.node_id,
+        request_key: key,
+        node_id: node.node_id,
         display_name: displayName,
         ...(effectiveScope ? { collaboration_scope: effectiveScope } : {}),
-        ...(!existingAgent || samePendingDraft ? { avatar_variant: avatar } : {}),
+        ...(variant === undefined ? {} : {avatar_variant:variant}),
       });
     },
+    onError: () => cache.invalidateQueries({queryKey:['personal-agent',user.id]}),
     onSuccess: async result => {
       await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:['onboarding',user.id]}),cache.invalidateQueries({queryKey:['chat']}),cache.invalidateQueries({queryKey:['contacts']})]);
       if (result.binding?.status === 'active') navigate(`/chat/${result.binding.conversation_id}`);

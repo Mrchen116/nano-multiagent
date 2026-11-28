@@ -22,11 +22,15 @@ export function PersonalAgentDialog({state, nodes, onClose, onCreated}: {
   const createKey = useRef(crypto.randomUUID());
   const [avatar,setAvatar] = useState(() => avatarVariantFor(createKey.current));
   const refresh = () => cache.invalidateQueries({queryKey:['personal-agent']});
-  const create = useMutation({mutationFn:()=>createPersonalAgent({request_key:createKey.current,node_id:nodeId,display_name:name.trim(),avatar_variant:avatar,collaboration_scope:scope}),onSuccess:async result=>{await Promise.all([refresh(),cache.invalidateQueries({queryKey:['chat']}),cache.invalidateQueries({queryKey:['contacts']})]);if(result.binding) onCreated(result.binding.conversation_id);}});
-  const recover = useMutation({mutationFn:()=>createPersonalAgent({request_key:state.creation!.request_key,node_id:state.binding!.node_id,display_name:state.binding!.display_name,collaboration_scope:state.creation?.collaboration_scope ?? state.binding?.collaboration_scope}),onSuccess:refresh,onError:refresh});
+  const finish = async (result: PersonalAgentState) => {
+    await Promise.all([refresh(),cache.invalidateQueries({queryKey:['chat']}),cache.invalidateQueries({queryKey:['contacts']}),cache.invalidateQueries({queryKey:['public-agents']})]);
+    if(result.binding && result.binding.status !== 'pending' && !result.creation) onCreated(result.binding.conversation_id);
+  };
+  const create = useMutation({mutationFn:()=>createPersonalAgent({request_key:createKey.current,node_id:nodeId,display_name:name.trim(),avatar_variant:avatar,collaboration_scope:scope}),onSuccess:finish,onError:refresh});
+  const recover = useMutation({mutationFn:()=>createPersonalAgent({request_key:state.creation!.request_key,node_id:state.binding!.node_id,display_name:state.binding!.display_name,collaboration_scope:state.creation?.collaboration_scope ?? state.binding?.collaboration_scope}),onSuccess:finish,onError:refresh});
   return <Dialog.Root open onOpenChange={open=>{if(!open)onClose();}}><Dialog.Portal><Dialog.Overlay className="pa-dialog-overlay"/><Dialog.Content className="pa-dialog" aria-describedby={!state.binding ? "pa-create-access-notice" : undefined}><Dialog.Title>{state.binding ? text('个人助手','Personal assistant') : text('创建个人助手','Create personal assistant')}</Dialog.Title>
 
-    {!state.binding ? <form onSubmit={e=>{e.preventDefault();create.mutate();}}>
+    {!state.binding ? <form onSubmit={e=>{e.preventDefault();recover.reset();create.mutate();}}>
       <label>{text('名字','Name')}<input value={name} onChange={e=>setName(e.target.value)} maxLength={80} required/></label>{!name.trim()&&<p className="pa-error" role="status">{text('请填写助手名字。','Enter a name for your assistant.')}</p>}
       <AvatarPicker personal value={avatar} onChange={setAvatar} disabled={create.isPending} />
       {nodes.length > 1 && <label>{text('工作电脑','Computer')}<select value={nodeId} onChange={e=>setNodeId(e.target.value)}>{nodes.map(n=><option key={n.node_id} value={n.node_id}>{n.node_name}{n.status!=='online'?text(' · 离线',' · Offline'):''}</option>)}</select></label>}
@@ -43,12 +47,13 @@ export function PersonalAgentDialog({state, nodes, onClose, onCreated}: {
       </div>
       <p id="pa-create-access-notice">{text('助手可按需查询你有权查看的已参与聊天。相关资料会由你配置的模型处理。你随时可以排除某个聊天；PA 看过不代表你已读。','Your assistant can look up conversations you participated in and can still access. Your configured model processes relevant information. You can exclude a chat anytime. Assistant activity does not mark messages read for you.')}</p>
       {!nodes.length && <p><Link to="/onboarding">{text('先连接工作电脑和模型','Connect a computer and model first')}</Link></p>}
+      {recover.isError && <p className="pa-error" role="alert">{text('助手未能完成设置。请确认工作电脑在线，再重新创建。','Setup failed. Check that your computer is online, then create your assistant again.')}</p>}
       {create.isError && <p className="pa-error" role="alert">{text('尚未确认创建成功。内容已保留，请重试。','Creation has not been confirmed. Your input is preserved; retry.')}</p>}
       <footer><Dialog.Close className="pa-secondary" type="button">{text('稍后','Later')}</Dialog.Close><button className="im-btn im-btn-primary" disabled={!name.trim()||!nodeId||create.isPending}>{create.isPending?text('正在创建…','Creating…'):text('创建个人助手','Create personal assistant')}</button></footer>
     </form> : <>
-      {state.binding.status!=='active'&&<p role="status">{text('助手尚未准备完成，创建信息已保留。','Your assistant is not ready; its setup is saved.')} {state.creation&&<button className="pa-secondary" disabled={recover.isPending} onClick={()=>recover.mutate()}>{text('重新准备','Retry setup')}</button>}</p>}
+      {state.binding.status!=='active'&&<p role="status">{text('助手尚未准备完成，创建信息已保留。','Your assistant is not ready; its setup is saved.')}</p>}
       {recover.isError&&<p className="pa-error" role="alert">{text('操作尚未保存成功，请重试。','The change was not saved. Please retry.')}</p>}
-      <footer><Dialog.Close className="pa-secondary">{text('完成','Done')}</Dialog.Close></footer>
+      <footer><Dialog.Close className="pa-secondary" type="button">{state.creation?text('稍后','Later'):text('完成','Done')}</Dialog.Close>{state.creation&&<button className="im-btn im-btn-primary" type="button" disabled={recover.isPending} onClick={()=>recover.mutate()}>{recover.isPending?text('正在准备…','Preparing…'):text('重新准备','Retry setup')}</button>}</footer>
     </>}
   </Dialog.Content></Dialog.Portal></Dialog.Root>;
 }

@@ -9,8 +9,9 @@ import { AssistantStarters } from './assistant-starters';
 import './workspace-welcome.css';
 
 /** Surface a real recent conversation and editable starting points. */
-export function WorkspaceWelcome({ assistant, conversation, onStart, onNewChat }: {
+export function WorkspaceWelcome({ assistant, setupPending, conversation, onStart, onNewChat }: {
   assistant: { display_name: string; conversation_id: string; agent_id: string; avatar_variant?: number | null } | null;
+  setupPending?: boolean;
   conversation?: Conversation;
   onStart(text: string): Promise<void>;
   onNewChat(): void;
@@ -39,7 +40,7 @@ export function WorkspaceWelcome({ assistant, conversation, onStart, onNewChat }
       <div className="workspace-welcome-actions">
         <Link className="workspace-welcome-personal" to={assistant ? `/chat/${assistant.conversation_id}` : '/onboarding'}>
           <span className="workspace-welcome-action-icon" aria-hidden="true">{assistant ? <Avatar id={agentAvatarId(assistant.agent_id)} size={42} /> : <AssistantIllustration size={42} />}</span>
-          <span><strong>{conversation?.title || assistant?.display_name || t('workspaceWelcome.setup')}{returning && <small className="workspace-welcome-recent-label">{t('workspaceWelcome.recent')}</small>}</strong><small className="workspace-welcome-preview">{preview || t('workspaceWelcome.personal')}</small></span><ArrowUpRight aria-hidden="true" />
+          <span><strong>{conversation?.title || assistant?.display_name || t(setupPending ? 'firstUse.continue' : 'workspaceWelcome.setup')}{returning && <small className="workspace-welcome-recent-label">{t('workspaceWelcome.recent')}</small>}</strong><small className="workspace-welcome-preview">{preview || t(setupPending ? 'agents.paSettingUp' : 'workspaceWelcome.personal')}</small></span><ArrowUpRight aria-hidden="true" />
         </Link>
       </div>
       {assistant && <AssistantStarters disabled={starting} onStart={text => void start(text)} />}
