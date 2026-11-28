@@ -24,7 +24,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px 10px;
 }
 
 .browser-pairing-title {
@@ -33,7 +33,13 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  flex: 1 1 200px;
+}
+
+.browser-pairing-summary {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--im-text-muted, #68736b);
 }
 
 .browser-pairing-chip {

@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { inspectDesktopLocalNode } from '../../../desktop/desktop-api';
 import { isDesktopClient } from '../../../desktop/desktop-context';
 import { DesktopLocalComputerCard } from '../../../desktop/desktop-local-computer-card';
+import { useIsMobile } from '../../../hooks/use-is-mobile';
 import { useTranslation } from '../../../i18n';
 import { subscribeUserStream } from '../../../realtime/user-stream';
 import { useAuthStore } from '../../auth/auth-store';
@@ -19,6 +20,7 @@ import { computerName, computerVersion, lastSeenTime, NodeStatus } from './node-
 /** Manage owned computers while preserving update and realtime query ownership. */
 export function NodesPage() {
   const { t, i18n } = useTranslation();
+  const isMobile = useIsMobile();
   const userId = useAuthStore(s => s.user?.id);
   const desktopMode = isDesktopClient();
   const client = useQueryClient();
@@ -106,7 +108,7 @@ export function NodesPage() {
   const online = nodes.filter(n => n.status === 'online' && !nodeUpdateSwitching(n.update) && !nodeUpdateNeedsRecovery(n.update)).length;
   const hasData = query.data !== undefined;
   return <div className="computers-page"><main className="computers-frame">
-    <Link className="computers-back" to="/me" data-testid="nodes-page-back"><NodeIcon name="back"/>{t('computers.account')}</Link>
+    {isMobile && <Link className="computers-back" to="/me" data-testid="nodes-page-back"><NodeIcon name="back"/>{t('me.title')}</Link>}
     <header className="computers-heading"><div><h1>{t('computers.title')}</h1><p>{hasData ? t('computers.summary', { count: nodes.length, total: nodes.length, online }) : t('computers.subtitle')}</p></div>
       <button className="node-button" onClick={() => open('connect')}><NodeIcon name="plus"/>{t('computers.connect')}</button>
     </header>
