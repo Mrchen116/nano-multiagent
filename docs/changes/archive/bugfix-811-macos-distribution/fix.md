@@ -42,4 +42,4 @@ M1-fix 统一 Tauri、包内 Info.plist、公开下载区及电脑接入引导�
 
 - 在 macOS 26.5.2 arm64 下载本 PR 第一次 CI 的真实候选（Actions artifact 15220571925），DMG SHA-256 为 `455db326cf69e9e83c5c695acc7572f202f010d62f03a562d11ff9e6865cc6c8`。移除三个 Apple 配置变量后，`verify --mode unnotarized` 完成最低系统检查、从 DMG 拷出 app、离线首启及 DSH 健康检查，外部清单记录 unnotarized，DMG 字节未改。该次演练使用 CI 候选，未指定新的发行版本。
 - 无凭据运行 sign 和公证版 verify 均明确失败，未生成已签产物、未改为公证标记。发布器使用真实入口、版本化的 Mac、Windows desktop、Windows node、Node 测试清单和本地 gh/curl 替身，验证默认发行的说明、全部附件及校验后的清单。选公证却提供未公证包、选默认却提供公证包、直接提供内测包时均在上传前失败。
-- 定向前端 16、IM 与 Node 33、Python 4 项通过。下载区与首页主按钮使用同一状态标签，旧清单沿用历史未公证状态。未向 Apple 提交公证或向 GitHub 发布安装包。
+- 定向前端 16、IM 与 Node 34、Python 4 项通过。下载区与首页主按钮使用同一状态标签，旧清单沿用历史未公证状态。未向 Apple 提交公证或向 GitHub 发布安装包。

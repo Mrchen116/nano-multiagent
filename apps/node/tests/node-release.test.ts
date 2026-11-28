@@ -77,7 +77,7 @@ it('promotes only the same uploaded and anonymously verified bytes, without over
 
 // Build all four release manifests so the test reaches the unified publication
 // entrypoint with both Windows installers and only fixture GitHub binaries.
-async function platformMaterials(f: Awaited<ReturnType<typeof fixture>>, macMode: string) {
+async function platformMaterials(f: Awaited<ReturnType<typeof fixture>>, macMode: string | undefined) {
   const base = new URL('.', f.published.download_url).href;
   for (const platform of ['win32-x64', 'desktop-win32-x64', 'desktop-darwin-arm64']) {
     const lightweight = platform === 'win32-x64';
@@ -118,7 +118,8 @@ it.each([
 });
 
 it.each([
-  ['unsigned-test', undefined], ['unnotarized', 'developer-id-notarized'], ['developer-id-notarized', undefined],
+  ['unsigned-test', undefined], [undefined, 'developer-id-notarized'],
+  ['unnotarized', 'developer-id-notarized'], ['developer-id-notarized', undefined],
 ] as const)('rejects a %s artifact for the selected release mode before uploading', async (artifactMode, selectedMode) => {
   const f = await fixture();
   try {
