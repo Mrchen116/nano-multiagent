@@ -120,10 +120,12 @@ export function apply(ctx) {
           ? [
               ['write', { file_path: stage + '/entities/bob.md', content: '# Bob\\n\\n临时脚本问题习惯直接给命令行排查步骤。\\n' }],
               ['write', { file_path: stage + '/knowledge/proactivity-signals.md', content: '# 主动性隐式信号观察池\\n\\n- **Bob 1v1 临时脚本跟进卡**（seen: 1，2027-03-16，未采纳待拍板卡 msg-bob-1）\\n' }],
+              ['read', { file_path: stage + '/MEMORY.md' }],
               ['write', { file_path: stage + '/MEMORY.md', content: '# Expert memory\\n\\n## 主动性与介入偏好\\n\\n### 积极盯紧与提前备料\\n- 发版回归异常主动在 #研发群 挂待拍板卡（协作约定见 [Bob](entities/bob.md)）。\\n\\n## Topics\\n\\nNo topics saved yet.\\n' }],
               ['bash', { description: 'Commit global expert memory', command: 'git add -- MEMORY.md entities knowledge && git -c user.name=Nano -c user.email=memory@localhost commit -m global-dream' }],
             ]
           : [
+              ['read', { file_path: stage + '/MEMORY.md' }],
               ['write', { file_path: stage + '/MEMORY.md', content: '# Expert memory\\n\\n## Topics\\n\\n- Single-thread troubleshooting note.\\n' }],
               ['bash', { description: 'Commit single_thread_expert memory', command: 'git add -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m single-dream' }],
             ];
@@ -141,12 +143,12 @@ export function apply(ctx) {
 
     if (sessionId === 'q-root') {
       const lastText = ((o.messages || []).findLast(m => m.role === 'user')?.content || []).map(b => b.text || '').join('');
-      if (lastText.includes('<proactive-nightly-wake') && step === 0) {
+      if (lastText.includes('<proactive-nightly-wake') && step === 1) {
         yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'q-read-sig', name: 'read', arguments: JSON.stringify({ file_path: ${signalsPathJson} }) } };
         yield { type: 'finish', reason: { kind: 'tool-calls' } };
         return;
       }
-      if (lastText.includes('<proactive-nightly-wake') && step === 1) {
+      if (lastText.includes('<proactive-nightly-wake') && step === 2) {
         yield {
           type: 'block-end',
           index: 0,
@@ -250,6 +252,14 @@ export function apply(ctx) {
       await client.rpc.request('session.ensure', qBinding);
       await client.rpc.request('session.ensure', sBinding);
 
+      // Establish the window's model-visible memory snapshot before Dreaming updates it.
+      await client.rpc.request('session.submit', {
+        sessionId: 'q-root', inputId: 'q-initial', mode: 'followup',
+        content: [{ type: 'text', text: 'Check the current release notes.' }],
+        source: { kind: 'human', actorId: 'u_admin1', channel: 'web', messageId: 'q-initial' },
+      });
+      await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'q-root', inputId: 'q-initial' }) as { terminal?: unknown }).terminal).toBeTruthy();
+
       const qCapsBefore = await client.rpc.request('session.capabilities', { sessionId: 'q-root' }) as { prompt: unknown };
       const sCaps = await client.rpc.request('session.capabilities', { sessionId: 's-root' }) as { prompt: unknown };
       expect(JSON.stringify(qCapsBefore.prompt)).toContain('nano-proactive-care');
@@ -284,7 +294,7 @@ export function apply(ctx) {
       expect(JSON.stringify(qCapsAfter.prompt)).toBe(JSON.stringify(qCapsBefore.prompt));
 
       const allCalls = (await readFile(join(home, 'calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-      expect(allCalls.find(c => c.sessionId === 'q-root')?.msgText).toContain('<updated-formal-memory');
+      expect(allCalls.find(c => c.sessionId === 'q-root' && c.msgText.includes('q-nightly-1'))?.msgText).toContain('<updated-formal-memory');
 
       const globalDreamCall = allCalls.find(c => c.sessionId.startsWith('dreaming-') && c.msgText.includes('<bound_administrator>'));
       expect(globalDreamCall?.msgText).toContain('<bound_administrator>u_admin1</bound_administrator>');
