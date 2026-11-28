@@ -89,10 +89,10 @@ Platform-Parity-Exempt: 本次修复聚焦 Crewden Desktop 原生宿主（macOS 
 2. **主窗口创建失败显式退出弹窗、Windows 前台唤醒授权与生命周期死锁快速回收（Issue C & D）**：
    - `apps/desktop/src/tray.rs` 的 `ensure_main_window` 改为返回 `Result<WebviewWindow, String>` 并记录 `ERROR` 日志，恢复已有窗口时按 `show()` → 条件 `unminimize()` → `set_focus()` 顺序避免破坏已最大化状态；`apps/desktop/src/lib.rs` 在前台冷启动创建主窗口或系统托盘失败时清理 `host-state.json` 并向上返回错误，由 `main.rs` 写入 `FATAL` 日志、弹出原生错误提示框并释放 `instance.lock` 退出，杜绝无主窗口后台假活。后台常驻期间交互唤起失败亦通过异步原生弹窗与日志提示。
    - `apps/desktop/src/lib.rs` 的 `forward_to_running_instance` 在 Windows 平台向运行实例转发唤醒前调用 Win32 `AllowSetForegroundWindow(live_pid)` 授予前台激活权限。
-   - `apps/node/src/lifecycle.ts` 为 `.gateway-lifecycle.lock` 与 `.gateway-runtime.lock` 增加外侧伴随文件 `<lock>.owner.json`（记录 `pid`、`process_start` 与创建时间，不改动 `proper-lockfile` 自身目录 `mtime` 心跳），加锁前通过 `processBirth`（及 Windows `boot-filetime`）核验持锁进程存活并原子重命名清理死进程遗留锁或无主陈旧锁；`apps/desktop/src/lib.rs` 的 `supervise_node` 改用 `is_active_gateway_lifecycle_lock` 校验并自动清理死进程残留锁，不再被强杀遗留的 `.gateway-lifecycle.lock` 永久卡死。
+   - `apps/node/src/lifecycle.ts` 在已被 `.gitignore` 忽略的 `.gateway-owner/` 目录下维护伴随身份文件 `<lock>.json`（记录 `pid`、`process_start` 与获取时间，不改动 `proper-lockfile` 自身目录 `mtime` 心跳）与基于唯一身份标记 + 非递归 `rmdir` 的过渡互斥目录 `<lock>.guard`，串行完成死锁探测、清理 `signal-exit` 遗留伴随文件、`lockfile.lock` 获取及伴随写入，并注册进程 `exit` 同步清理；`apps/desktop/src/lib.rs` 的 `supervise_node` 改用纯只读 `is_active_gateway_lifecycle_lock` 识别死锁并交由 Node 侧原子回收，彻底消除跨进程与并发回收竞态。
 3. **种子解包前可用磁盘空间预检与精准错误分类引导（Issue E）**：
    - `apps/desktop/src/local_node.rs` 在 `ensure_seed_bundle_installed` 复制/解压前通过平台磁盘空闲查询（Windows `GetDiskFreeSpaceExW`、Unix `df -Pk`）对比待缓存归档与解包峰值空间需求，空间不足时在写盘前直接返回明确提示（如 `磁盘可用空间不足：初始化运行环境需要约 1.6 GB，当前仅剩 1.1 GB。`）。
-   - 新增 `classify_seed_error` 与 `seed_error_guidance` 区分磁盘空间不足（`os error 112`/`39`/`28`、`ENOSPC`、`No space left on device`）、目录访问受阻（`os error 5`/`32`/`13`）与归档校验失败（`SHA-256 mismatch`），同步更新 `render_seed_preparation_html` 与 `/desktop/v1/context`，消除重复提示与误导文案并优化长路径折行。
+   - 新增 `classify_seed_error_for_os`（精确解析 `os error <N>` 整数边界并区分 Windows `112/39`、`5/32/33` 与 POSIX `28/69/122`、`13/1`，避免误匹配 `os error 50` 或 POSIX `EIO`/`EPIPE`）与 `seed_error_guidance`，同步更新 `render_seed_preparation_html` 与 `/desktop/v1/context`，消除重复提示与误导文案并优化长路径折行。
 4. **Windows 系统托盘彩色品牌图标（Issue F）**：
    - `apps/desktop/src/tray.rs` 按平台分流：macOS 继续使用单色 `icons/tray.png` + `icon_as_template(true)`，Windows 等非 macOS 平台改用彩色品牌图标 `icons/128x128.png` + `icon_as_template(false)`。
 

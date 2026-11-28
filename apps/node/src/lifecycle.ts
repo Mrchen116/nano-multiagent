@@ -1,17 +1,20 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { promisify } from "node:util";
 import {
   open,
+  readdir,
   readFile,
+  rmdir,
   writeFile,
   rename,
   mkdir,
   rm,
   realpath,
   stat,
+  unlink,
 } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
@@ -121,78 +124,199 @@ interface ProcessLockOwner {
   pid: number;
   process_start: string;
   acquired_at: number;
-  lock_birthtime_ms?: number;
 }
 const ORPHAN_LOCK_WITHOUT_OWNER_MS = 3000;
-const lockOwnerPath = (lockDir: string) => `${lockDir}.owner.json`;
+const EMPTY_GUARD_STALE_MS = 1000;
+const ownedOwnerFilesOnExit = new Set<string>();
+let exitCleanupRegistered = false;
 
-async function evictStaleLockDirectory(
-  lockDir: string,
-  expectedMtimeMs: number,
+function ensureExitOwnerCleanup() {
+  if (exitCleanupRegistered) return;
+  exitCleanupRegistered = true;
+  process.on("exit", () => {
+    for (const file of ownedOwnerFilesOnExit) {
+      try {
+        rmSync(file, { force: true });
+      } catch {
+        // Best-effort sync cleanup matching proper-lockfile's signal-exit rmdirSync.
+      }
+    }
+    ownedOwnerFilesOnExit.clear();
+  });
+}
+
+const lockOwnerDir = (lockDir: string) => join(dirname(lockDir), ".gateway-owner");
+const lockOwnerPath = (lockDir: string) =>
+  join(lockOwnerDir(lockDir), `${basename(lockDir)}.json`);
+const lockGuardDir = (lockDir: string) =>
+  join(lockOwnerDir(lockDir), `${basename(lockDir)}.guard`);
+
+async function isProcessIdentityAlive(
+  pid: unknown,
+  processStart: unknown,
 ): Promise<boolean> {
-  const ownerPath = lockOwnerPath(lockDir);
-  const staleOwner = `${lockDir}.owner-stale-${randomUUID()}`;
-  await rename(ownerPath, staleOwner).catch(() => {});
-  try {
-    const current = await stat(lockDir).catch(() => undefined);
-    if (!current || current.mtimeMs !== expectedMtimeMs) {
+  if (
+    typeof pid !== "number" ||
+    pid <= 0 ||
+    typeof processStart !== "string" ||
+    processStart.length === 0
+  ) {
+    return false;
+  }
+  if (process.platform === "win32" && /^[1-9]\d*$/.test(processStart)) {
+    if (BigInt(processStart) < await currentWindowsBootFileTime()) {
       return false;
     }
-    const staleDir = `${lockDir}.stale-${randomUUID()}`;
-    await rename(lockDir, staleDir);
-    await rm(staleDir, { recursive: true, force: true }).catch(() => {});
-    return true;
-  } catch {
-    return false;
-  } finally {
-    await rm(staleOwner, { force: true }).catch(() => {});
+  }
+  return (await processBirth(pid)) === processStart;
+}
+
+async function reapDeadGuardDir(guardDir: string): Promise<void> {
+  const gStat = await stat(guardDir).catch(() => undefined);
+  if (!gStat) return;
+  const entries = await readdir(guardDir).catch(() => []);
+  if (entries.length === 0) {
+    if (Date.now() - gStat.mtimeMs > EMPTY_GUARD_STALE_MS) {
+      await rmdir(guardDir).catch(() => {});
+    }
+    return;
+  }
+  for (const name of entries) {
+    const markerPath = join(guardDir, name);
+    try {
+      const raw = await readFile(markerPath, "utf8");
+      const parsed = JSON.parse(raw) as Partial<ProcessLockOwner>;
+      if (await isProcessIdentityAlive(parsed.pid, parsed.process_start)) {
+        return;
+      }
+      await unlink(markerPath).catch(() => {});
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        const mStat = await stat(markerPath).catch(() => undefined);
+        if (mStat && Date.now() - mStat.mtimeMs > EMPTY_GUARD_STALE_MS) {
+          await unlink(markerPath).catch(() => {});
+        }
+      }
+    }
+  }
+  // Non-recursive `rmdir` succeeds ONLY when zero live markers remain inside `guardDir`.
+  await rmdir(guardDir).catch(() => {});
+}
+
+async function withLockTransitionGuard<T>(
+  lockDir: string,
+  selfBirth: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const ownerRoot = lockOwnerDir(lockDir);
+  const guardDir = lockGuardDir(lockDir);
+  await mkdir(ownerRoot, { recursive: true });
+  const birthTag = createHash("sha256").update(selfBirth).digest("hex").slice(0, 12);
+  const myMarkerName = `owner-${process.pid}-${birthTag}.json`;
+  const deadline = Date.now() + 15000;
+  for (;;) {
+    let createdDir = false;
+    try {
+      await mkdir(guardDir, { mode: 0o700 });
+      createdDir = true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+    if (createdDir) {
+      const markerPath = join(guardDir, myMarkerName);
+      let markerReady = false;
+      try {
+        const fd = await open(markerPath, "wx", 0o600);
+        try {
+          await fd.writeFile(
+            JSON.stringify({
+              pid: process.pid,
+              process_start: selfBirth,
+              acquired_at: Date.now(),
+            }),
+          );
+        } finally {
+          await fd.close();
+        }
+        markerReady = existsSync(markerPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          await unlink(markerPath).catch(() => {});
+          await rmdir(guardDir).catch(() => {});
+          throw err;
+        }
+      }
+      if (markerReady) {
+        try {
+          return await fn();
+        } finally {
+          await unlink(markerPath).catch(() => {});
+          await rmdir(guardDir).catch(() => {});
+        }
+      }
+    } else {
+      await reapDeadGuardDir(guardDir);
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for lock transition guard ${guardDir}`);
+      }
+      await delay(25);
+    }
   }
 }
 
-/** Reap a proper-lockfile directory immediately when its sibling owner PID/birth is dead,
- * or when a legacy/interrupted lock directory has no owner metadata and no heartbeat.
- * Never mutates files inside `lockDir` so `proper-lockfile` mtime tracking stays intact.
- */
-export async function reapDeadProcessLock(lockDir: string): Promise<boolean> {
+async function reapDeadProcessLockUnlocked(lockDir: string): Promise<boolean> {
+  const ownerPath = lockOwnerPath(lockDir);
   let dirStat;
   try {
     dirStat = await stat(lockDir);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      // Clean up any leftover sidecar left behind when `signal-exit` removed `lockDir` on SIGINT/SIGTERM.
+      await rm(ownerPath, { force: true }).catch(() => {});
+      return false;
+    }
     throw error;
   }
-  const ownerPath = lockOwnerPath(lockDir);
   try {
     const raw = await readFile(ownerPath, "utf8");
     const parsed = JSON.parse(raw) as Partial<ProcessLockOwner>;
-    if (
-      typeof parsed.pid === "number" &&
-      parsed.pid > 0 &&
-      typeof parsed.process_start === "string" &&
-      parsed.process_start.length > 0
-    ) {
-      if (process.platform === "win32" && /^[1-9]\d*$/.test(parsed.process_start)) {
-        if (BigInt(parsed.process_start) < await currentWindowsBootFileTime()) {
-          return evictStaleLockDirectory(lockDir, dirStat.mtimeMs);
-        }
-      }
-      const liveBirth = await processBirth(parsed.pid);
-      if (liveBirth === parsed.process_start) return false;
-      return evictStaleLockDirectory(lockDir, dirStat.mtimeMs);
+    if (await isProcessIdentityAlive(parsed.pid, parsed.process_start)) {
+      return false;
     }
+    await rm(ownerPath, { force: true }).catch(() => {});
+    const staleDir = `${lockDir}.stale-${randomUUID()}`;
+    await rename(lockDir, staleDir).catch(() => {});
+    await rm(staleDir, { recursive: true, force: true }).catch(() => {});
+    return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       if (Date.now() - dirStat.mtimeMs > ORPHAN_LOCK_WITHOUT_OWNER_MS) {
-        return evictStaleLockDirectory(lockDir, dirStat.mtimeMs);
+        await rm(ownerPath, { force: true }).catch(() => {});
+        const staleDir = `${lockDir}.stale-${randomUUID()}`;
+        await rename(lockDir, staleDir).catch(() => {});
+        await rm(staleDir, { recursive: true, force: true }).catch(() => {});
+        return true;
       }
       return false;
     }
   }
   if (Date.now() - dirStat.mtimeMs <= ORPHAN_LOCK_WITHOUT_OWNER_MS) return false;
-  if (existsSync(ownerPath)) return false;
-  const recheck = await stat(lockDir).catch(() => undefined);
-  if (!recheck || Date.now() - recheck.mtimeMs <= ORPHAN_LOCK_WITHOUT_OWNER_MS) return false;
-  return evictStaleLockDirectory(lockDir, recheck.mtimeMs);
+  const staleDir = `${lockDir}.stale-${randomUUID()}`;
+  await rename(lockDir, staleDir).catch(() => {});
+  await rm(staleDir, { recursive: true, force: true }).catch(() => {});
+  return true;
+}
+
+/** Reap a proper-lockfile directory immediately under a transition guard when its owner PID/birth is dead,
+ * or when a legacy/interrupted lock directory has no owner metadata and no heartbeat.
+ * Never mutates files inside `lockDir` so `proper-lockfile` mtime tracking stays intact.
+ */
+export async function reapDeadProcessLock(lockDir: string): Promise<boolean> {
+  const selfBirth = await processBirth(process.pid);
+  if (!selfBirth) return false;
+  return withLockTransitionGuard(lockDir, selfBirth, () =>
+    reapDeadProcessLockUnlocked(lockDir),
+  );
 }
 
 async function acquireProcessLock(
@@ -205,46 +329,68 @@ async function acquireProcessLock(
   if (!selfBirth) {
     throw new Error("Cannot establish Gateway process identity");
   }
+  ensureExitOwnerCleanup();
   await mkdir(dirname(lockDir), { recursive: true });
   const ownerPath = lockOwnerPath(lockDir);
   const deadline = Date.now() + waitTimeoutMs;
   for (;;) {
-    await reapDeadProcessLock(lockDir);
-    try {
-      const unlock = await lockfile.lock(targetPath, {
-        realpath: false,
-        lockfilePath: lockDir,
-        stale: staleMs,
-        update: 1000,
-        retries: 0,
-      });
-      const dirStat = await stat(lockDir).catch(() => undefined);
-      const ownerPayload: ProcessLockOwner = {
-        pid: process.pid,
-        process_start: selfBirth,
-        acquired_at: Date.now(),
-        ...(dirStat ? { lock_birthtime_ms: Math.floor(dirStat.birthtimeMs) } : {}),
-      };
-      try {
-        await atomicPrivate(ownerPath, ownerPayload);
-      } catch (writeError) {
-        await rm(ownerPath, { force: true }).catch(() => {});
-        await unlock().catch(() => {});
-        throw writeError;
-      }
+    const acquired = await withLockTransitionGuard(
+      lockDir,
+      selfBirth,
+      async (): Promise<(() => Promise<void>) | undefined> => {
+        await reapDeadProcessLockUnlocked(lockDir);
+        try {
+          const unlock = await lockfile.lock(targetPath, {
+            realpath: false,
+            lockfilePath: lockDir,
+            stale: staleMs,
+            update: 1000,
+            retries: 0,
+          });
+          const ownerPayload: ProcessLockOwner = {
+            pid: process.pid,
+            process_start: selfBirth,
+            acquired_at: Date.now(),
+          };
+          try {
+            await atomicPrivate(ownerPath, ownerPayload);
+            ownedOwnerFilesOnExit.add(ownerPath);
+          } catch (writeError) {
+            await rm(ownerPath, { force: true }).catch(() => {});
+            await unlock().catch(() => {});
+            throw writeError;
+          }
+          return unlock;
+        } catch (error) {
+          if ((error as { code?: string }).code === "ELOCKED") {
+            return undefined;
+          }
+          throw error;
+        }
+      },
+    );
+    if (acquired) {
       return {
         process_start: selfBirth,
         async release() {
-          await rm(ownerPath, { force: true }).catch(() => {});
-          await unlock().catch(() => {});
+          await withLockTransitionGuard(lockDir, selfBirth, async () => {
+            ownedOwnerFilesOnExit.delete(ownerPath);
+            await rm(ownerPath, { force: true }).catch(() => {});
+            await acquired().catch(() => {});
+          }).catch(async () => {
+            ownedOwnerFilesOnExit.delete(ownerPath);
+            await acquired().catch(() => {});
+          });
         },
       };
-    } catch (error) {
-      if ((error as { code?: string }).code !== "ELOCKED" || Date.now() >= deadline) {
-        throw error;
-      }
-      await delay(150);
     }
+    if (Date.now() >= deadline) {
+      throw Object.assign(new Error("Lock file is already being held"), {
+        code: "ELOCKED",
+        file: targetPath,
+      });
+    }
+    await delay(150);
   }
 }
 export function gatewayLabel(config: string) {

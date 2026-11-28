@@ -71,27 +71,58 @@ pub fn seed_error_guidance(err: &str) -> &'static str {
     }
 }
 
+fn extract_os_error_code(lower: &str) -> Option<i32> {
+    let needle = "os error ";
+    let idx = lower.find(needle)?;
+    let rest = &lower[idx + needle.len()..];
+    let digits: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '-')
+        .collect();
+    if digits.is_empty() {
+        return None;
+    }
+    if rest[digits.len()..]
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    digits.parse::<i32>().ok()
+}
+
 /// Classify a seed bundle preparation failure so the host and preparation page surface accurate remediation.
 pub fn classify_seed_error(err: &str) -> SeedErrorKind {
+    classify_seed_error_for_os(err, cfg!(windows))
+}
+
+pub(crate) fn classify_seed_error_for_os(err: &str, is_windows: bool) -> SeedErrorKind {
     let lower = err.to_ascii_lowercase();
-    if err.contains("磁盘可用空间不足")
+    let os_code = extract_os_error_code(&lower);
+    let os_disk_full = if is_windows {
+        matches!(os_code, Some(112 | 39))
+    } else {
+        matches!(os_code, Some(28 | 69 | 122))
+    };
+    if os_disk_full
+        || err.contains("磁盘可用空间不足")
         || err.contains("磁盘空间不足")
         || err.contains("磁盘空间已满")
         || lower.contains("no space left on device")
         || lower.contains("enospc")
         || lower.contains("disk full")
         || lower.contains("not enough space")
-        || lower.contains("os error 112")
-        || lower.contains("os error 39")
-        || lower.contains("os error 28")
     {
         return SeedErrorKind::DiskFull;
     }
-    if err.contains("目录访问被拒绝")
-        || lower.contains("os error 5")
-        || lower.contains("os error 32")
-        || lower.contains("os error 13")
-        || lower.contains("os error 1)")
+    let os_perm_or_locked = if is_windows {
+        matches!(os_code, Some(5 | 32 | 33))
+    } else {
+        matches!(os_code, Some(13 | 1))
+    };
+    if os_perm_or_locked
+        || err.contains("目录访问被拒绝")
         || lower.contains("access is denied")
         || lower.contains("permission denied")
         || lower.contains("operation not permitted")

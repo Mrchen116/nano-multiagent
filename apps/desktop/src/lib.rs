@@ -7,8 +7,8 @@ pub mod notifications;
 pub mod tray;
 
 use crate::config::{
-    append_host_log, local_node_bridge_endpoint, random_hex_token, write_private_json,
-    DesktopCliOptions, DesktopPaths, HostRuntimeStateFile, InstanceLock,
+    append_host_log, local_node_bridge_endpoint, write_private_json, DesktopCliOptions,
+    DesktopPaths, HostRuntimeStateFile, InstanceLock,
 };
 use crate::host_server::{handle_deep_link_url, ping_local_bridge, start_host_server_full};
 use crate::local_node::{resolve_active_bundle, run_local_admin_sync, stop_all_managed_local_nodes};
@@ -79,40 +79,44 @@ fn is_os_pid_alive(pid: u32) -> bool {
     }
 }
 
+fn lock_owner_metadata_dir(lock_dir: &Path) -> std::path::PathBuf {
+    lock_dir
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".gateway-owner")
+}
+
 fn lock_owner_sidecar_path(lock_dir: &Path) -> std::path::PathBuf {
     let base = lock_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(".gateway-lifecycle.lock");
-    lock_dir.with_file_name(format!("{base}.owner.json"))
+    lock_owner_metadata_dir(lock_dir).join(format!("{base}.json"))
 }
 
-fn evict_stale_lock_dir(lock_dir: &Path) {
+fn lock_transition_guard_path(lock_dir: &Path) -> std::path::PathBuf {
     let base = lock_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(".gateway-lifecycle.lock");
-    let owner = lock_owner_sidecar_path(lock_dir);
-    let stale_owner = lock_dir.with_file_name(format!(
-        "{base}.owner-stale-{}-{}",
-        std::process::id(),
-        random_hex_token(4)
-    ));
-    let _ = fs::rename(&owner, &stale_owner);
-    let stale = lock_dir.with_file_name(format!(
-        "{base}.stale-{}-{}",
-        std::process::id(),
-        random_hex_token(4)
-    ));
-    if fs::rename(lock_dir, &stale).is_ok() {
-        let _ = fs::remove_dir_all(&stale);
-    }
-    let _ = fs::remove_file(&stale_owner);
+    lock_owner_metadata_dir(lock_dir).join(format!("{base}.guard"))
 }
 
-/// Return true only when `.gateway-lifecycle.lock` is actively held by a live process with a fresh heartbeat.
-/// Dead or orphaned lock directories left behind by force-killed processes are atomically reaped.
+/// Read-only check returning true only when `.gateway-lifecycle.lock` is actively transitioning
+/// or held by a live process with a fresh heartbeat. Never mutates lock directories from Rust;
+/// `apps/node` reaps dead locks atomically under `.gateway-owner/<lock>.guard`.
 pub(crate) fn is_active_gateway_lifecycle_lock(lock_dir: &Path) -> bool {
+    let guard_dir = lock_transition_guard_path(lock_dir);
+    if let Ok(g_meta) = fs::metadata(&guard_dir) {
+        let g_age = g_meta
+            .modified()
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .unwrap_or(Duration::ZERO);
+        if g_age <= Duration::from_secs(5) {
+            return true;
+        }
+    }
     let Ok(meta) = fs::metadata(lock_dir) else {
         return false;
     };
@@ -130,7 +134,6 @@ pub(crate) fn is_active_gateway_lifecycle_lock(lock_dir: &Path) -> bool {
                 .filter(|p| *p > 0)
             {
                 if !is_os_pid_alive(pid) {
-                    evict_stale_lock_dir(lock_dir);
                     return false;
                 }
                 // `proper-lockfile` refreshes directory mtime every 1s; if mtime stalled for >15s
@@ -138,17 +141,9 @@ pub(crate) fn is_active_gateway_lifecycle_lock(lock_dir: &Path) -> bool {
                 return age <= Duration::from_secs(15);
             }
         }
-        if age > Duration::from_secs(5) {
-            evict_stale_lock_dir(lock_dir);
-            return false;
-        }
-        return true;
+        return age <= Duration::from_secs(5);
     }
-    if age > Duration::from_secs(5) && !owner_path.exists() {
-        evict_stale_lock_dir(lock_dir);
-        return false;
-    }
-    true
+    age <= Duration::from_secs(5)
 }
 
 fn ensure_foreground_startup_window<T>(
@@ -580,8 +575,10 @@ mod tests {
     fn reaps_dead_gateway_lifecycle_lock_while_respecting_live_owner() {
         let tmp = tempfile::tempdir().unwrap();
         let lock_dir = tmp.path().join(".gateway-lifecycle.lock");
-        let owner_sidecar = tmp.path().join(".gateway-lifecycle.lock.owner.json");
+        let owner_dir = tmp.path().join(".gateway-owner");
+        let owner_sidecar = owner_dir.join(".gateway-lifecycle.lock.json");
         fs::create_dir_all(&lock_dir).unwrap();
+        fs::create_dir_all(&owner_dir).unwrap();
         fs::write(
             &owner_sidecar,
             serde_json::to_vec(&json!({
@@ -596,9 +593,8 @@ mod tests {
             is_active_gateway_lifecycle_lock(&lock_dir),
             "Live current process holding fresh lifecycle lock must be respected"
         );
-        assert!(lock_dir.exists());
 
-        // Dead owner PID must be reaped immediately without waiting 2 minutes.
+        // Dead owner PID is immediately recognized as inactive without mutating files from Rust.
         fs::write(
             &owner_sidecar,
             serde_json::to_vec(&json!({
@@ -611,8 +607,8 @@ mod tests {
         .unwrap();
         assert!(!is_active_gateway_lifecycle_lock(&lock_dir));
         assert!(
-            !lock_dir.exists() && !owner_sidecar.exists(),
-            "Dead owner lifecycle lock directory and sidecar must be evicted"
+            lock_dir.exists() && owner_sidecar.exists(),
+            "Rust check must remain read-only so Node reaps atomically under its transition guard"
         );
     }
 

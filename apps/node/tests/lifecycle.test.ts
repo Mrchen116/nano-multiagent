@@ -304,6 +304,44 @@ it("recovers immediately when a .gateway-lifecycle.lock holder is force-killed w
     const serializedStatus = await cli(10000, "status");
     expect(Date.now() - tLive).toBeGreaterThanOrEqual(350);
     expect(serializedStatus.stdout).toContain("NOT RUNNING");
+
+    // 4. Signal-exit leftover `.gateway-owner/*.json` (without lockDir) AND concurrent dead-lock reapers
+    // must NEVER steal a newly acquired live lock or trigger proper-lockfile ECOMPROMISED across >1s heartbeat!
+    const { mkdir } = await import("node:fs/promises");
+    const ownerDir = join(home, ".gateway-owner");
+    await mkdir(ownerDir, { recursive: true });
+    await writeFile(
+      join(ownerDir, ".gateway-lifecycle.lock.json"),
+      JSON.stringify({ pid: 999999991, process_start: "signal-exit-residue", acquired_at: 1 }),
+    );
+    ignorer = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 1400)); setInterval(() => {}, 1000);"],
+      { stdio: "ignore" },
+    );
+    await new Promise((r) => ignorer!.once("spawn", r));
+    const raceBirth = await processBirth(ignorer.pid!);
+    await writeFile(
+      join(home, ".gateway-state.json"),
+      JSON.stringify({
+        pid: ignorer.pid,
+        config_path: await (await import("node:fs/promises")).realpath(config),
+        process_start: raceBirth,
+        ready: true,
+      }),
+    );
+    // Also plant a dead `.gateway-lifecycle.lock` so 4 concurrent callers race to reap + hold >1s + serialize!
+    await mkdir(join(home, ".gateway-lifecycle.lock"), { recursive: true });
+    const concurrentResults = await Promise.all([
+      cli(15000, "stop"),
+      cli(15000, "status"),
+      cli(15000, "status"),
+      cli(15000, "status"),
+    ]);
+    expect(concurrentResults[0]!.stdout).toContain("STOPPED");
+    for (const r of concurrentResults.slice(1)) {
+      expect(r.stdout).toMatch(/RUNNING|NOT RUNNING/);
+    }
   } finally {
     ignorer?.kill("SIGKILL");
     killerCli?.kill("SIGKILL");

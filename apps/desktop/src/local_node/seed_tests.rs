@@ -283,12 +283,32 @@ fn seed_preflight_rejects_low_disk_space_before_unpacking() {
         SeedErrorKind::DiskFull
     );
     assert_eq!(
-        classify_seed_error("Copy runtime.tar.gz: There is not enough space on the disk. (os error 112)"),
+        classify_seed_error_for_os(
+            "Copy runtime.tar.gz: There is not enough space on the disk. (os error 112)",
+            true
+        ),
         SeedErrorKind::DiskFull
     );
     assert_eq!(
-        classify_seed_error("Create runtime directory C:\\test: Access is denied. (os error 5)"),
+        classify_seed_error_for_os("Write file: (os error 28)", false),
+        SeedErrorKind::DiskFull
+    );
+    assert_eq!(
+        classify_seed_error_for_os("Rename dir: (os error 5)", true),
         SeedErrorKind::PermissionOrLocked
+    );
+    // Win32 os error 50 (ERROR_NOT_SUPPORTED) and POSIX os error 5 (EIO) / 32 (EPIPE) must NOT match PermissionOrLocked!
+    assert_eq!(
+        classify_seed_error_for_os("Request failed (os error 50)", true),
+        SeedErrorKind::Other
+    );
+    assert_eq!(
+        classify_seed_error_for_os("Read archive: Input/output error (os error 5)", false),
+        SeedErrorKind::Other
+    );
+    assert_eq!(
+        classify_seed_error_for_os("Write pipe: Broken pipe (os error 32)", false),
+        SeedErrorKind::Other
     );
 }
 
