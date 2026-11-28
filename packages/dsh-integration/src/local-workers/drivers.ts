@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { WorkerRuntime, RuntimeWorkerDetail, WorkUsage } from '@nano/product-contracts';
 import { WorkerTurnDetails, codexItem, type CodexItem } from './work-details.js';
+import { findWindowsWorker, isWindowsBatch } from './worker-executable.js';
+import { nativeCliEnvironment } from './cli-environment.js';
 import { CliProcess, acknowledged } from './cli-process.js';
 import {
   identifyHostedAcpTool,
@@ -160,8 +162,8 @@ function actionTarget(input: Record<string, unknown> = {}) {
   );
 }
 
-async function codex(options: CliWorkerOptions) {
-  const proc = new CliProcess('codex', ['app-server', '--listen', 'stdio://'], options.cwd);
+async function codex(options: CliWorkerOptions, executable: string) {
+  const proc = new CliProcess(executable, ['app-server', '--listen', 'stdio://'], options.cwd);
   const events = new TurnEvents(options);
   let threadId = options.sessionId;
   let nextId = 0;
@@ -458,16 +460,13 @@ async function codex(options: CliWorkerOptions) {
   };
 }
 
-async function claude(options: CliWorkerOptions) {
+async function claude(options: CliWorkerOptions, executable: string) {
   const hosted = hostedWorkerMcp(options.mcp, options.computer);
   const payload = JSON.stringify({mcpServers: Object.fromEntries(hosted.map(({server, launch}) => [server, launch]))});
-  const directory = options.computer && await mkdtemp(join(tmpdir(), 'nano-claude-mcp-'));
+  const batch = isWindowsBatch(executable);
+  const directory = (options.computer || batch) && await mkdtemp(join(tmpdir(), 'nano-claude-mcp-'));
   const config = directory ? join(directory, 'mcp.json') : payload;
-  if (directory) {
-    // A bound computer launch carries a short-lived credential. Keep it out of argv and ps output.
-    try { await writeFile(config, payload, {mode: 0o600}); }
-    catch (error) { await rm(directory, {recursive: true, force: true}); throw error; }
-  }
+  const prompt = batch && directory ? join(directory, 'prompt.txt') : options.instructions;
   const sessionId = options.sessionId ?? randomUUID();
   const args = [
     '--print',
@@ -481,8 +480,8 @@ async function claude(options: CliWorkerOptions) {
     'auto',
     '--permission-prompt-tool',
     'stdio',
-    '--append-system-prompt',
-    options.instructions,
+    batch ? '--append-system-prompt-file' : '--append-system-prompt',
+    prompt,
     '--allowedTools',
     ...hosted.flatMap(({ server, tools }) => tools.map((tool) => `mcp__${server}__${tool}`)),
     '--mcp-config',
@@ -490,9 +489,17 @@ async function claude(options: CliWorkerOptions) {
     options.sessionId ? '--resume' : '--session-id',
     sessionId,
   ];
-  const proc = new CliProcess('claude', args, options.cwd, directory ? {
-    onCleanup: () => rm(directory, {recursive: true, force: true}),
-  } : undefined);
+  const cleanup = directory ? () => rm(directory, {recursive: true, force: true}) : undefined;
+  let proc: CliProcess;
+  try {
+    // Keep computer credentials out of argv and free-form text out of batch command lines.
+    if (directory) await writeFile(config, payload, {mode: 0o600});
+    if (batch) await writeFile(prompt, options.instructions, {mode: 0o600});
+    proc = new CliProcess(executable, args, options.cwd, {onCleanup: cleanup});
+  } catch (error) {
+    await cleanup?.();
+    throw error;
+  }
   const events = new TurnEvents(options);
   const unconsumed = new Map<string, string>();
   let model: string | undefined;
@@ -793,10 +800,10 @@ interface TrackedAcpTool {
   locations?: { path?: string }[];
 }
 
-async function antigravity(options: CliWorkerOptions) {
+async function antigravity(options: CliWorkerOptions, executable: string) {
   const hosted = hostedWorkerMcp(options.mcp, options.computer);
   const runtimeTmp = await mkdtemp(join(tmpdir(), 'nano-agy-tmp-'));
-  const proc = new CliProcess('agy', ['acp', '--process-per-session'], options.cwd, {
+  const proc = new CliProcess(executable, ['acp', '--process-per-session'], options.cwd, {
     env: {
       SSH_CLIENT: undefined,
       SSH_CONNECTION: undefined,
@@ -1325,5 +1332,14 @@ const cliDrivers = { codex, claude, antigravity };
 
 /** Open the native CLI session in the assigned workspace and use its installed model and identity. */
 export async function openCliWorker(options: CliWorkerOptions) {
-  return cliDrivers[options.runtime](options);
+  const binary = options.runtime === 'antigravity' ? 'agy' : options.runtime;
+  let executable: string = binary;
+  if (process.platform === 'win32') {
+    const env = nativeCliEnvironment();
+    const pathKey = Object.keys(env).sort().find(key => key.toUpperCase() === 'PATH');
+    const found = await findWindowsWorker(binary, (pathKey && env[pathKey]) ?? '');
+    if (!found) throw new Error(`Worker ${binary} not found on PATH`);
+    executable = found;
+  }
+  return cliDrivers[options.runtime](options, executable);
 }

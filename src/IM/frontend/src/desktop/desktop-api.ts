@@ -120,7 +120,7 @@ export function inspectDesktopLocalNode(logQuery?: string): Promise<DesktopLocal
 export function probeDesktopWorkers(extraPath?: string): Promise<{ workers: DesktopWorkerProbeItem[] }> {
   return authedDesktopJson<{ workers: DesktopWorkerProbeItem[] }>("/desktop/v1/local-node/probe-workers", {
     method: "POST",
-    body: JSON.stringify({ extra_path: extraPath ?? "" }),
+    body: JSON.stringify({ extra_path: extraPath }),
   });
 }
 

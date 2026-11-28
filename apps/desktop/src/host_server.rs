@@ -1069,7 +1069,7 @@ async fn handle_local_probe_workers(
         Ok(v) => v,
         Err(err) => return err,
     };
-    let candidate = body.extra_path.or(body.path).unwrap_or_default();
+    let candidate = body.extra_path.or(body.path);
     invoke_local_admin(
         state,
         "probe-workers",

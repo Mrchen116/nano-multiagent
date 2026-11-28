@@ -1,7 +1,9 @@
 /// <reference lib="es2024.promise" />
 import { spawn } from 'node:child_process';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { nativeCliEnvironment } from './cli-environment.js';
+import { isWindowsBatch } from './worker-executable.js';
 import { terminateRuntimeTree } from '../runtime-health.js';
 
 /** A request deadline bounds protocol acknowledgments, never the worker's model turn. */
@@ -42,10 +44,23 @@ export class CliProcess {
       if (value === undefined) delete env[key];
       else env[key] = value;
     }
-    this.child = spawn(runtime, args, {
+    let command = runtime;
+    const batch = isWindowsBatch(runtime);
+    if (batch) {
+      command = join(process.env.SystemRoot!, 'System32', 'cmd.exe');
+      // Values are expanded once, inside quotes. Only paths, fixed flags and the session ID
+      // reach cmd; Claude's free-form prompt and MCP config are loaded from files.
+      env.NANO_CLI_COMMAND = [runtime, ...args].map(value => {
+        if (/["\r\n]/.test(value)) throw new Error('Invalid Windows batch worker argument');
+        return `"${value}"`;
+      }).join(' ');
+      args = ['/d', '/v:off', '/s', '/c', '"%NANO_CLI_COMMAND%"'];
+    }
+    this.child = spawn(command, args, {
       cwd,
       env,
       stdio: 'pipe',
+      windowsVerbatimArguments: batch,
       detached: process.platform !== 'win32',
     });
     this.child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
