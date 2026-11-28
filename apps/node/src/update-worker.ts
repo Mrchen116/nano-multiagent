@@ -116,7 +116,7 @@ interface DesktopDescriptor {
   source_commit: string;
   updater_protocol: 1;
   data_epoch: 1;
-  shell_protocol: 1;
+  shell_protocol: number;
   runtime: DesktopArchiveEntry;
   app: DesktopArchiveEntry;
 }

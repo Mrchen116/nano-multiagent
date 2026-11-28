@@ -591,7 +591,7 @@ def main() -> None:
         "source_commit": commit,
         "updater_protocol": 1,
         "data_epoch": 1,
-        "shell_protocol": 1,
+        "shell_protocol": 2,
     }
     nano_release_meta: dict[str, object] = dict(metadata)
     if custom_base_url is not None:

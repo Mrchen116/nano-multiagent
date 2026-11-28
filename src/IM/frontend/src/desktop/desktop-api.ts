@@ -206,6 +206,7 @@ async function optionalAuthDesktopJson<T>(path: string, init: RequestInit = {}):
 
 /** Report active route and unsaved form dirty state to the Desktop loopback host. */
 export function reportDesktopAttention(input: {
+  loaded_ui_sha?: string;
   current_route: string;
   has_unsaved_form: boolean;
 }): Promise<{ ok: boolean; route: string; navigate_to?: string | null }> {

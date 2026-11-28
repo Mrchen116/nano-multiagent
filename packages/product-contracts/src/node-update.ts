@@ -144,7 +144,7 @@ export type DesktopPlatform = 'desktop-darwin-arm64' | 'desktop-win32-x64';
 export type MacDistribution = 'unsigned-test' | 'unnotarized' | 'developer-id-notarized';
 
 /** Current Desktop Tauri outer shell protocol supported for in-app split-archive hot updates. */
-export const CURRENT_DESKTOP_SHELL_PROTOCOL = 1;
+export const CURRENT_DESKTOP_SHELL_PROTOCOL = 2;
 
 export type ReleaseManifest = ReleaseMetadata & (
   | {package: 'nano-node.tgz'; platform?: undefined; shell_protocol?: undefined}

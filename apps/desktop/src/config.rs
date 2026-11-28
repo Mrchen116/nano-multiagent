@@ -628,9 +628,13 @@ pub struct DesktopUiActiveFile {
     #[serde(default)]
     pub origins: HashMap<String, DesktopUiOriginPointer>,
     #[serde(default)]
+    pub previous_ui: HashMap<String, DesktopUiOriginPointer>,
+    #[serde(default)]
     pub just_updated: HashMap<String, String>,
     #[serde(default)]
     pub rollback_blocked: HashMap<String, String>,
+    #[serde(default)]
+    pub deferred_auto: HashMap<String, String>,
 }
 
 pub fn write_private_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {

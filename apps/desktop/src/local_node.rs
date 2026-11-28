@@ -495,6 +495,8 @@ fn advance_managed_active_pointers_to_seed(
                     };
                 }
                 ui_active.rollback_blocked.clear();
+                ui_active.previous_ui.clear();
+                ui_active.just_updated.clear();
                 let _ = write_private_json(&ui_active_path, &ui_active);
             }
         }

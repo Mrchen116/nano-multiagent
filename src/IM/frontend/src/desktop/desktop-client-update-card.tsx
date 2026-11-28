@@ -34,15 +34,7 @@ export function DesktopClientUpdateCard() {
     badgeClass = "muted";
     badgeText = text("手动检查模式", "Manual updates");
   }
-  let description = snap.auto_update
-    ? text(
-        "已连接当前 IM 服务的桌面发布通道，发现新版本后会在后台静默准备，空闲或重开时平滑换新。",
-        "Connected to this server’s desktop release channel. Updates prepare quietly in the background and switch when idle.",
-      )
-    : text(
-        "自动更新已关闭；你可以随时手动点击右侧「检查更新」获取最新版本。",
-        "Automatic background updates are off. Click Check for updates anytime.",
-      );
+  let description = text("更新来自当前连接的 IM 服务。", "Updates come from your connected IM server.");
 
   let cta = (
     <button

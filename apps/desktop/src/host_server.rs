@@ -780,6 +780,7 @@ struct AttentionBody {
     current_route: String,
     has_unsaved_form: Option<bool>,
     window_visible: Option<bool>,
+    loaded_ui_sha: Option<String>,
 }
 
 async fn handle_internal_attention(
@@ -812,6 +813,10 @@ async fn handle_v1_attention(
 ) -> Response {
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
+    }
+    if let Some(sha) = &body.loaded_ui_sha {
+        let origin = state.host_config.read().unwrap().im_origin.clone();
+        crate::updater::finish_ui_boot(&state, &origin, sha, true);
     }
     if let Some(dirty) = body.has_unsaved_form {
         state.ui_bridge.set_unsaved_form(dirty);
@@ -2424,8 +2429,9 @@ fn mime_for_path(path: &Path) -> &'static str {
     }
 }
 
-fn inject_desktop_boot_script(html: &str, state: &HostSharedState, cfg: &PersistedHostConfig) -> String {
+fn inject_desktop_boot_script(html: &str, state: &HostSharedState, cfg: &PersistedHostConfig, bundle_sha: Option<&str>) -> String {
     let payload = json!({
+        "bundleSha": bundle_sha,
         "imOrigin": cfg.im_origin,
         "contextEpoch": cfg.context_epoch,
         "platform": current_desktop_platform_id(),
@@ -2662,7 +2668,16 @@ async fn handle_static_or_spa(
     let Ok(raw_html) = fs::read_to_string(&index_path) else {
         return (StatusCode::NOT_FOUND, "Frontend index.html missing").into_response();
     };
-    let injected = inject_desktop_boot_script(&raw_html, &state, &cfg);
+    let injected = inject_desktop_boot_script(&raw_html, &state, &cfg, bundle.sha256.as_deref());
+    if crate::updater::read_ui_active_file(&state.paths).previous_ui.contains_key(&cfg.im_origin) {
+        if let Some(sha) = bundle.sha256 {
+            let check_state = state.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                crate::updater::finish_ui_boot(&check_state, &cfg.im_origin, &sha, false);
+            });
+        }
+    }
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/html; charset=utf-8")

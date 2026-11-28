@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::watch;
 use url::Url;
 
-pub const CURRENT_DESKTOP_SHELL_PROTOCOL: u64 = 1;
+pub const CURRENT_DESKTOP_SHELL_PROTOCOL: u64 = 2;
 pub const CURRENT_UPDATER_PROTOCOL: u64 = 1;
 pub const CURRENT_DATA_EPOCH: u64 = 1;
 const GITHUB_RELEASE_PREFIX: &str = "https://github.com/Mrchen116/nano-multiagent/releases/download/";
@@ -295,7 +295,7 @@ pub fn parse_desktop_release_manifest(
         None | Some(Value::Null) => None,
         Some(v) => {
             let s = v.as_str()?;
-            if s.len() > 2000 {
+            if s.encode_utf16().count() > 2000 {
                 return None;
             }
             Some(s.to_string())
@@ -498,6 +498,7 @@ pub fn cancel_origin_tasks(state: &HostSharedState, im_origin: &str) {
 pub fn on_server_switched(state: &Arc<HostSharedState>, previous_origin: &str, next_origin: &str) {
     if previous_origin != next_origin {
         cancel_origin_tasks(state, previous_origin);
+        state.updater.by_origin.lock().unwrap().remove(previous_origin);
     }
     let state_clone = state.clone();
     tokio::spawn(async move {
@@ -550,6 +551,8 @@ pub fn build_updater_snapshot(state: &HostSharedState) -> DesktopUpdaterSnapshot
             target_info = None;
         }
     }
+
+    if ui_active.previous_ui.contains_key(&cfg.im_origin) { phase = "switching".into(); }
 
     let capsule_dismissed = match (rt.and_then(|r| r.dismissed_version.as_deref()), target_info.as_ref()) {
         (Some(d), Some(t)) => d == t.version,
@@ -761,7 +764,7 @@ fn unpack_staged_hot_bundle_blocking(
             let _ = fs::remove_dir_all(&version_stage);
             fs::rename(&app_extract, &version_stage).map_err(|e| e.to_string())?;
         }
-        let manifest_json = json!({
+        let mut manifest_json = json!({
             "version": target.version,
             "source_commit": target.source_commit,
             "sha256": target.sha256,
@@ -783,6 +786,8 @@ fn unpack_staged_hot_bundle_blocking(
             "macos_distribution": target.macos_distribution,
             "release_base_url": target.release_base_url,
         });
+        // Node's release parser distinguishes an absent optional field from JSON null.
+        manifest_json.as_object_mut().unwrap().retain(|_, value| !value.is_null());
         write_private_json(&version_stage.join(".release-manifest.json"), &manifest_json)?;
         if !version_stage.join(crate::local_node::node_rel_path()).is_file()
             || !version_stage.join("ui/frontend/index.html").is_file()
@@ -1058,12 +1063,12 @@ pub fn maybe_auto_apply_when_hidden(state: &Arc<HostSharedState>) {
         map.get(&cfg.im_origin)
             .filter(|rt| rt.phase == "ready_to_switch" && rt.mode == Some(UpdaterMode::HotBundle))
             .and_then(|rt| rt.target.as_ref())
-            .map(|t| ui_active.rollback_blocked.get(&cfg.im_origin) != Some(&t.sha256))
+            .map(|t| ui_active.rollback_blocked.get(&cfg.im_origin) != Some(&t.sha256) && ui_active.deferred_auto.get(&cfg.im_origin) != Some(&t.sha256))
             .unwrap_or(false)
     };
     if should_apply {
         let state_clone = state.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             let _ = apply_desktop_update_internal(state_clone, None, true).await;
         });
     }
@@ -1162,6 +1167,49 @@ pub(crate) fn parse_node_owner_id_from_config(raw: &str) -> Option<String> {
     None
 }
 
+fn advertised_manifest_path(paths: &DesktopPaths, origin: &str) -> PathBuf {
+    paths.desktop_home.join("update-offers").join(crate::config::sha256_hex(origin.as_bytes()))
+}
+
+fn previous_ui_pointer(bundle: &crate::local_node::ActiveBundlePaths) -> Option<DesktopUiOriginPointer> {
+    Some(DesktopUiOriginPointer {
+        version: bundle.version.clone(),
+        sha256: bundle.sha256.clone()?,
+        version_root: bundle.version_root.to_string_lossy().into_owned(),
+        updated_at_epoch: now_secs(),
+    })
+}
+
+/// Finish a provisional WebView switch only if this document still belongs to that switch.
+pub fn finish_ui_boot(state: &HostSharedState, origin: &str, sha: &str, loaded: bool) {
+    let cfg = state.host_config.read().unwrap();
+    if cfg.im_origin != origin { return; }
+    let mut ui = read_ui_active_file(&state.paths);
+    let Some(active) = ui.origins.get(origin) else { return; };
+    if active.sha256 != sha { return; }
+    let version = active.version.clone();
+    let Some(previous) = ui.previous_ui.remove(origin) else { return; };
+    if loaded {
+        ui.just_updated.insert(origin.to_string(), version);
+    } else {
+        ui.origins.insert(origin.to_string(), previous);
+        ui.just_updated.remove(origin);
+        ui.rollback_blocked.insert(origin.to_string(), sha.to_string());
+    }
+    if write_ui_active_file(&state.paths, &ui).is_err() { return; }
+    drop(cfg);
+    if !loaded {
+        let mut map = state.updater.by_origin.lock().unwrap();
+        let rt = map.entry(origin.to_string()).or_default();
+        rt.phase = "failed".into();
+        rt.error_code = Some("switch_rolled_back".into());
+        drop(map);
+        state.updater.reload_generation.fetch_add(1, Ordering::SeqCst);
+        state.ui_bridge.reload_webview(None);
+    }
+    notify_ui_updater_changed(state, origin);
+}
+
 /// Safely promote an already-staged `.ready` hot update on startup ONLY when the local node is NOT already online,
 /// saving a rollback backup in case `supervise_node`'s initial `start` fails.
 pub fn try_promote_staged_update_on_startup(state: &HostSharedState, im_origin: &str, owner_id: Option<&str>) {
@@ -1169,8 +1217,6 @@ pub fn try_promote_staged_update_on_startup(state: &HostSharedState, im_origin: 
     if !prefs.auto_update {
         return;
     }
-    let versions_dir = state.paths.desktop_home.join("versions");
-    let Ok(entries) = fs::read_dir(&versions_dir) else { return; };
     let Ok(current_bundle) = resolve_active_ui_bundle(&state.paths, im_origin, state.dev_repo_root.as_deref()) else {
         return;
     };
@@ -1181,38 +1227,18 @@ pub fn try_promote_staged_update_on_startup(state: &HostSharedState, im_origin: 
     let trusted = load_trusted_release_config(&state.paths, Some(&current_bundle.version_root));
     let expected_platform = format!("desktop-{}", current_desktop_platform_id());
 
-    let mut best_candidate: Option<(VerifiedDesktopManifest, PathBuf)> = None;
-    for entry in entries.flatten() {
-        let root = entry.path();
-        if !verify_ready_ui_version_root(&root) {
-            continue;
-        }
-        let Ok(raw) = fs::read_to_string(root.join(".release-manifest.json")) else { continue; };
-        let Ok(val) = serde_json::from_str::<Value>(&raw) else { continue; };
-        let Some(manifest) = parse_desktop_release_manifest(&val, &expected_platform, &trusted) else {
-            continue;
-        };
-        if ui_active.rollback_blocked.get(im_origin) == Some(&manifest.sha256) {
-            continue;
-        }
-        if classify_target_release(&current_bundle.version, current_bundle.sha256.as_deref(), &manifest)
-            != Some(UpdaterMode::HotBundle)
-        {
-            continue;
-        }
-        let replace = match &best_candidate {
-            None => true,
-            Some((prev, _)) => match (parse_strict_semver(&manifest.version), parse_strict_semver(&prev.version)) {
-                (Some(a), Some(b)) => a > b,
-                _ => false,
-            },
-        };
-        if replace {
-            best_candidate = Some((manifest, root));
-        }
+    // Content-addressed bundles are shared. Only this service's last verified offer
+    // authorizes a startup switch, including when multiple IMs use the official CDN.
+    let Ok(raw) = fs::read(advertised_manifest_path(&state.paths, im_origin)) else { return; };
+    let Ok(offer) = serde_json::from_slice(&raw) else { return; };
+    let Some(target) = parse_desktop_release_manifest(&offer, &expected_platform, &trusted) else { return; };
+    let target_root = state.paths.desktop_home.join("versions").join(&target.sha256);
+    if ui_active.rollback_blocked.get(im_origin) == Some(&target.sha256) || ui_active.deferred_auto.get(im_origin) == Some(&target.sha256)
+        || classify_target_release(&current_bundle.version, current_bundle.sha256.as_deref(), &target) != Some(UpdaterMode::HotBundle)
+        || !verify_ready_ui_version_root(&target_root)
+    {
+        return;
     }
-
-    let Some((target, target_root)) = best_candidate else { return; };
 
     // Inspect local connection state: NEVER overwrite `.desktop-active.json` if a live node is already running or foreign-owned!
     let mut prev_node_ptr: Option<Value> = None;
@@ -1251,7 +1277,8 @@ pub fn try_promote_staged_update_on_startup(state: &HostSharedState, im_origin: 
             updated_at_epoch: now_secs(),
         },
     );
-    next_ui.just_updated.insert(im_origin.to_string(), target.version.clone());
+    if let Some(previous) = previous_ui_pointer(&current_bundle) { next_ui.previous_ui.insert(im_origin.to_string(), previous); }
+    next_ui.just_updated.remove(im_origin);
     if write_ui_active_file(&state.paths, &next_ui).is_err() {
         return;
     }
@@ -1294,6 +1321,7 @@ pub fn rollback_startup_promotion_if_needed(state: &HostSharedState, im_origin: 
         ui_active.origins.remove(im_origin);
     }
     ui_active.just_updated.remove(im_origin);
+    ui_active.previous_ui.remove(im_origin);
     ui_active.rollback_blocked.insert(im_origin.to_string(), backup.promoted_sha256.clone());
     let _ = write_ui_active_file(&state.paths, &ui_active);
 
@@ -1400,7 +1428,7 @@ pub fn on_internal_reload_assets(state: &HostSharedState) {
 }
 
 pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> DesktopUpdaterSnapshot {
-    if !state.is_seed_ready() {
+    if !state.is_seed_ready() || !manual && !read_updater_prefs(&state.paths).auto_update {
         return build_updater_snapshot(&state);
     }
     let cfg = state.host_config.read().unwrap().clone();
@@ -1426,14 +1454,13 @@ pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> Des
         let rt = map.entry(im_origin.clone()).or_default();
         if matches!(
             rt.phase.as_str(),
-            "preparing" | "downloading_installer" | "waiting_for_tasks" | "switching"
+            "checking" | "preparing" | "downloading_installer" | "waiting_for_tasks" | "switching"
         ) {
+            drop(map);
             return build_updater_snapshot(&state);
         }
-        if manual {
-            rt.phase = "checking".to_string();
-            rt.error_code = None;
-        }
+        rt.phase = "checking".to_string();
+        rt.error_code = None;
     }
     if manual {
         notify_ui_updater_changed(&state, &im_origin);
@@ -1470,6 +1497,7 @@ pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> Des
 
     let status_code = response.status().as_u16();
     if status_code == 404 {
+        let _ = fs::remove_file(advertised_manifest_path(&state.paths, &im_origin));
         let mut map = state.updater.by_origin.lock().unwrap();
         let rt = map.entry(im_origin.clone()).or_default();
         rt.phase = "unpublished".to_string();
@@ -1486,6 +1514,7 @@ pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> Des
     if status_code == 503 {
         let body_text = response.text().await.unwrap_or_default();
         if body_text.to_ascii_lowercase().contains("not published") {
+            let _ = fs::remove_file(advertised_manifest_path(&state.paths, &im_origin));
             let mut map = state.updater.by_origin.lock().unwrap();
             let rt = map.entry(im_origin.clone()).or_default();
             rt.phase = "unpublished".to_string();
@@ -1546,6 +1575,7 @@ pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> Des
         return build_updater_snapshot(&state);
     };
 
+    let _ = write_private_json(&advertised_manifest_path(&state.paths, &im_origin), &raw_json);
     let Some(mode) = classify_target_release(&current_bundle.version, current_bundle.sha256.as_deref(), &manifest) else {
         let mut map = state.updater.by_origin.lock().unwrap();
         let rt = map.entry(im_origin.clone()).or_default();
@@ -1576,7 +1606,10 @@ pub async fn check_for_updates(state: Arc<HostSharedState>, manual: bool) -> Des
             if manual {
                 rt.dismissed_version = None;
             }
-            if already_staged {
+            if !manual && read_ui_active_file(&state.paths).rollback_blocked.get(&im_origin) == Some(&manifest.sha256) {
+                rt.phase = "failed".to_string();
+                rt.error_code = Some("switch_rolled_back".to_string());
+            } else if already_staged {
                 rt.phase = "ready_to_switch".to_string();
                 rt.progress = None;
             } else if prefs.auto_update {
@@ -1983,6 +2016,14 @@ async fn apply_desktop_update_internal(
         }
     }
 
+    let current = state.host_config.read().unwrap().clone();
+    let attention = state.ui_bridge.window_attention();
+    if current.im_origin != im_origin || current.context_epoch != context_epoch
+        || silent_auto && (attention.window_visible || attention.has_unsaved_form || !read_updater_prefs(&state.paths).auto_update)
+    {
+        return Ok(build_updater_snapshot(&state));
+    }
+
     if ownership == "managed_online" {
         if silent_auto && local_active_tasks > 0 {
             // In silent background auto-mode, never gate new incoming messages while tasks are still running.
@@ -2031,13 +2072,15 @@ async fn apply_desktop_update_internal(
             }
         }
         notify_ui_updater_changed(&state, &im_origin);
-        spawn_online_node_update_poller(state.clone(), im_origin, context_epoch, node_id, op_id, target);
+        spawn_online_node_update_poller(state.clone(), im_origin, context_epoch, node_id, op_id, target, access_token);
         return Ok(build_updater_snapshot(&state));
     }
 
     // Instant local pointer switch (`unbound`, `managed_stopped`, `takeover_available`, or `foreign_owner`).
     let root_str = ready_root.to_string_lossy().to_string();
     let mut ui_active = read_ui_active_file(&state.paths);
+    let previous = resolve_active_ui_bundle(&state.paths, &im_origin, state.dev_repo_root.as_deref())?;
+    if let Some(pointer) = previous_ui_pointer(&previous) { ui_active.previous_ui.insert(im_origin.clone(), pointer); }
     ui_active.origins.insert(
         im_origin.clone(),
         DesktopUiOriginPointer {
@@ -2047,7 +2090,7 @@ async fn apply_desktop_update_internal(
             updated_at_epoch: now_secs(),
         },
     );
-    ui_active.just_updated.insert(im_origin.clone(), target.version.clone());
+    ui_active.just_updated.remove(&im_origin);
     ui_active.rollback_blocked.remove(&im_origin);
     write_ui_active_file(&state.paths, &ui_active)?;
 
@@ -2099,12 +2142,13 @@ fn spawn_online_node_update_poller(
     node_id: String,
     op_id: String,
     target: VerifiedDesktopManifest,
+    mut token: String,
 ) {
     tokio::spawn(async move {
-        for _ in 0..180 {
+        loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
             let cfg = state.host_config.read().unwrap().clone();
-            if cfg.im_origin != im_origin || cfg.context_epoch != context_epoch {
+            if cfg.im_origin != im_origin || cfg.context_epoch != context_epoch || state.shutdown_tx.lock().unwrap().is_none() {
                 return;
             }
             if !op_id.is_empty() {
@@ -2120,13 +2164,14 @@ fn spawn_online_node_update_poller(
                     return;
                 }
             }
-            let Some((token, _)) = obtain_im_access_token(&state, &im_origin, None).await else {
-                continue;
-            };
             let nodes_url = format!("{}/im/v1/nodes", im_origin);
             let Ok(res) = state.http_client.get(&nodes_url).bearer_auth(&token).send().await else {
                 continue;
             };
+            if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+                if let Some((renewed, _)) = obtain_im_access_token(&state, &im_origin, None).await { token = renewed; }
+                continue;
+            }
             let Ok(rows) = res.json::<Value>().await else { continue; };
             let Some(arr) = rows.as_array() else { continue; };
             let Some(node_row) = arr.iter().find(|n| n["node_id"].as_str() == Some(node_id.as_str())) else {
@@ -2198,6 +2243,9 @@ fn spawn_online_node_update_poller(
                     return;
                 }
                 "cancelled" => {
+                    let mut ui = read_ui_active_file(&state.paths);
+                    ui.deferred_auto.insert(im_origin.clone(), target.sha256.clone());
+                    let _ = write_ui_active_file(&state.paths, &ui);
                     {
                         let mut map = state.updater.by_origin.lock().unwrap();
                         if let Some(rt) = map.get_mut(&im_origin) {
@@ -2209,6 +2257,9 @@ fn spawn_online_node_update_poller(
                     return;
                 }
                 "rolled_back" => {
+                    let mut ui = read_ui_active_file(&state.paths);
+                    ui.rollback_blocked.insert(im_origin.clone(), target.sha256.clone());
+                    let _ = write_ui_active_file(&state.paths, &ui);
                     {
                         let mut map = state.updater.by_origin.lock().unwrap();
                         if let Some(rt) = map.get_mut(&im_origin) {
@@ -2220,7 +2271,7 @@ fn spawn_online_node_update_poller(
                     notify_ui_updater_changed(&state, &im_origin);
                     return;
                 }
-                "failed" | "interrupted" => {
+                "failed" | "interrupted" | "recovery_required" => {
                     {
                         let mut map = state.updater.by_origin.lock().unwrap();
                         if let Some(rt) = map.get_mut(&im_origin) {
@@ -2255,21 +2306,13 @@ pub async fn cancel_desktop_update(
     };
 
     if let (Some(node_id), Some(op_id)) = (node_id_opt, op_id_opt) {
-        if let Some((token, _)) = obtain_im_access_token(&state, &im_origin, bearer_override).await {
-            let cancel_url = format!("{}/im/v1/nodes/{}/update/cancel", im_origin, node_id);
-            let _ = state
-                .http_client
-                .post(&cancel_url)
-                .bearer_auth(&token)
-                .json(&json!({ "operation_id": op_id }))
-                .send()
-                .await;
-        }
-        let mut map = state.updater.by_origin.lock().unwrap();
-        if let Some(rt) = map.get_mut(&im_origin) {
-            rt.phase = "ready_to_switch".to_string();
-            rt.node_operation_id = None;
-        }
+        let (token, _) = obtain_im_access_token(&state, &im_origin, bearer_override).await
+            .ok_or_else(|| "Sign in to cancel the update".to_string())?;
+        state.http_client.post(format!("{}/im/v1/nodes/{}/update/cancel", im_origin, node_id))
+            .bearer_auth(token).json(&json!({ "operation_id": op_id }))
+            .send().await.and_then(|response| response.error_for_status()).map_err(|e| e.to_string())?;
+        // Keep tracking the operation until the node confirms cancellation or a competing switch.
+
     }
 
     notify_ui_updater_changed(&state, &im_origin);
@@ -2345,7 +2388,7 @@ mod tests {
     #[test]
     fn validates_manifests_and_classifies_hot_bundle_vs_installer_across_platforms() {
         let trusted = TrustedReleaseConfig::default();
-        let mac_v1 = sample_manifest("desktop-darwin-arm64", "desktop-darwin-arm64.json", "Crewden-Desktop-arm64.dmg", 1);
+        let mac_v1 = sample_manifest("desktop-darwin-arm64", "desktop-darwin-arm64.json", "Crewden-Desktop-arm64.dmg", CURRENT_DESKTOP_SHELL_PROTOCOL);
         let parsed_v1 = parse_desktop_release_manifest(&mac_v1, "desktop-darwin-arm64", &trusted).expect("valid v1");
         assert_eq!(
             classify_target_release("1.3.2", Some(&"0".repeat(64)), &parsed_v1),
@@ -2356,7 +2399,7 @@ mod tests {
         assert_eq!(classify_target_release("1.5.0", Some(&"9".repeat(64)), &parsed_v1), None);
 
         // shell_protocol = 2 -> valid manifest classified as `Installer`!
-        let win_v2 = sample_manifest("desktop-win32-x64", "desktop-win32-x64.json", "Crewden-Desktop-Setup-x64.exe", 2);
+        let win_v2 = sample_manifest("desktop-win32-x64", "desktop-win32-x64.json", "Crewden-Desktop-Setup-x64.exe", CURRENT_DESKTOP_SHELL_PROTOCOL + 1);
         let parsed_v2 = parse_desktop_release_manifest(&win_v2, "desktop-win32-x64", &trusted).expect("valid shell_protocol=2");
         assert_eq!(
             classify_target_release("1.3.2", Some(&"0".repeat(64)), &parsed_v2),
@@ -2490,7 +2533,7 @@ mod tests {
                     "size": 256,
                     "updater_protocol": 1,
                     "data_epoch": 1,
-                    "shell_protocol": 1,
+                    "shell_protocol": CURRENT_DESKTOP_SHELL_PROTOCOL,
                     "installer": {
                         "download_url": format!("{}{}", release_base, inst_name),
                         "sha256": "d".repeat(64),
@@ -2579,7 +2622,7 @@ mod tests {
             "size": 256,
             "updater_protocol": 1,
             "data_epoch": 1,
-            "shell_protocol": 1,
+            "shell_protocol": CURRENT_DESKTOP_SHELL_PROTOCOL,
             "release_notes": "Hot switch note",
             "installer": {
                 "download_url": format!("{}{}", release_base, inst_name),
@@ -2633,14 +2676,24 @@ mod tests {
         write_ui_active_file(&paths, &DesktopUiActiveFile::default()).unwrap();
         clear_startup_promotion_backup(&server.state, &im_origin);
 
+        try_promote_staged_update_on_startup(&server.state, &im_origin, None);
+        assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.3.2");
         let snap1 = check_for_updates(server.state.clone(), true).await;
         assert_eq!(snap1.phase, "ready_to_switch");
         assert_eq!(snap1.current_version, "1.3.2");
         assert_eq!(snap1.target.as_ref().unwrap().version, "1.4.0");
         let gen_before = snap1.reload_generation;
+        let hot_offer = fs::read(advertised_manifest_path(&paths, &im_origin)).unwrap();
 
         // Apply hot switch while foreign_owner node exists on disk -> switches UI to 1.4.0 WITHOUT touching foreign `.desktop-active.json`!
         let snap2 = apply_desktop_update(server.state.clone(), None).await.unwrap();
+        assert_eq!(snap2.phase, "switching");
+        finish_ui_boot(&server.state, &im_origin, &sha_v2, false);
+        assert_eq!(resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version, "1.3.2");
+        check_for_updates(server.state.clone(), true).await;
+        apply_desktop_update(server.state.clone(), None).await.unwrap();
+        finish_ui_boot(&server.state, &im_origin, &sha_v2, true);
+        let snap2 = build_updater_snapshot(&server.state);
         assert_eq!(snap2.phase, "up_to_date");
         assert_eq!(snap2.current_version, "1.4.0");
         assert_eq!(snap2.just_updated_version.as_deref(), Some("1.4.0"));
@@ -2653,7 +2706,7 @@ mod tests {
             let mut m = manifest_state.lock().unwrap();
             m["version"] = json!("2.0.0");
             m["sha256"] = json!("3".repeat(64));
-            m["shell_protocol"] = json!(2);
+            m["shell_protocol"] = json!(CURRENT_DESKTOP_SHELL_PROTOCOL + 1);
         }
         let snap3 = check_for_updates(server.state.clone(), true).await;
         assert_eq!(snap3.phase, "available");
@@ -2678,6 +2731,7 @@ mod tests {
         // Verify startup promotion rollback restores previous bundle and blocks re-promotion of broken sha
         write_ui_active_file(&paths, &DesktopUiActiveFile::default()).unwrap();
         fs::remove_dir_all(&foreign_conn).unwrap();
+        fs::write(advertised_manifest_path(&paths, &im_origin), hot_offer).unwrap();
         try_promote_staged_update_on_startup(&server.state, &im_origin, None);
         assert_eq!(
             resolve_active_ui_bundle(&paths, &im_origin, None).unwrap().version,
@@ -2794,7 +2848,7 @@ mod tests {
             let mut m140 = parsed_m;
             m140["version"] = json!("1.4.0");
             m140["sha256"] = json!(sha_v2);
-            m140["shell_protocol"] = json!(1);
+            m140["shell_protocol"] = json!(CURRENT_DESKTOP_SHELL_PROTOCOL);
             rt.target = parse_desktop_release_manifest(
                 &m140,
                 &plat,

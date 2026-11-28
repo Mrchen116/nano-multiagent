@@ -66,6 +66,7 @@ describe("Crewden Desktop seamless updates, draft preservation, and zero-jargon 
   afterEach(() => {
     setDesktopUserMenuOpen(false);
     setDesktopBootContextForTest(undefined);
+    vi.unstubAllGlobals();
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
   });
@@ -370,6 +371,7 @@ describe("Crewden Desktop seamless updates, draft preservation, and zero-jargon 
   });
 
   it("renders narrow (<768px) banner on /chat, hides duplicate banner on /me, and supports manual check & auto-update toggle on MePage", async () => {
+    vi.stubGlobal("innerWidth", 420);
     const user = userEvent.setup();
     setDesktopBootContextForTest({
       imOrigin: "http://192.168.1.25:8080",

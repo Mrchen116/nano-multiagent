@@ -65,6 +65,7 @@ export function useDesktopAttentionReporter(): void {
     if (lastReportedSignature === sig) return;
     lastReportedSignature = sig;
     void reportDesktopAttention({
+      loaded_ui_sha: boot?.bundleSha,
       current_route,
       has_unsaved_form: hasUnsavedForm,
     })
