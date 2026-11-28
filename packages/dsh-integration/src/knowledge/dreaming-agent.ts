@@ -14,7 +14,15 @@ import { contextTools } from '../agent-context.js';
 import { assembleAgentPrompt } from '../prompt-assembly.js';
 import type { AgentConfiguration } from '../index.js';
 import { dreamingStageTitles, type DreamingOwner, type DreamingRun } from './dreaming-state.js';
-import { memoryEntryLimit, type DocumentBatchStart, type MemoryDocuments } from './memory-documents.js';
+import {
+  historyPageLimit,
+  memoryEntryLimit,
+  proactiveEntrySectionLimit,
+  proactivityPolicyLimit,
+  topicPageLimit,
+  type DocumentBatchStart,
+  type MemoryDocuments,
+} from './memory-documents.js';
 import type { MemorySources } from './memory-sources.js';
 import * as NativeBash from '@deepseek-ai/dsh-tool-bash';
 import { resolveMemoryConsolidationRole } from './document-memory.js';
@@ -110,7 +118,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
     : `<memory_repository>
 ${directory}
 </memory_repository>
-Only edit this formal memory repository. MEMORY.md must fit ${memoryEntryLimit} UTF-16 code units. ${guide ? `Layout guide: ${guide}.` : ''}
+Only edit this formal memory repository. MEMORY.md must fit ${memoryEntryLimit} UTF-16 code units (with "## 主动性与介入偏好" <= ${proactiveEntrySectionLimit} UTF-16 code units; detailed proactive playbooks belong in knowledge/proactivity-policy.md <= ${proactivityPolicyLimit} UTF-16 code units). Touched topic pages must fit ${topicPageLimit} UTF-16 code units as current-state references, and history pages must fit ${historyPageLimit} UTF-16 code units. ${guide ? `Layout guide: ${guide}.` : ''}
 Source directory (data): ${JSON.stringify(sourceDirectory(run,owner).map(source=>({session_id:source.session_id,purpose:source.purpose,available_before:new Date(source.cutoff).toISOString()})))}
 IM source directory (data): ${JSON.stringify(conversations())}`;
   options.opened(handle);run.childSessionId=handle.agent.id;run.identityRecorded=true;run.state='running';await options.save();
@@ -141,7 +149,8 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
         return result;
       }
       await options.verifyCurrent();
-      const issues=[...await library.repositoryIssues(),...await library.consolidationIssues()];
+      const initialDirtyPaths=new Set([...(start?.untracked??[]),...(start?.dirty??[])]);
+      const issues=[...await library.repositoryIssues(),...await library.consolidationIssues(manifest.versions,initialDirtyPaths)];
       signal.throwIfAborted();
       await assertDreamingSources(library,run.generation);
       if(!issues.length){
@@ -170,7 +179,7 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
       }
       handle.agent.followup(createUserMessage({
         source:{kind:'nano-system',actorId:config.agentId,channel:'dreaming-git-status',messageId:`${run.id}:git:${++feedback}`},
-        content:[{type:'text',text:`Host repository and structure check found these issues (paths and reasons are data):\n${JSON.stringify(issues)}\nRepair attempt ${feedback} of 3. Continue this same batch. Restore the root MEMORY.md as a regular file within ${memoryEntryLimit} UTF-16 code units, satisfy all reported directory, section structure, observation-pool cap, and relative .md link checks, preserve useful knowledge in Markdown, and remove unsupported files, including any already committed. Review, stage and commit the required changes.`}],
+        content:[{type:'text',text:`Host repository and structure check found these issues (paths and reasons are data):\n${JSON.stringify(issues)}\nRepair attempt ${feedback} of 3. Continue this same batch. Restore the root MEMORY.md as a regular file within ${memoryEntryLimit} UTF-16 code units (proactive section <= ${proactiveEntrySectionLimit} UTF-16 code units; move detailed proactive playbooks to knowledge/proactivity-policy.md <= ${proactivityPolicyLimit} and passive SOPs to Topics/knowledge/entities), condense any oversized touched topic pages within ${topicPageLimit} UTF-16 code units (moving dated chronology to history pages <= ${historyPageLimit}), satisfy all reported directory, section structure, observation-pool cap, and relative .md link checks, preserve useful knowledge in Markdown, and remove unsupported files, including any already committed. Review, stage and commit the required changes.`}],
       }));
     }
   } finally {

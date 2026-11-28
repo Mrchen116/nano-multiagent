@@ -5,12 +5,25 @@ export interface KnowledgeConfiguration {
   memoryMode?: 'document' | 'legacy';
   legacyMemory?: {enabled?: boolean; interval?: number};
   /** maxInputTokens optionally caps materials inside the model-derived full input budget. */
-  dreaming?: {nightlyHour?: number; intervalMs?: number; quietMs?: number; maxInputTokens?: number};
+  dreaming?: {
+    nightlyHour?: number;
+    intervalMs?: number;
+    quietMs?: number;
+    maxInputTokens?: number;
+    minSourceTokens?: number;
+    maxDeferDays?: number;
+  };
   skillInterval?: number;
 }
 
 /** Default automatic maintenance timing, anchored at 03:00 local time after 30 minutes of quiet. */
-export const DEFAULT_DREAMING_SCHEDULE = { nightlyHour: 3, intervalMs: 86400000, quietMs: 1800000 } as const;
+export const DEFAULT_DREAMING_SCHEDULE = {
+  nightlyHour: 3,
+  intervalMs: 86400000,
+  quietMs: 1800000,
+  minSourceTokens: 600,
+  maxDeferDays: 3,
+} as const;
 
 /** Normalize retired configuration keys at the file boundary, without granting tools.
  * Args:
@@ -32,8 +45,10 @@ export function normalizeKnowledge(value: unknown, features: Record<string, bool
   if (!Number.isFinite(interval) || interval < 0) throw new Error('Invalid knowledge.legacyMemory.interval');
   const dreaming = knowledge.dreaming === undefined ? undefined : Object.fromEntries(Object.entries(knowledge.dreaming).filter(([key]) => key !== 'maxSteps' && key !== 'maxRunMs'));
   for (const [key, number] of Object.entries(dreaming ?? {})) {
-    if (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || (key !== 'quietMs' && key !== 'nightlyHour' && number === 0)
-      || (key === 'nightlyHour' && (!Number.isInteger(number) || number > 23))) throw new Error(`Invalid knowledge.dreaming.${key}`);
+    const allowsZero = key === 'quietMs' || key === 'nightlyHour' || key === 'minSourceTokens';
+    if (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || (!allowsZero && number === 0)
+      || (key === 'nightlyHour' && (!Number.isInteger(number) || number > 23))
+      || (key === 'maxDeferDays' && (!Number.isInteger(number) || number < 1))) throw new Error(`Invalid knowledge.dreaming.${key}`);
   }
   return {
     ...(knowledge.globalSkillRoot === undefined ? {} : {globalSkillRoot:knowledge.globalSkillRoot}),

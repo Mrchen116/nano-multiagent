@@ -93,7 +93,11 @@ export function apply(ctx: Context, config: Configuration) {
         await parent.whenIdle(); await ctx.sessions.flush(parent.session);
         await ctx.nanoSessions.disposeAgent(config.agentId);
         timeline({ event: 'automatic_end', result: run });
-        if (run?.state === 'completed' || run?.reason === 'no_eligible_increment') return;
+        if (
+          run?.state === 'completed'
+          || run?.reason === 'no_eligible_increment'
+          || run?.reason === 'deferred_below_min_volume'
+        ) return;
         return { status: budgetExhausted || run?.state === 'cancelled' ? 'incomplete' as const : 'failed' as const,
           reason: budgetExhausted ? 'Evaluation model-call budget exhausted' : run?.error ?? run?.reason ?? run?.summary ?? run?.state ?? 'Automatic maintenance was not admitted', details: run };
       };

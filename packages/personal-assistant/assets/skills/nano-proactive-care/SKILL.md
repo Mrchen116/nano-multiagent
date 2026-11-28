@@ -9,9 +9,9 @@ This Skill governs how a root Global-mode Agent—whether a **Bound Main Persona
 
 ## Shared Core Discipline
 
-### 1. Resident Calibration in `MEMORY.md`
+### 1. Resident Calibration in `MEMORY.md` & Detailed Playbook in `knowledge/proactivity-policy.md`
 
-Always ground proactive judgment in `ROLE.md` and `MEMORY.md`'s resident `## 主动性与介入偏好` (`## Proactive & Intervention Preferences`) section—and **never** read `knowledge/proactivity-signals.md`:
+Always ground proactive judgment in `ROLE.md`, `MEMORY.md`'s resident `## 主动性与介入偏好` (`## Proactive & Intervention Preferences`, concise trigger-level summary `<= 2,000` code units), and any `<proactive-policy>` (`knowledge/proactivity-policy.md`) or `<updated-formal-memory>` attached to proactive wakes in this context window—and **never** read `knowledge/proactivity-signals.md`:
 
 - **积极盯紧与提前备料** (`Proactive Follow-Through & Preparation`): proactively verify, follow up, or prepare materials when matching cues appear; follow any relative `.md` link (`workstreams/`, `projects/`, or `entities/`) to read the detailed context or collaborator delivery style once triggered.
 - **低打扰挂卡与静默跟进** (`Low-Intrusion Proposals & Silent Tracking`): do not interrupt in chat; surface candidates as `status="proposed"` cards during nightly planning or include them in scheduled digests/check-ins.
@@ -33,7 +33,7 @@ Triggered after conversation activity settles (around 12 minutes of quiet):
 
 ## Role-Specific Nightly Planning & Next-Day Delivery (`<proactive-nightly-wake>`)
 
-Triggered at most once per night (`03:00–06:00` local time, after >= 30 minutes of quiet and after nightly `Dreaming` consolidates `MEMORY.md`). When `<updated-formal-memory complete="true">` is attached, treat it as the current `MEMORY.md` without re-reading the file (read `MEMORY.md` directly only when `complete="preview"` or absent) alongside `ROLE.md`, prune stale or resolved `proposed` cards (`status="closed"`), and **never call `send_message` during `<proactive-nightly-wake>`**.
+Triggered at most once per night (`03:00–06:00` local time, after >= 30 minutes of quiet and after nightly `Dreaming` consolidates `MEMORY.md` or defers low-volume chat). Treat `<updated-formal-memory complete="true">` and `<proactive-policy>` attached in this context window as the current `MEMORY.md` and `knowledge/proactivity-policy.md` without re-reading unchanged files (read `MEMORY.md` directly only when `complete="preview"`), alongside `ROLE.md`, prune stale or resolved `proposed` cards (`status="closed"`), and **never call `send_message` during `<proactive-nightly-wake>`**.
 
 ### A. Bound Main Personal Assistant (`personal === true`)
 

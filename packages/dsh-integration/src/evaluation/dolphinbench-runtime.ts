@@ -288,17 +288,55 @@ export function apply(ctx: Context, config: DolphinBenchRuntimeConfig) {
               inDreaming = false;
             }
             await disposeLiveRoot();
-            lastConsolidationAt = stepAt;
-            saveClockState();
+            if (run?.state === 'completed') {
+              lastConsolidationAt = stepAt;
+              saveClockState();
+            }
             timeline({ event: 'dreaming_end', result: run, modelCalls: dreamCalls - beforeCalls });
             runs.push({
               at: stepAt, state: run?.state, reason: run?.reason,
               modelCalls: dreamCalls - beforeCalls, inputTokens: dreamInput - beforeIn, outputTokens: dreamOutput - beforeOut,
             });
-            if (run && run.state !== 'completed' && run.reason !== 'no_eligible_increment') {
+            if (
+              run
+              && run.state !== 'completed'
+              && run.reason !== 'no_eligible_increment'
+              && run.reason !== 'deferred_below_min_volume'
+            ) {
               throw new Error(`Dreaming failed at ${new Date(stepAt).toISOString()}: ${run.error ?? run.reason ?? run.state}`);
             }
             due = await dreaming.nextAutomaticAt(config.agentId);
+          }
+          if (force) {
+            logicalTime = Math.max(logicalTime, toMs);
+            const pendingStatus = await dreaming.status(config.agentId);
+            if (pendingStatus?.backlog.state === 'pending') {
+              await disposeLiveRoot();
+              const parent = await ctx.nanoSessions.resolve(config.rootSessionId);
+              const beforeCalls = dreamCalls, beforeIn = dreamInput, beforeOut = dreamOutput;
+              inDreaming = true;
+              let flushRun: { accepted?: boolean; state?: string; reason?: string; error?: string } | undefined;
+              try {
+                timeline({ event: 'dreaming_flush_start', at: logicalTime });
+                flushRun = await dreaming.start(parent, false) as typeof flushRun;
+                await dreaming.whenIdle(config.agentId);
+              } finally {
+                inDreaming = false;
+              }
+              await disposeLiveRoot();
+              if (flushRun?.state === 'completed') {
+                lastConsolidationAt = logicalTime;
+                saveClockState();
+              }
+              timeline({ event: 'dreaming_flush_end', result: flushRun, modelCalls: dreamCalls - beforeCalls });
+              runs.push({
+                at: logicalTime, state: flushRun?.state, reason: flushRun?.reason,
+                modelCalls: dreamCalls - beforeCalls, inputTokens: dreamInput - beforeIn, outputTokens: dreamOutput - beforeOut,
+              });
+              if (flushRun && flushRun.state !== 'completed' && flushRun.reason !== 'no_eligible_increment') {
+                throw new Error(`Final Dreaming flush failed at ${new Date(logicalTime).toISOString()}: ${flushRun.error ?? flushRun.reason ?? flushRun.state}`);
+              }
+            }
           }
         }
       }

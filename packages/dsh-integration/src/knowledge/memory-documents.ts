@@ -8,8 +8,12 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { atomicWrite } from './files.js';
 
 export const memoryEntryLimit = 8000;
+export const proactiveEntrySectionLimit = 2000;
 export const proactivitySignalsLimit = 4000;
 export const proactivitySignalsMaxItems = 20;
+export const proactivityPolicyLimit = 6000;
+export const topicPageLimit = 16000;
+export const historyPageLimit = 32000;
 export type MemoryConsolidationRole = 'personal' | 'global_expert' | 'single_thread_expert';
 
 const personalTopDirectories = new Set(['entities', 'knowledge', 'workstreams', 'timeline']);
@@ -43,7 +47,7 @@ function collectAstLinks(node: unknown, urls: string[] = []): string[] {
 }
 export type DocumentVersions = Record<string, string>;
 export interface DocumentGitChange { path: string; status: string; supported: boolean }
-export interface DocumentBatchStart { head: string; untracked: string[] }
+export interface DocumentBatchStart { head: string; untracked: string[]; dirty?: string[] }
 export interface SourceEligibility { revision: string; allowed: string[]; excluded: string[] }
 export interface DocumentOperation { operationId: string; path: string; beforeHash: string | null; content: string }
 export interface DocumentReceipt {
@@ -300,8 +304,16 @@ export class MemoryDocuments {
     return issues;
   }
 
-  /** Validate structure, proactive calibration layout, observation-pool caps, and relative Markdown links at consolidation completion. */
-  async consolidationIssues(): Promise<Array<{ path: string; reason: string }>> {
+  /** Validate structure, proactive quotas, touched-page caps, and relative Markdown links at consolidation completion.
+   *
+   * Args:
+   *   beforeVersions: Optional pre-batch file hashes so untouched legacy pages do not block unrelated consolidations.
+   *   initialDirtyPaths: Optional paths already uncommitted at batch start that must also satisfy page caps if committed.
+   */
+  async consolidationIssues(
+    beforeVersions?: DocumentVersions,
+    initialDirtyPaths?: ReadonlySet<string>,
+  ): Promise<Array<{ path: string; reason: string }>> {
     const issues: Array<{ path: string; reason: string }> = [];
     const allowedTop = this.role === 'personal' ? personalTopDirectories : expertTopDirectories;
     for (const item of await readdir(this.root, { withFileTypes: true })) {
@@ -357,6 +369,17 @@ export class MemoryDocuments {
             endIdx = i;
             break;
           }
+        }
+        const sectionStart = tree.children[startIdx]!.position?.start.offset ?? 0;
+        const sectionEnd = endIdx < tree.children.length
+          ? (tree.children[endIdx]!.position?.start.offset ?? entryText.length)
+          : entryText.length;
+        const sectionLength = entryText.slice(sectionStart, sectionEnd).trimEnd().length;
+        if (sectionLength > proactiveEntrySectionLimit) {
+          issues.push({
+            path: 'MEMORY.md',
+            reason: `MEMORY.md proactive section "## ${astText(tree.children[startIdx]!).trim()}" has ${sectionLength} UTF-16 code units; limit is ${proactiveEntrySectionLimit}. Keep only concise trigger-level boundaries and quiet hours here, move detailed proactive playbooks to knowledge/proactivity-policy.md, and place passive task/reply SOPs under Topics, knowledge/, or entities/`,
+          });
         }
         const seenBuckets = new Set<string>();
         for (let i = startIdx + 1; i < endIdx; i++) {
@@ -433,8 +456,51 @@ export class MemoryDocuments {
       }
     }
 
+    if (regularMarkdownPaths.includes('knowledge/proactivity-policy.md')) {
+      const policyRel = 'knowledge/proactivity-policy.md';
+      if (!supportsProactiveCalibration) {
+        issues.push({
+          path: policyRel,
+          reason: 'knowledge/proactivity-policy.md is only supported for personal assistant and global expert memory repositories',
+        });
+      } else {
+        const policyText = await readFile(join(this.root, policyRel), 'utf8');
+        if (policyText.length > proactivityPolicyLimit) {
+          issues.push({
+            path: policyRel,
+            reason: `knowledge/proactivity-policy.md has ${policyText.length} UTF-16 code units; limit is ${proactivityPolicyLimit}`,
+          });
+        }
+      }
+    }
+
     for (const relPath of regularMarkdownPaths.sort()) {
       const content = await readFile(join(this.root, relPath), 'utf8');
+      if (
+        relPath !== 'MEMORY.md'
+        && relPath !== 'knowledge/proactivity-signals.md'
+        && relPath !== 'knowledge/proactivity-policy.md'
+      ) {
+        const touched = beforeVersions === undefined
+          || beforeVersions[relPath] !== digest(content)
+          || Boolean(initialDirtyPaths?.has(relPath));
+        if (touched) {
+          const topDir = relPath.split('/')[0]!;
+          if (topDir === 'timeline' || topDir === 'work-history') {
+            if (content.length > historyPageLimit) {
+              issues.push({
+                path: relPath,
+                reason: `${relPath} has ${content.length} UTF-16 code units; history page limit is ${historyPageLimit}. Condense or split historical records while retaining verifiable pointers`,
+              });
+            }
+          } else if (allowedTop.has(topDir) && content.length > topicPageLimit) {
+            issues.push({
+              path: relPath,
+              reason: `${relPath} has ${content.length} UTF-16 code units; topic page limit is ${topicPageLimit}. Keep only current state, active constraints, and key decision pointers here, and move chronological logs to ${this.role === 'personal' ? 'timeline/daily/' : 'work-history/'}`,
+            });
+          }
+        }
+      }
       const links = collectAstLinks(fromMarkdown(content));
       for (const rawLink of links) {
         const rawUrl = rawLink.trim();
@@ -492,7 +558,8 @@ export class MemoryDocuments {
     const staged = splitNul(await command(this.root,
       ['diff', '--cached', '--name-only', '--diff-filter=A', '--no-renames', '-z', head, '--'],
       undefined, this.gitEnvironment(), {raw:true}));
-    return {head, untracked:[...await this.untrackedPaths(), ...staged]};
+    const dirty = (await this.gitChanges()).map(change => change.path);
+    return {head, untracked:[...await this.untrackedPaths(), ...staged], dirty};
   }
   /** Restore this batch's starting commit and remove untracked paths created by the batch. */
   rollbackBatch(start: DocumentBatchStart): Promise<string[]> {

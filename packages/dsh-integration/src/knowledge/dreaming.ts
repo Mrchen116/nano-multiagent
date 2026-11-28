@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DREAMING_SCHEDULE } from '@nano/product-contracts';
 import { definitionsForRole, effectiveCapabilityFeatures } from '@nano/product-contracts/capabilities';
-import { lstat, mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, writeFile, readdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
@@ -15,7 +15,7 @@ import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
 import { MemorySources, commitSourceRange, selectChildMaterial, renderSessionMaterials, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
 import { dreamingDomain, dreamingStageTitles, type DreamingOwner, type DreamingPendingTaskContext, type DreamingRun, type TaskSummary } from './dreaming-state.js';
-import type { MemoryDocuments } from './memory-documents.js';
+import { proactivityPolicyLimit, type MemoryDocuments } from './memory-documents.js';
 import { atomicWrite } from './files.js';
 import { runDreamingAgent, memoryDigest } from './dreaming-agent.js';
 import { dreamingInputLimit, estimateInputTokens, type DreamingInput } from './dreaming-budget.js';
@@ -76,6 +76,144 @@ function cycleSlotKey(ms: number, timeZone: string, anchorHour: number): string 
   const p = localCalendarParts(ms, timeZone);
   const dayShift = p.hour < anchorHour ? -1 : 0;
   return new Date(Date.UTC(p.year, p.month - 1, p.day + dayShift)).toISOString().slice(0, 10);
+}
+
+function daysBetweenDateKeys(olderKey: string, newerKey: string): number {
+  const [y1, m1, d1] = olderKey.split('-').map(Number) as [number, number, number];
+  const [y2, m2, d2] = newerKey.split('-').map(Number) as [number, number, number];
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000);
+}
+
+function textBlocksToString(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map(block => {
+      if (typeof block === 'string') return block;
+      if (block && typeof block === 'object' && (block as { type?: unknown }).type === 'text') {
+        return String((block as { text?: unknown }).text ?? '');
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isHumanTaskRecord(text: string, source?: Record<string, unknown>): boolean {
+  if (source && (('humanControl' in source && Boolean(source.humanControl)) || ('human_control' in source && Boolean(source.human_control)))) {
+    return true;
+  }
+  if (text.includes('Application-attested human Task control follows.') || text.startsWith('Your access or handling eligibility')) {
+    return true;
+  }
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    const parsed = parseJsonObject(trimmed);
+    if (!parsed) continue;
+    if (parsed.human_control) return true;
+    const actor = parsed.actor;
+    if (actor && typeof actor === 'object' && (actor as { type?: unknown }).type === 'user') return true;
+  }
+  return false;
+}
+
+function hasHumanTaskSignal(
+  selectedPending: readonly DreamingPendingTaskContext[],
+  units: readonly FrozenBatch['units'][number][],
+): boolean {
+  if (selectedPending.some(item => isHumanTaskRecord(item.text))) return true;
+  for (const unit of units) {
+    for (const raw of unit.events as Array<Record<string, unknown>>) {
+      const record = raw.type === 'source_text_continuation'
+        ? (raw.source as Record<string, unknown> | undefined)
+        : raw;
+      const src = record?.source as Record<string, unknown> | undefined;
+      if (src?.kind === 'nano-system' && src.channel === 'task-context') {
+        const body = raw.type === 'source_text_continuation'
+          ? String(raw.text ?? '')
+          : textBlocksToString(record?.content);
+        if (isHumanTaskRecord(body, src)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+async function isInitialSeedMemory(library: MemoryDocuments): Promise<boolean> {
+  if (await library.entryIssue()) return true;
+  const versions = await library.versions();
+  if (Object.keys(versions).some(path => path !== 'MEMORY.md' && path !== 'knowledge/proactivity-signals.md')) {
+    return false;
+  }
+  const entry = await readFile(join(library.root, 'MEMORY.md'), 'utf8').catch(() => '');
+  return !entry.trim() || entry.includes('No topics saved yet.');
+}
+
+/** Estimate substantive conversational/reply tokens across frozen units, excluding protocol check shells. */
+export function substantiveSourceTokens(units: readonly FrozenBatch['units'][number][]): number {
+  const inboundReadCalls = new Set<string>();
+  const chunks: string[] = [];
+  for (const unit of units) {
+    for (const raw of unit.events as Array<Record<string, unknown>>) {
+      if (raw.type === 'source_text_continuation') {
+        if (typeof raw.text === 'string' && raw.text.trim()) chunks.push(raw.text);
+        continue;
+      }
+      if (raw.type === 'user/message' || raw.type === 'assistant/message') {
+        const body = textBlocksToString(raw.content).trim();
+        if (body) chunks.push(body);
+        continue;
+      }
+      if (raw.type === 'tool/call') {
+        const name = String(raw.name ?? '');
+        const callId = String(raw.callId ?? '');
+        const args = parseJsonObject(raw.arguments);
+        if ((name === 'inbox' && args?.action === 'read') || name === 'read_messages') {
+          if (callId) inboundReadCalls.add(callId);
+        } else if (name === 'send_message' || name === 'send_user_message') {
+          for (const field of ['text', 'content'] as const) {
+            if (typeof args?.[field] === 'string' && args[field].trim()) chunks.push(args[field]);
+          }
+          if (args?.interactive !== undefined) chunks.push(JSON.stringify(args.interactive));
+        }
+        continue;
+      }
+      if (raw.type === 'tool/result' && raw.isError !== true && inboundReadCalls.has(String(raw.callId ?? ''))) {
+        const rawText = textBlocksToString(raw.content).trim();
+        if (!rawText) continue;
+        const parsed = parseJsonObject(rawText);
+        if (parsed && Array.isArray(parsed.messages)) {
+          for (const msg of parsed.messages) {
+            if (!msg || typeof msg !== 'object') continue;
+            const m = msg as Record<string, unknown>;
+            const msgBody = typeof m.content === 'string'
+              ? m.content
+              : Array.isArray(m.content)
+                ? textBlocksToString(m.content)
+                : typeof m.text === 'string'
+                  ? m.text
+                  : '';
+            if (msgBody.trim()) chunks.push(msgBody);
+          }
+        } else if (!parsed || !Array.isArray(parsed.sources)) {
+          chunks.push(rawText);
+        }
+      }
+    }
+  }
+  return chunks.length ? estimateInputTokens(chunks.join('\n')) : 0;
 }
 
 /** Runs low-priority memory maintenance in a native empty-context execution. */
@@ -217,10 +355,16 @@ export class Dreaming {
       const anchorHour = config.knowledge?.dreaming?.nightlyHour ?? DEFAULT_DREAMING_SCHEDULE.nightlyHour;
       const table = (await this.domain).table('owners'); const saved = table.get(key(config.agentId)); if (saved) {
         if (saved.protocol !== 2) throw new Error('Dreaming state needs the offline protocol-2 migration before maintenance can run.');
+        let dirtyOwner = false;
         if (saved.lastCompletedCycle === undefined) {
           saved.lastCompletedCycle = cycleSlotKey(saved.lastSuccessAutomatic ?? saved.activationAt, tz, anchorHour);
-          await table.put(key(config.agentId), saved);
+          dirtyOwner = true;
         }
+        if (saved.lastConsolidatedCycle === undefined) {
+          saved.lastConsolidatedCycle = saved.lastCompletedCycle;
+          dirtyOwner = true;
+        }
+        if (dirtyOwner) await table.put(key(config.agentId), saved);
         return saved;
       }
       const library = await this.documents.forConfig(config);
@@ -229,6 +373,7 @@ export class Dreaming {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       const activationAt = imported?.activationAt ?? this.now();
       const lastCompletedCycle = imported?.lastCompletedCycle ?? cycleSlotKey(imported?.lastSuccessAutomatic ?? activationAt, tz, anchorHour);
+      const lastConsolidatedCycle = imported?.lastConsolidatedCycle ?? lastCompletedCycle;
       const owner: DreamingOwner = {
         protocol: 2,
         integrated: {},
@@ -236,6 +381,7 @@ export class Dreaming {
         activationAt,
         ...(imported?.lastSuccessAutomatic !== undefined ? { lastSuccessAutomatic: imported.lastSuccessAutomatic } : {}),
         lastCompletedCycle,
+        lastConsolidatedCycle,
         streams: imported?.streams ?? await this.sources.baseline(config.agentId),
         rotation: 0,
         failures: 0,
@@ -394,11 +540,56 @@ export class Dreaming {
             const finishedAt=this.now();
             owner.lastSuccessAutomatic=finishedAt;
             if(config.knowledge?.dreaming?.intervalMs===undefined){
-              owner.lastCompletedCycle=cycleSlotKey(finishedAt,this.effectiveTimeZone(),config.knowledge?.dreaming?.nightlyHour??DEFAULT_DREAMING_SCHEDULE.nightlyHour);
+              const slot=cycleSlotKey(finishedAt,this.effectiveTimeZone(),config.knowledge?.dreaming?.nightlyHour??DEFAULT_DREAMING_SCHEDULE.nightlyHour);
+              owner.lastCompletedCycle=slot;
+              owner.lastConsolidatedCycle=slot;
             }
           }
           await this.saveOwner(config.agentId,owner);
           return completed.length ? {accepted:true,state:'completed',runIds:completed} : {accepted:false,completed:false,reason:'no_eligible_increment'};
+        }
+        const hasContinuation=Object.values(owner.streams).some(progress=>Boolean(progress.continuation))
+          ||batch.ranges.some(range=>Boolean(range.continuation));
+        if(
+          work.automatic
+          &&config.knowledge?.dreaming?.intervalMs===undefined
+          &&completed.length===0
+          &&!deferred?.summaries.length
+          &&!hasContinuation
+          &&!importPending
+          &&!check
+          &&!pendingMaterial
+        ){
+          const minSourceTokens=config.knowledge?.dreaming?.minSourceTokens??DEFAULT_DREAMING_SCHEDULE.minSourceTokens;
+          const maxDeferDays=config.knowledge?.dreaming?.maxDeferDays??DEFAULT_DREAMING_SCHEDULE.maxDeferDays;
+          if(minSourceTokens>0){
+            const nowMs=this.now();
+            const tz=this.effectiveTimeZone();
+            const anchorHour=config.knowledge?.dreaming?.nightlyHour??DEFAULT_DREAMING_SCHEDULE.nightlyHour;
+            const currentSlot=cycleSlotKey(nowMs,tz,anchorHour);
+            const baselineSlot=owner.lastConsolidatedCycle??owner.lastCompletedCycle??cycleSlotKey(owner.lastSuccessAutomatic??owner.activationAt,tz,anchorHour);
+            const daysSinceConsolidated=daysBetweenDateKeys(baselineSlot,currentSlot);
+            if(
+              daysSinceConsolidated<maxDeferDays
+              &&!hasHumanTaskSignal(selectedPending,batch.units)
+              &&!await isInitialSeedMemory(library)
+            ){
+              const substantiveTokens=substantiveSourceTokens(batch.units);
+              if(substantiveTokens<minSourceTokens){
+                owner.failures=0;
+                delete owner.retryAt;
+                owner.lastCompletedCycle=currentSlot;
+                await this.saveOwner(config.agentId,owner);
+                return {
+                  accepted:false,
+                  completed:false,
+                  reason:'deferred_below_min_volume',
+                  substantiveTokens,
+                  minSourceTokens,
+                };
+              }
+            }
+          }
         }
         run=this.newRun(parent,config,work,library,target,cycleId,batch,'consolidate');
         run.importLegacy=importPending;
@@ -580,6 +771,17 @@ export class Dreaming {
         if(signalsBody!==undefined){
           inputs.push(`Contents of ${signalsPath} — background single-signal observation pool (Dreaming-only; never link from MEMORY.md):\n<proactivity_signals>\n${signalsBody||'(empty)'}\n</proactivity_signals>`);
         }
+        const policyPath=join(library.root,'knowledge/proactivity-policy.md');
+        const policyInfo=await lstat(policyPath).catch(error=>
+          (error as NodeJS.ErrnoException).code==='ENOENT'?undefined:Promise.reject(error));
+        if(policyInfo?.isFile()&&await realpath(policyPath).catch(()=>'')===policyPath){
+          const policyBody=await readFile(policyPath,'utf8');
+          if(policyBody.length<=proactivityPolicyLimit){
+            inputs.push(`Contents of ${policyPath} — current confirmed proactive playbook (<= ${proactivityPolicyLimit} UTF-16 code units):\n<proactivity_policy>\n${policyBody||'(empty)'}\n</proactivity_policy>`);
+          }else{
+            inputs.push(`Notice for ${policyPath}: file currently has ${policyBody.length} UTF-16 code units (limit ${proactivityPolicyLimit}); read and condense it within ${proactivityPolicyLimit} UTF-16 code units if updating proactive policy.`);
+          }
+        }
       }
     }
     if(run.importLegacy){
@@ -624,6 +826,8 @@ export class Dreaming {
       const merged=[...(owner.integratedTaskContextIds??[]),...run.pendingTaskContext.map(item=>item.messageId)];
       owner.integratedTaskContextIds=[...new Set(merged)].slice(-512);
     }
+    const anchorHour=this.configuration(run.agentId)?.knowledge?.dreaming?.nightlyHour??DEFAULT_DREAMING_SCHEDULE.nightlyHour;
+    owner.lastConsolidatedCycle=cycleSlotKey(run.endedAt??this.now(),this.effectiveTimeZone(),anchorHour);
     await this.saveOwner(run.agentId,owner);
   }
   private async disposeHandle(work:Active){

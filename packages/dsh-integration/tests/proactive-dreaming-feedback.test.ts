@@ -327,7 +327,7 @@ export function apply(ctx) {
       sessionId: 'pa-root',
       inputId: 'day3-msg',
       mode: 'followup',
-      content: [{ type: 'text', text: 'Day 3 ordinary chat message for rollback verification.' }],
+      content: [{ type: 'text', text: 'Day 3 ordinary chat message for rollback verification. '.repeat(60) }],
       source: { kind: 'human', actorId: 'owner', channel: 'web', messageId: 'day3-msg' },
     });
     await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'pa-root', inputId: 'day3-msg' }) as { terminal?: unknown }).terminal).toBeTruthy();
