@@ -9,8 +9,9 @@ Global / PA 主 Agent 通过固定只读工具 `read_worker` 统一查看自己�
 #### Scenario: 统一列出与轻量摘要查看跨运行时一级 Worker
 - **GIVEN** 某个 Global / PA 主 Agent 先后派发了 DSH 与外部 CLI 运行时的多个一级 Worker（含进行中与已结束状态）
 - **WHEN** 主 Agent 调用 `read_worker(action="list")`（可选按活跃/终态筛选与分页）或对指定 Worker 调用 `read_worker(action="summary", worker_id=...)`
-- **THEN** 列表按最近更新优先返回跨全部运行时的稳定 `worker_id`、任务标题、运行时、当前状态、轮次与时间信息，无匹配时返回明确空列表而非报错
-- **AND** 轻量摘要返回状态、运行时、轮次、时间、最近若干条单行关键活动摘要及有界最近汇报或错误摘要，不向目标 Worker 发消息、不打断运行中任务、也不唤醒已空闲 Worker
+- **THEN** 列表按最近更新优先返回跨全部运行时的稳定 `worker_id`、任务标题、运行时、当前状态、已执行轮次、已结算累计 Token 用量（可用时）与时间信息，无匹配时返回明确空列表而非报错
+- **AND** 轻量摘要返回状态、运行时、已执行轮次、已结算累计 Token 用量（可用时，部分轮次缺失时显式标记）、时间、最近若干条单行关键活动摘要及有界最近汇报或错误摘要，不向目标 Worker 发消息、不打断运行中任务、也不唤醒已空闲 Worker
+- **AND** 一级 Worker（DSH 与外部 CLI）每轮结束向主 Agent 发送终局唤醒通知时，顺带附带该 Worker 的已执行轮次与已结算累计 Token 摘要（可用时），不改变原有消息来源语义且无需主 Agent 额外查询 `read_worker`
 
 #### Scenario: 按需深读对话或活动记录并支持分页、单条续读与脱敏
 - **GIVEN** 某个 Worker 存在多轮对话、较长回复或多步工具执行记录

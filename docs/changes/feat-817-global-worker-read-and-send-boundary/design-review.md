@@ -188,3 +188,132 @@ R1 首轮审查，无历史遗留问题。
 ### Recommendations
 
 无。
+
+
+---
+
+## Round 3
+
+### Metadata
+
+- **Reviewer**: Independent Gate 2 Design Reviewer (`change-design-reviewer` + `agent-context-review` design mode, Antigravity subagent `e0375e1d-71ee-429e-9448-935be4231b7a`)
+- **Review Target**: `docs/changes/feat-817-global-worker-read-and-send-boundary/` 相对于 `a29bdf5b2` 的 Q6 增量修订（`spec.md`、`specs/gateway/global-agent.md`、`design.md`）
+- **review_mode**: `delta`
+- **mode_reason**: 本轮为 Gate 2 R2 通过后的有界增量需求（Q6：在 `read_worker(list/summary)` 与 Worker 终局唤醒通知中透出 `turn_count` 与累计 `total_tokens`/`tokens_partial`）；核心工具边界、`single_thread` 隔离、审批收口与 R1/R2 已闭合决策均未变动，沿 `delta` 模式重点核查 Q6 需求、delta-spec、DSH/CLI 终局生命周期时序、同步改写钩子与用量语义。
+- **started_at**: `2026-11-28T16:08:00+09:00`
+- **completed_at**: `2026-11-28T16:12:00+09:00`
+- **duration**: `4m00s`
+
+### Verdict
+
+**Issues Found** — **1 CRITICAL / 0 WARNING**（另附 **2 Recommendations**）
+
+---
+
+### Coverage 与证据
+
+- **本轮增量变化与波及范围核查**：
+  1. **需求与 delta-spec 一致性**：核对 `git diff a29bdf5b2` 中 `spec.md`（追加用户原话、Q6 澄清记录及 list/summary/终局唤醒通知验收条款）与 `specs/gateway/global-agent.md`（同步更新 `统一列出与轻量摘要查看跨运行时一级 Worker` Scenario），两者语义完全一致且未触碰其他已有条款；`./scripts/docs-check`（248 maintained Markdown sources, 74 required routes）与 `scripts/check_platform_parity.py` 均通过。
+  2. **DSH `subagent-settled` 通知生命周期与 `agent/inbox/inserted` 同步钩子核查（关键缺陷，见 `R3-C1`）**：
+     - 亲自核查 `@deepseek-ai/dsh-subagent/lib/index.js:1231-1250`：子会话结束时的严格执行顺序为 `await idle`（L1231，触发 `session/event` `turn/end`）→ `await flushFinalState`（L1232）→ **`await activation.handle.dispose()`（L1239，触发 `agent/disposed` 并将子会话从 `ctx.sessions` 卸载）** → **`this.notifySettlement(...)`（L1248，触发父级 `agent/inbox/inserted`）** → `activation.observer.settle()`（L1250，触发 `subagent/end`）。
+     - 同步核查 `@deepseek-ai/dsh-agent-loop/lib/index.js:204-207`：`agent.inbox.replace()` 底层走 `splice()`，会**同步重入触发 `agent/inbox/inserted`**，必须按内容标记幂等判重防递归。
+     - 核查消费链兼容性：`memory-sources.ts`、`memory-source-view.ts`、`memory-trajectory.ts`、`work-projection.ts`、`agent-work-panel.tsx` 与 `ApprovalSources`（`policy/sources.ts:218-228`）均仅按 `source.kind` / `source.senderSessionId` 判定 `subagent-settled` 语义，保持原 `message.id` 与 `message.source` 不变不会改变审批来源归类（仍为不可信通知，不升级真人授权）或 Work/Memory 投影。
+  3. **外部 CLI `onDetail` / `onEnd` 顺序与 `total_tokens`/`tokens_partial` 语义核查**：
+     - 核查 `drivers.ts:55-69`：`TurnEvents.end()` 先经 `this.details.end(state, tokens, text)` 将 `onDetail('turn_end')` 挂到顺序链 `this.delivery`，随后才把 `onEnd` 挂在 `this.delivery` 之后；Claude 排队纠偏分支（`drivers.ts:662-668`）亦在每轮结束调用 `events.details.end(state, tokens)`，因此 `onEnd` 执行时已结算轮次的 `turnCount`/`totalTokens`/`tokensPartial` 已落盘就绪。
+     - `total_tokens` 仅统计已结算轮次、尚无上报时省略、任一已结算轮次缺失上报时置 `tokens_partial: true` 的契约对三类状态（未结算、部分缺失、全缺失）语义闭合，与 DSH `nativeTurns()`（`manager.ts:178-192`）逻辑一致。
+- **未受影响项引用（`retained_from: Round 1 / Round 2`）**：
+  - `specs/gateway/{spec,agent-capabilities}.md`、`GlobalMode.apply` 条件分支、`capabilities.ts` L104-113、`approval.ts` L129+L166、`WorkerInspector` 分页/脱敏/系统注入过滤、`LocalWorkers` 单队列与 `deliver()` 四源分流、五端对齐矩阵、四场景定量克制读取门槛及无迁移/无原型判断均未受影响，沿用 Round 1 / Round 2 证据。
+
+---
+
+### 历史问题闭环
+
+Round 1 全部 6 项问题已在 Round 2 关闭；本轮无未关闭历史问题。
+
+---
+
+### Issues
+
+#### `R3-C1` [CRITICAL] DSH `subagent-settled` 在 `activation.handle.dispose()` 卸载子会话之后触发，`agent/inbox/inserted` 读 `ctx.sessions.get(senderSessionId)` 必为 `undefined` 且回退缓存与异步 `captureWorkerTurns` 存在竞态
+
+- **位置**：`docs/changes/feat-817-global-worker-read-and-send-boundary/design.md` 接口与数据流 3（DSH 元数据更新与终局通知用量附注）及 Milestones `M1`。
+- **证据**：
+  - `@deepseek-ai/dsh-subagent/lib/index.js:1238-1250` 在释放 DSH 子激活时，先执行 `await activation.handle.dispose()`（L1239，将子 Agent 与子 Session 从 `ctx.sessions` 活表卸载并触发 `agent/disposed`），之后才在 L1248 调用 `this.notifySettlement(...)` 向父级插入 `subagent-settled` 消息（触发 `agent/inbox/inserted`），且 `subagent/end` 直到 L1250 才触发。
+  - 同时 `packages/dsh-integration/src/index.ts:455-457` 对 `session/event`（`turn/end`）仅以 `void captureWorkerTurns(session)` 异步触发（需依次 `await models` → `this.serialize(this.changes, ...)` → `await this.domain` → `table.put`），在 L1248 `notifySettlement()` 之前没有任何同步屏障。
+  - 当前 `design.md` 方案依赖在 `agent/inbox/inserted` 中直接调用 `ctx.sessions.get(senderSessionId)?.snapshotEvents()` 并回退缓存元数据：正常终局路径下前者必然返回 `undefined`，后者则会与异步 `captureWorkerTurns` 竞态而读到上一轮旧值（第 1 轮读到 `turnCount = 0`、无 `totalTokens`）。
+- **未修后果**：DSH 一级 Worker 每轮终局唤醒主 Agent 的通知会稳定丢失当轮或滞后一轮的 `turns`/`tokens`（第 1 轮甚至不显示用量或误报 `turns=0`），无法兑现 `spec.md` 与 `specs/gateway/global-agent.md` 新增契约。
+- **修订要求**：
+  1. 在 `LocalWorkers` 维护按 `workerId` 索引的内存同步用量缓存 `dshUsage: Map<workerId, { turnCount: number; totalTokens?: number; tokensPartial?: boolean }>`（启动加载域时由 `storedWorker` 预热，`forget(roots)` 同步清理），并在 **严格早于 `notifySettlement()` 且子会话仍在内存中的同步时机**——`ctx.on('session/event', ...)` 的 `turn/end` 及/或 `ctx.on('agent/disposed', ...)`（L1239 内触发，`agent.session.snapshotEvents()` 仍可读）——同步刷新 `dshUsage`。
+  2. `index.ts` 的 `agent/inbox/inserted` 同步钩子直接读取 `workers.getDshUsageSync(agent.id, senderSessionId)`（归属校验 + 命中 `dshUsage`），不再依赖已卸载的 `ctx.sessions.get(senderSessionId)` 或异步落盘时序；并显式注明因 `agent.inbox.replace()` 会同步重入触发 `agent/inbox/inserted`（`@deepseek-ai/dsh-agent-loop/lib/index.js:206`），必须在 `replace` 前检查消息内容是否已含 `[Worker usage:` 标记以确保幂等不递归。
+
+---
+
+### Recommendations
+
+- **`R3-R1`**：外部 CLI `onEnd` 唤醒消息建议与 DSH 统一采用独立尾行 `[Worker usage: turns=<N>, tokens=<T>]`（保留原首行 `"This turn ended. The worker will do no further work unless you send it more.\n"` 不变），既让主 Agent 对 DSH 与外部 CLI 看到完全同构的用量摘要格式，也避免破坏既有 `local-worker-manager.test.ts:94` 对原首行的匹配。
+- **`R3-R2`**：外部 CLI `onDetail('turn_end')` 的轮次与 Token 幂等累加建议明确锚定在不被 `confirmWork()` 清空的持久化状态（例如 `history` 的 `turn_end` `dedupeKey` 或 `storedWorker` 已计 `turnId` 记录），避免 `confirmWork()` 清空 `row.pending` 后若发生重复事件投递导致重复计数。
+
+
+### Author Resolutions (Round 3)
+
+- **`R3-C1` (`accepted`)**：核实 `@deepseek-ai/dsh-subagent/lib/index.js:1238-1250` 释放顺序确为 `activation.handle.dispose()` → `notifySettlement()` → `subagent/end`，且 `agent.inbox.replace()` 会同步重入 `agent/inbox/inserted`。已在 `design.md`（现状分析、接口与数据流 3、`M1`）改为：① `LocalWorkers` 维护内存同步缓存 `dshUsage`（启动由 `storedWorker` 预热，`forget(roots)` 清理），并在早于 `notifySettlement()` 的同步点（`session/event` `turn/end` 与 `agent/disposed`）调用 `captureDshUsageSync(session)` 同步刷新；② `index.ts` `agent/inbox/inserted` 先检查 `[Worker usage:` 防 `replace` 同步重入递归，再 O(1) 读取 `getDshUsageSync(agent.id, senderSessionId)` 追加尾注。
+- **`R3-R1` / `R3-R2` (`accepted`)**：均已吸收进 `design.md`——外部 CLI `onEnd` 保持原有首行不变、统一追加与 DSH 同构的独立尾行 `[Worker usage: turns=<N>, tokens=<T>]`；外部 CLI `turn_end` 轮次与 Token 累加改为锚定持久化 `countedTurnIds` 去重，彻底独立于 `confirmWork()` 清理的 `pending`。
+
+
+---
+
+## Round 4
+
+- **Reviewer**: Independent Gate 2 Design Reviewer (`change-design-reviewer` + `agent-context-review` design mode, Antigravity subagent `e0375e1d-71ee-429e-9448-935be4231b7a`)
+- **Review Target**: `docs/changes/feat-817-global-worker-read-and-send-boundary/design.md`（现状分析、接口与数据流 3、Milestones `M1`）与 `design-review.md` 中的 `Author Resolutions (Round 3)`
+- **review_mode**: `closure`
+- **mode_reason**: `spec.md`、`specs/gateway/{spec,global-agent,agent-capabilities}.md` 与 `milestones/M1-worker-read-and-send-boundary/.gitkeep` 本轮均未修改；`design.md` 的全部改动集中收口 `R3-C1` 并吸收 `R3-R1`、`R3-R2`，未引入新架构方向或未审模块，适用 `closure` 模式逐项核验闭环及无回归。
+- **started_at**: `2026-11-28T16:14:32+09:00`
+- **completed_at**: `2026-11-28T16:15:18+09:00`
+- **duration**: `46s`
+
+### Verdict
+
+**Approved** — **0 CRITICAL / 0 WARNING**（0 Recommendations）。`R3-C1` 已彻底闭环，`R3-R1` 与 `R3-R2` 均已高质量吸收，所有前置轮次关闭项与增量需求契约保持一致，可通过 Gate 2 进入实施阶段。
+
+---
+
+### Coverage 与证据
+
+- **本轮闭环核查**：
+  1. **`R3-C1` 核查（DSH 内存同步缓存 + `agent/inbox/inserted` 重入防护）**：
+     - 核对 `design.md:12`、`design.md:145`、`design.md:155-158`、`design.md:278`：
+       - `LocalWorkers` 维护按 `workerId` 索引的内存同步用量缓存 `dshUsage: Map<workerId, { rootId: string; turnCount: number; totalTokens?: number; tokensPartial?: boolean }>`，在域加载时由持久化 `storedWorker` 预热、在 `start()` 时写入初始记录、在 `forget(roots)` 时同步清理，覆盖冷/热会话与生命周期回收。
+       - 严格早于 `notifySettlement()` 的同步时机——`session/event`（`turn/end`）与 `agent/disposed`——同步执行 `workers.captureDshUsageSync(session)`，在子会话尚未从内存释放前调用 `session.snapshotEvents()` 完成 `nativeTurns()` 统计并直接刷新 `dshUsage`（同时保留原有异步落盘 `captureWorkerTurns(session)`）。
+       - `packages/dsh-integration/src/index.ts` `agent/inbox/inserted` 同步钩子先检查 `message.content` 是否已包含以 `[Worker usage:` 开头的文本块，显式阻断 `agent.inbox.replace()` 经 `splice()` 同步重入 `agent/inbox/inserted` 导致的无限递归，随后调用 `workers.getDshUsageSync(agent.id, message.source.senderSessionId)`（归属校验 + O(1) 内存命中）并按规格追加尾注，同时保持原 `message.id` 与 `message.source` 不变（不改变审批来源判定或投影语义）。
+       - `M1` 退出标准已同步补入“无无限递归与先 `dispose` 后 `notifySettlement` 竞态”的测试断言。
+  2. **`R3-R1` / `R3-R2` 吸收核查**：
+     - `design.md:153, 278`：外部 CLI `onEnd` 保持原有首行 `"This turn ended. The worker will do no further work unless you send it more.\n"` 与汇报正文不变，统一追加与 DSH 同构的独立尾行 `[Worker usage: turns=<N>, tokens=<T>]`（`tokens_partial` 时附 `, partial`，无 token 上报时仅 `[Worker usage: turns=<N>]`），且明确不写入 `latestReport` / `history`，同时保护 `local-worker-manager.test.ts` 对原首行的断言。
+     - `design.md:145, 153, 278`：`storedWorker` 新增可选字段 `countedTurnIds?: string[]`（保持 DSH `per-record` 存储 `version: 1` 向后兼容与零迁移回退），CLI `onDetail('turn_end')` 在 `this.changes[workerId]` 序列化链路内以持久化 `countedTurnIds` 幂等去重并累加 `turnCount`/`totalTokens`/`tokensPartial`，彻底独立于 `confirmWork()` 清空的 `pending`。
+  3. **文档与平台一致性校验**：
+     - `./scripts/docs-check` 通过（`248 maintained Markdown sources, 74 required routes`）。
+     - `python3 scripts/check_platform_parity.py --changed-files docs/changes/feat-817-global-worker-read-and-send-boundary/design.md docs/changes/feat-817-global-worker-read-and-send-boundary/spec.md docs/changes/feat-817-global-worker-read-and-send-boundary/specs/gateway/global-agent.md` 通过（`3 changed file(s) verified against origin/develop`）。
+- **未受影响项引用（`retained_from: Round 1 / Round 2 / Round 3`）**：
+  - `spec.md`、`specs/gateway/{spec,global-agent,agent-capabilities}.md`、`GlobalMode.apply` 条件分支、`capabilities.ts`、`approval.ts`、`WorkerInspector`、`LocalWorkers` 单队列与 `deliver()` 四源分流、五端对齐矩阵、四场景定量克制读取门槛及外部 CLI `onDetail`/`onEnd` 顺序与消费链兼容性核查均未受影响，沿用 Round 1 / Round 2 / Round 3 证据。
+
+---
+
+### 历史问题闭环
+
+| Issue ID | 级别 | 结论 | 证据位置 |
+|---|---|---|---|
+| `R3-C1` | CRITICAL | `closed` | `design.md` L12, L145, L155–158, L278（`dshUsage` 内存同步缓存于早于 `notifySettlement` 的 `turn/end` 与 `agent/disposed` 同步刷新、`agent/inbox/inserted` 先查 `[Worker usage:` 防 `replace` 重入递归再 O(1) 读 `getDshUsageSync`、冷启动预热与 `forget(roots)` 清理、及 `M1` 竞态/递归测试条款） |
+
+> 同步确认：`R3-R1`（`design.md` L153, L278：CLI `onEnd` 保留原首行并统一追加同构 `[Worker usage: ...]` 尾行）与 `R3-R2`（`design.md` L145, L153, L278：`storedWorker.countedTurnIds?: string[]` 持久化去重，独立于 `confirmWork()`）均已完整吸收。
+
+---
+
+### Issues
+
+无。
+
+---
+
+### Recommendations
+
+无。
