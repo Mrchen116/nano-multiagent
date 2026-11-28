@@ -2200,6 +2200,8 @@ async fn handle_im_http_proxy(
         "etag",
         "retry-after",
         "content-disposition",
+        "content-length",
+        "content-encoding",
     ] {
         if let Some(val) = res.headers().get(pass_hdr) {
             if let Ok(hv) = HeaderValue::from_bytes(val.as_bytes()) {
@@ -2207,18 +2209,24 @@ async fn handle_im_http_proxy(
             }
         }
     }
-    let bytes = res.bytes().await.unwrap_or_default();
-    if status.is_success()
+    // Only conversation mutations need a complete body for the desktop notification cache.
+    let body = if status.is_success()
         && (method == Method::POST || method == Method::PATCH)
         && uri.path().starts_with("/im/v1/conversations/")
     {
+        let Ok(bytes) = res.bytes().await else {
+            return json_error(StatusCode::BAD_GATEWAY, "Incomplete response from IM server");
+        };
         if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
             state
                 .notification_center
                 .upsert_conversation(&parsed, state.ui_bridge.as_ref());
         }
-    }
-    response_builder.body(Body::from(bytes)).unwrap()
+        Body::from(bytes)
+    } else {
+        Body::from_stream(res.bytes_stream())
+    };
+    response_builder.body(body).unwrap()
 }
 
 async fn handle_im_ws_proxy(
