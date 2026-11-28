@@ -200,3 +200,153 @@ it("fails fast within seconds and surfaces gateway.log reason when foreground pr
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("recovers immediately when a .gateway-lifecycle.lock holder is force-killed while still serializing live holders", async () => {
+  const home = await mkdtemp(join(tmpdir(), "nano-deadlock-"));
+  const config = join(home, "config.yaml");
+  const env = { ...process.env, NANO_OWNER_CONFIG_ROOT: home };
+  let ignorer: ReturnType<typeof spawn> | undefined;
+  let killerCli: ReturnType<typeof spawn> | undefined;
+  let liveHolder: ReturnType<typeof spawn> | undefined;
+  const cli = (timeoutMs: number, ...args: string[]) =>
+    exec(
+      process.execPath,
+      [resolve("apps/node/lib/cli.js"), ...args, "--config", config],
+      { env, timeout: timeoutMs },
+    );
+  try {
+    await writeFile(
+      config,
+      JSON.stringify({
+        node: { node_id: "deadlock-node", user_id: "owner" },
+        im_service: { url: "http://127.0.0.1:9", token: "device-test" },
+        agents: [],
+        gateway: {
+          autostart: false,
+          shutdown_grace_seconds: 30,
+        },
+        llm: { default_model: "", providers: [] },
+      }),
+    );
+
+    // 1. Start a dummy process that ignores SIGTERM so `cli stop` holds `.gateway-lifecycle.lock`.
+    ignorer = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+      { stdio: "ignore" },
+    );
+    await new Promise((r) => ignorer!.once("spawn", r));
+    const { processBirth } = await import("../src/lifecycle.js");
+    const birth = await processBirth(ignorer.pid!);
+    expect(birth).toBeTruthy();
+    await writeFile(
+      join(home, ".gateway-state.json"),
+      JSON.stringify({
+        pid: ignorer.pid,
+        config_path: await (await import("node:fs/promises")).realpath(config),
+        process_start: birth,
+        ready: true,
+      }),
+    );
+
+    killerCli = spawn(
+      process.execPath,
+      [resolve("apps/node/lib/cli.js"), "stop", "--config", config],
+      { env, stdio: "ignore" },
+    );
+    await expect.poll(
+      async () =>
+        (await import("node:fs")).existsSync(join(home, ".gateway-lifecycle.lock")),
+      { interval: 25, timeout: 5000 },
+    ).toBe(true);
+
+    // 2. Force-kill both the lock-holding CLI and the dummy gateway, leaving `.gateway-lifecycle.lock` & `.gateway-state.json` behind.
+    killerCli.kill("SIGKILL");
+    ignorer.kill("SIGKILL");
+    await Promise.all([
+      new Promise((r) => killerCli!.once("exit", r)),
+      new Promise((r) => ignorer!.once("exit", r)),
+    ]);
+
+    const t0 = Date.now();
+    const statusAfterKill = await cli(5000, "status");
+    expect(Date.now() - t0).toBeLessThan(4000);
+    expect(statusAfterKill.stdout).toContain("NOT RUNNING");
+
+    // 3. Verify a live lock holder is NOT prematurely stolen, and waits cleanly until released.
+    ignorer = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 600)); setInterval(() => {}, 1000);"],
+      { stdio: "ignore" },
+    );
+    await new Promise((r) => ignorer!.once("spawn", r));
+    const liveBirth = await processBirth(ignorer.pid!);
+    await writeFile(
+      join(home, ".gateway-state.json"),
+      JSON.stringify({
+        pid: ignorer.pid,
+        config_path: await (await import("node:fs/promises")).realpath(config),
+        process_start: liveBirth,
+        ready: true,
+      }),
+    );
+    liveHolder = spawn(
+      process.execPath,
+      [resolve("apps/node/lib/cli.js"), "stop", "--config", config],
+      { env, stdio: "ignore" },
+    );
+    await expect.poll(
+      async () =>
+        (await import("node:fs")).existsSync(join(home, ".gateway-lifecycle.lock")),
+      { interval: 25, timeout: 5000 },
+    ).toBe(true);
+    const tLive = Date.now();
+    const serializedStatus = await cli(10000, "status");
+    expect(Date.now() - tLive).toBeGreaterThanOrEqual(350);
+    expect(serializedStatus.stdout).toContain("NOT RUNNING");
+
+    // 4. Signal-exit leftover `.gateway-owner/*.json` (without lockDir) AND concurrent dead-lock reapers
+    // must NEVER steal a newly acquired live lock or trigger proper-lockfile ECOMPROMISED across >1s heartbeat!
+    const { mkdir } = await import("node:fs/promises");
+    const ownerDir = join(home, ".gateway-owner");
+    await mkdir(ownerDir, { recursive: true });
+    await writeFile(
+      join(ownerDir, ".gateway-lifecycle.lock.json"),
+      JSON.stringify({ pid: 999999991, process_start: "signal-exit-residue", acquired_at: 1 }),
+    );
+    ignorer = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 1400)); setInterval(() => {}, 1000);"],
+      { stdio: "ignore" },
+    );
+    await new Promise((r) => ignorer!.once("spawn", r));
+    const raceBirth = await processBirth(ignorer.pid!);
+    await writeFile(
+      join(home, ".gateway-state.json"),
+      JSON.stringify({
+        pid: ignorer.pid,
+        config_path: await (await import("node:fs/promises")).realpath(config),
+        process_start: raceBirth,
+        ready: true,
+      }),
+    );
+    // Also plant a dead `.gateway-lifecycle.lock` so 4 concurrent callers race to reap + hold >1s + serialize!
+    await mkdir(join(home, ".gateway-lifecycle.lock"), { recursive: true });
+    const concurrentResults = await Promise.all([
+      cli(15000, "stop"),
+      cli(15000, "status"),
+      cli(15000, "status"),
+      cli(15000, "status"),
+    ]);
+    expect(concurrentResults[0]!.stdout).toContain("STOPPED");
+    for (const r of concurrentResults.slice(1)) {
+      expect(r.stdout).toMatch(/RUNNING|NOT RUNNING/);
+    }
+  } finally {
+    ignorer?.kill("SIGKILL");
+    killerCli?.kill("SIGKILL");
+    liveHolder?.kill("SIGKILL");
+    await cli(5000, "stop").catch(() => {});
+    await rm(home, { recursive: true, force: true });
+  }
+}, 40000);

@@ -6,17 +6,162 @@ pub mod local_node;
 pub mod notifications;
 pub mod tray;
 
-use crate::config::{append_host_log, local_node_bridge_endpoint, write_private_json, DesktopCliOptions, DesktopPaths, HostRuntimeStateFile, InstanceLock};
-use crate::host_server::{handle_deep_link_url, ping_local_bridge, start_host_server_full};
+use crate::config::{
+    append_host_log, local_node_bridge_endpoint, write_private_json, DesktopCliOptions,
+    DesktopPaths, HostRuntimeStateFile, InstanceLock,
+};
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use crate::host_server::handle_deep_link_url;
+use crate::host_server::{ping_local_bridge, start_host_server_full};
 use crate::local_node::{resolve_active_bundle, run_local_admin_sync, stop_all_managed_local_nodes};
 use crate::notifications::NoopUiBridge;
 use crate::tray::{install_system_tray, TauriUiCoordinator};
 use serde_json::json;
 use std::fs;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::RunEvent;
+
+#[cfg(target_os = "windows")]
+fn allow_foreground_activation(pid: u32) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn AllowSetForegroundWindow(dw_process_id: u32) -> i32;
+    }
+    if pid > 0 {
+        unsafe {
+            let _ = AllowSetForegroundWindow(pid);
+        }
+    }
+}
+
+fn is_os_pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        extern "C" {
+            fn kill(pid: std::os::raw::c_int, sig: std::os::raw::c_int) -> std::os::raw::c_int;
+        }
+        let Ok(c_pid) = std::os::raw::c_int::try_from(pid) else {
+            return false;
+        };
+        let rc = unsafe { kill(c_pid, 0) };
+        if rc == 0 {
+            return true;
+        }
+        std::io::Error::last_os_error().raw_os_error() == Some(1)
+    }
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn OpenProcess(
+                dw_desired_access: u32,
+                b_inherit_handle: i32,
+                dw_process_id: u32,
+            ) -> *mut std::ffi::c_void;
+            fn WaitForSingleObject(h_handle: *mut std::ffi::c_void, dw_milliseconds: u32) -> u32;
+            fn CloseHandle(h_object: *mut std::ffi::c_void) -> i32;
+        }
+        const SYNCHRONIZE_AND_QUERY_LIMITED: u32 = 0x0010_1000;
+        const WAIT_TIMEOUT: u32 = 258;
+        unsafe {
+            let handle = OpenProcess(SYNCHRONIZE_AND_QUERY_LIMITED, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let wait_rc = WaitForSingleObject(handle, 0);
+            let _ = CloseHandle(handle);
+            wait_rc == WAIT_TIMEOUT
+        }
+    }
+}
+
+fn lock_owner_metadata_dir(lock_dir: &Path) -> std::path::PathBuf {
+    lock_dir
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".gateway-owner")
+}
+
+fn lock_owner_sidecar_path(lock_dir: &Path) -> std::path::PathBuf {
+    let base = lock_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(".gateway-lifecycle.lock");
+    lock_owner_metadata_dir(lock_dir).join(format!("{base}.json"))
+}
+
+fn lock_transition_guard_path(lock_dir: &Path) -> std::path::PathBuf {
+    let base = lock_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(".gateway-lifecycle.lock");
+    lock_owner_metadata_dir(lock_dir).join(format!("{base}.guard"))
+}
+
+/// Read-only check returning true only when `.gateway-lifecycle.lock` is actively transitioning
+/// or held by a live process with a fresh heartbeat. Never mutates lock directories from Rust;
+/// `apps/node` reaps dead locks atomically under `.gateway-owner/<lock>.guard`.
+pub(crate) fn is_active_gateway_lifecycle_lock(lock_dir: &Path) -> bool {
+    let guard_dir = lock_transition_guard_path(lock_dir);
+    if let Ok(g_meta) = fs::metadata(&guard_dir) {
+        let g_age = g_meta
+            .modified()
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .unwrap_or(Duration::ZERO);
+        if g_age <= Duration::from_secs(5) {
+            return true;
+        }
+    }
+    let Ok(meta) = fs::metadata(lock_dir) else {
+        return false;
+    };
+    let age = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .unwrap_or(Duration::ZERO);
+    let owner_path = lock_owner_sidecar_path(lock_dir);
+    if let Ok(raw) = fs::read_to_string(&owner_path) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(pid) = val["pid"]
+                .as_u64()
+                .and_then(|p| u32::try_from(p).ok())
+                .filter(|p| *p > 0)
+            {
+                if !is_os_pid_alive(pid) {
+                    return false;
+                }
+                // `proper-lockfile` refreshes directory mtime every 1s; if mtime stalled for >15s
+                // (e.g. zombie or reassigned PID), let `manageGateway` verify `process_start` and reap.
+                return age <= Duration::from_secs(15);
+            }
+        }
+        return age <= Duration::from_secs(5);
+    }
+    age <= Duration::from_secs(5)
+}
+
+fn ensure_foreground_startup_window<T>(
+    start_in_background: bool,
+    host_state_path: &Path,
+    open_window: impl FnOnce() -> Result<T, String>,
+) -> Result<(), String> {
+    if start_in_background {
+        return Ok(());
+    }
+    if let Err(err) = open_window() {
+        let _ = fs::remove_file(host_state_path);
+        return Err(err);
+    }
+    Ok(())
+}
 
 fn try_read_live_host_state(paths: &DesktopPaths) -> Option<HostRuntimeStateFile> {
     let raw = fs::read_to_string(paths.host_state_path()).ok()?;
@@ -63,6 +208,14 @@ fn forward_to_running_instance(
         if !status_res.status().is_success() {
             return Ok(false);
         }
+        let status_json = status_res.json::<serde_json::Value>().await.ok();
+        let _live_pid = status_json
+            .as_ref()
+            .and_then(|v| v["pid"].as_u64())
+            .and_then(|p| u32::try_from(p).ok())
+            .unwrap_or(existing.pid);
+        #[cfg(target_os = "windows")]
+        allow_foreground_activation(_live_pid);
 
         let deep_url = format!(
             "http://127.0.0.1:{}/desktop/internal/deep-link",
@@ -167,7 +320,7 @@ fn supervise_node(
     let pointer = dir.join(".desktop-active.json");
     if !pointer.is_file()
         || dir.join(".desktop-switch.json").exists()
-        || dir.join(".gateway-lifecycle.lock").exists()
+        || is_active_gateway_lifecycle_lock(&dir.join(".gateway-lifecycle.lock"))
     {
         return Ok(false);
     }
@@ -351,20 +504,24 @@ pub fn run_from_env() -> Result<(), String> {
         .setup(move |app| {
             let handle = app.handle().clone();
             coord_setup.bind_app(handle.clone(), port, boot_nonce);
-            install_system_tray(&handle, coord_setup.clone(), state_setup.clone())
-                .map_err(std::io::Error::other)?;
+            if let Err(err) =
+                install_system_tray(&handle, coord_setup.clone(), state_setup.clone())
+            {
+                let _ = fs::remove_file(state_setup.paths.host_state_path());
+                return Err(std::io::Error::other(err).into());
+            }
 
             #[cfg(target_os = "macos")]
             if start_in_background {
                 let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
-            if !start_in_background {
-                let _ = coord_setup.ensure_main_window(
-                    &handle,
-                    Some("/chat"),
-                );
-            }
+            ensure_foreground_startup_window(
+                start_in_background,
+                &state_setup.paths.host_state_path(),
+                || coord_setup.ensure_main_window(&handle, Some("/chat")),
+            )
+            .map_err(std::io::Error::other)?;
 
             spawn_managed_node_supervisor(state_setup.clone(), start_in_background);
 
@@ -384,8 +541,9 @@ pub fn run_from_env() -> Result<(), String> {
         .map_err(|e| format!("Failed to build Tauri application: {}", e))?;
 
     let coord_run = coord.clone();
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     let state_run = host_state.clone();
-    app.run(move |app_handle, event| match event {
+    app.run(move |_app_handle, event| match event {
         RunEvent::ExitRequested { api, .. } => {
             if !coord_run.explicit_quit.load(Ordering::SeqCst) {
                 api.prevent_exit();
@@ -397,7 +555,7 @@ pub fn run_from_env() -> Result<(), String> {
             ..
         } => {
             if !has_visible_windows {
-                let _ = coord_run.ensure_main_window(app_handle, None);
+                coord_run.ensure_main_window_or_report(_app_handle, None);
             }
         }
         #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -410,4 +568,72 @@ pub fn run_from_env() -> Result<(), String> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reaps_dead_gateway_lifecycle_lock_while_respecting_live_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lock_dir = tmp.path().join(".gateway-lifecycle.lock");
+        let owner_dir = tmp.path().join(".gateway-owner");
+        let owner_sidecar = owner_dir.join(".gateway-lifecycle.lock.json");
+        fs::create_dir_all(&lock_dir).unwrap();
+        fs::create_dir_all(&owner_dir).unwrap();
+        fs::write(
+            &owner_sidecar,
+            serde_json::to_vec(&json!({
+                "pid": std::process::id(),
+                "process_start": "current",
+                "acquired_at": 1,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            is_active_gateway_lifecycle_lock(&lock_dir),
+            "Live current process holding fresh lifecycle lock must be respected"
+        );
+
+        // Dead owner PID is immediately recognized as inactive without mutating files from Rust.
+        fs::write(
+            &owner_sidecar,
+            serde_json::to_vec(&json!({
+                "pid": 999_999_991u32,
+                "process_start": "dead",
+                "acquired_at": 1,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!is_active_gateway_lifecycle_lock(&lock_dir));
+        assert!(
+            lock_dir.exists() && owner_sidecar.exists(),
+            "Rust check must remain read-only so Node reaps atomically under its transition guard"
+        );
+    }
+
+    #[test]
+    fn foreground_window_creation_failure_aborts_startup_and_cleans_host_state() {
+        let tmp = tempfile::tempdir().unwrap();
+        let host_state = tmp.path().join("host-state.json");
+        fs::write(&host_state, b"{\"ready\":true}").unwrap();
+
+        // `--background` skips opening main window and keeps host-state.json intact.
+        ensure_foreground_startup_window::<()>(true, &host_state, || {
+            panic!("background mode must not open main window on cold start")
+        })
+        .unwrap();
+        assert!(host_state.is_file());
+
+        // Foreground startup MUST propagate window creation errors and clean up host-state.json.
+        let err = ensure_foreground_startup_window::<()>(false, &host_state, || {
+            Err("无法创建主窗口（WebView 初始化失败）：WebView2 runtime error".to_string())
+        })
+        .unwrap_err();
+        assert!(err.contains("无法创建主窗口"));
+        assert!(!host_state.exists());
+    }
 }
