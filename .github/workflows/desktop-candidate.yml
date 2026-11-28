@@ -102,6 +102,7 @@ jobs:
           dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop --isolated-root "$ISO_ROOT" --stop
           wait "$HOST_PID" || true
           HOST_PID=""
+          "$NODE_BIN" apps/desktop/tests/node-lifecycle.mjs dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop "$ISO_ROOT/desktop/versions/$SHA"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-darwin-arm64-${{ inputs.commit || github.sha }}

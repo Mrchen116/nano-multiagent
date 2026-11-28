@@ -184,6 +184,7 @@ export async function inspectLocalNode(input: {
   ownerId?: string;
   configPath?: string;
   logQuery?: string;
+  supervisionOnly?: boolean;
   browserDeps?: BrowserPairingDeps;
 }): Promise<DesktopLocalInspectResponse> {
   const configPath = connectionConfigPathForOrigin(input.origin, input.configPath);
@@ -193,6 +194,9 @@ export async function inspectLocalNode(input: {
   const config = await NodeConfiguration.read(configPath);
   const value = config.value;
   const nodeName = value.node.node_name ?? value.node.node_id ?? hostname();
+  if (input.supervisionOnly && (!value.node.user_id || !value.im_service.token)) {
+    return { ownership: 'unbound', node_name: nodeName };
+  }
   if (!value.node.user_id || !value.im_service.token) {
     const workers = await probeDesktopWorkers(value.gateway?.environment?.PATH);
     return {
@@ -212,6 +216,24 @@ export async function inspectLocalNode(input: {
   const desktopManaged = existsSync(desktopActiveFilePath(configPath));
   const rawState = await gatewayState(configPath);
   const live = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
+  const ownership = !desktopManaged
+    ? 'takeover_available'
+    : live
+      ? 'managed_online'
+      : 'managed_stopped';
+
+  // A Windows gateway task may still start this connection independently of the desktop Run item.
+  const scheduledAtLogin = desktopManaged && process.platform === 'win32'
+    ? (await manageGateway(config.path, value, 'autostart-status')).text === 'enabled'
+    : false;
+  const status = {
+    ownership,
+    node_name: nodeName,
+    version: rawState?.release?.version ?? 'source',
+    autostart: value.gateway?.autostart !== false,
+  } satisfies DesktopLocalInspectResponse;
+  const loginStatus = { ...status, scheduled_at_login: scheduledAtLogin };
+  if (input.supervisionOnly) return loginStatus;
   const activeTasks = live ? await pingBridgeActiveTasks(configPath) : 0;
   const { proxy, userEnvironment } = extractDesktopProxySettings(value.gateway?.environment);
   const [workers, browser, logs] = await Promise.all([
@@ -219,16 +241,9 @@ export async function inspectLocalNode(input: {
     inspectDailyBrowserStatus(browserPairingFile(configPath, value.node), undefined, input.browserDeps),
     readLogTail(configPath, input.logQuery),
   ]);
-  const ownership = !desktopManaged
-    ? 'takeover_available'
-    : live
-      ? 'managed_online'
-      : 'managed_stopped';
-
   return {
-    ownership,
+    ...loginStatus,
     node_id: value.node.node_id,
-    node_name: nodeName,
     owner_id: value.node.user_id,
     desktop_managed: desktopManaged,
     running: live,
@@ -236,8 +251,6 @@ export async function inspectLocalNode(input: {
     connected: live ? Boolean(rawState?.connected) : false,
     active_tasks: activeTasks,
     ...(live && rawState ? { pid: rawState.pid, ...(rawState.runtime_pid ? { runtime_pid: rawState.runtime_pid } : {}) } : {}),
-    version: rawState?.release?.version ?? 'source',
-    autostart: value.gateway?.autostart !== false,
     worker_runtime: value.gateway?.worker_runtime ?? 'dsh',
     workers,
     browser,
@@ -356,26 +369,28 @@ export async function controlLocalNodeLifecycle(input: {
       ...config.value,
       gateway: { ...(config.value.gateway ?? {}), autostart: enabled },
     };
-    await config.persistNodeSettings(next);
-    await manageGateway(config.path, next, input.action);
+    const previous = { ...config.value };
     const rawState = await gatewayState(config.path);
     const running = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
     const activeTasks = running ? await pingBridgeActiveTasks(config.path) : 0;
+    await config.persistNodeSettings(next);
+    try {
+      await manageGateway(config.path, next, input.action);
+    } catch (error) {
+      await config.persistNodeSettings(previous);
+      throw error;
+    }
     return { ok: true, autostart: enabled, running, active_tasks: activeTasks };
   }
 
   const activeFile = desktopActiveFilePath(config.path);
   if (existsSync(activeFile) && !(input.action === 'stop' && input.preserveUserStopped)) {
-    try {
-      const prevActive = JSON.parse(await readFile(activeFile, 'utf8')) as Record<string, unknown>;
-      await atomicPrivate(activeFile, {
-        ...prevActive,
-        user_stopped: input.action === 'stop',
-        updated_at: new Date().toISOString(),
-      });
-    } catch {
-      // Best-effort desired-state update.
-    }
+    const prevActive = JSON.parse(await readFile(activeFile, 'utf8')) as Record<string, unknown>;
+    await atomicPrivate(activeFile, {
+      ...prevActive,
+      user_stopped: input.action === 'stop',
+      updated_at: new Date().toISOString(),
+    });
   }
 
   if (input.action !== 'stop') {

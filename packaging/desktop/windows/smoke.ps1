@@ -99,6 +99,8 @@ try {
 
     & $installedExe '--isolated-root' $isoRoot '--stop'
     $hostProc.WaitForExit(10000) | Out-Null
+    & $bundledNode 'apps/desktop/tests/node-lifecycle.mjs' $installedExe $versionRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop managed node lifecycle regression' }
 } finally {
     $env:PATH = $savedPath
     if ($hostProc -and !$hostProc.HasExited) { Stop-Process -Id $hostProc.Id -Force -ErrorAction SilentlyContinue }

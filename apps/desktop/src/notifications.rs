@@ -30,6 +30,7 @@ pub struct WindowAttentionState {
 }
 
 pub trait DesktopUiBridge: Send + Sync {
+    fn login_autostart_changed(&self, _enabled: bool) {}
     fn window_attention(&self) -> WindowAttentionState;
     fn update_current_route(&self, route: &str) -> Option<String>;
     fn update_unread_badge(&self, total_unread: u64);
