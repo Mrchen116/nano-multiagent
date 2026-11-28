@@ -86,4 +86,22 @@ Platform-Parity-Exempt: Web IM 与 Desktop 主窗口 WebView 共享本次聊天�
 
 ## 修复
 
+1. **服务端确定性失败回滚与未完成绑定恢复自愈**（`apps/im-server/src/personal-agent.ts`）：
+   - 新增 `discardUncommittedBinding` 守卫：仅当 `binding.status !== 'active'`、无活跃在途配置操作（`activeConfigOperation` 不存在）且 `agent_profiles` 未落库时，原子清理本次写入的 `pa_runtime_status`、`pa_policies`、`pa_binding_scopes`、`personal_agent_bindings` 以及不再被任何绑定引用的 `pa_node_residencies`；当 `ops.create` 处于 `503 config_apply_pending` 在途未确认时完整保留 `pending` 绑定供幂等恢复。
+   - 收敛 `POST /im/v1/personal-agent` 对未激活 `pending` 绑定的处理：先执行 `ops.recover`（若已提交或已有 `agent_profiles` 则直接跳过重复创建、补建私聊并转 `active`）；若无在途操作（孤儿 `pending` 绑定），同 `request_key` 重试时自动同步当前节点 `node_epoch` 后继续创建，异 `request_key` 重建时清理孤儿绑定并以新请求参数创建；若确有在途未决操作，不再对异 `request_key` 静默返回 `200 pending` 假成功。
+   - 收紧 `PATCH /im/v1/personal-agent` 与 `GET /im/v1/personal-agent/sources`，在绑定尚未 `active` 时拒绝改名且不提前物化未创建助手的用户实体。
+2. **Web 前端未确认态收敛与恢复交互统一**（`src/IM/frontend/src/features/chat/chat-workspace-page.tsx`、`components/personal-agent-entry.tsx`、`personal-agent/personal-agent-dialog.tsx`、`settings/agents/personal-agent-entry.tsx`、`styles/global.css`）：
+   - 聊天工作区区分已确认绑定（`!creation && status !== 'pending'`）与未完成准备态（`personalSetupPending`）：未完成时侧栏置顶项显示助手名称与“继续设置助手”副标题，点击弹出 `PersonalAgentDialog` 恢复界面而绝不跳转未建立的 `/chat/:id`，工作区欢迎页也不提前展示未建成私聊入口与快捷开场白。
+   - `PersonalAgentDialog` 统一 `create` 与 `recover` 回调：仅在绑定确认脱离 `pending`（`!result.creation`）时导航进入私聊，恢复成功后同步刷新会话/联系人/助手列表并打开新私聊；未完成态弹窗底部统一为次按钮“稍后” + 主按钮“重新准备”。
+   - Agents 页在 `state?.creation` 存在时展示“助手设置中 · 继续设置助手”（链向 `/onboarding`），同时保持离线节点的已建成 PA（`status='unavailable'`, `creation=null`）仍在个人助手优先区可见。
+3. **长青契约对齐**（`docs/specs/im/personal-agent.md`）：
+   - 在「刷新后恢复未完成的创建」场景补齐聊天工作区/助手列表的准备态呈现、确定性失败无半成品残留及无在途孤儿记录自愈约定。
+
 ## 验证
+
+- **红绿单元与集成回归**：
+  - 新增 `apps/im-server/tests/pa-binding-recovery.test.ts`（先红后绿，覆盖节点确定性拒绝回滚 + 重新创建、在途 `config_apply_pending` 保留绑定 + 异 `request_key` 阻断假 `200` + 回执到达恢复、历史孤儿 `pending` 跨 `node_epoch` 推进与异 `request_key` 自愈，以及未激活时 `/sources` 与 `PATCH` 安全边界）。
+  - 更新前端测试 `src/IM/frontend/src/features/personal-agent/personal-agent.test.tsx`、`src/IM/frontend/src/features/onboarding/first-use-entry.test.tsx`、`src/IM/frontend/src/features/settings/agents/agents-list-page.test.tsx`（先红后绿，覆盖未确认结果不误跳会话、恢复成功跳转会话、聊天页点击未完成置顶项弹出恢复框且零请求未建会话、Agents 页显示继续设置链接）。
+  - 执行 `pnpm exec vitest run apps/im-server/tests/pa-binding-recovery.test.ts apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/personal-agent-creation.test.ts apps/im-server/tests/agent-privacy-groups-and-pa.test.ts apps/im-server/tests/tenancy.test.ts`（5 文件 49 项测试全绿）、前端相关 5 个测试文件全绿、`pnpm build && pnpm typecheck` 通过。
+- **真实隔离栈与浏览器恢复旅程验证**：
+  - 详见 [M1-fix/evidence/web-pa-recovery-journey.md](M1-fix/evidence/web-pa-recovery-journey.md)：在独立 `e2e-up.sh` 隔离栈上复现存量 `status='pending'` 绑定（“酷狗”），验证桌面（`1280×820`）与移动（`390×844`）聊天页、恢复弹窗、Agents 页均无“聊天不可访问”报错，点击“重新准备”后经真实 Gateway + DSH 节点完成创建并自动进入 `/chat/c_issuej_missing` 首次私聊，全部临时服务、端口与 `dist/` 已核实回收。

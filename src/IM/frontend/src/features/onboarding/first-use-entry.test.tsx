@@ -103,3 +103,47 @@ it('keeps ConversationSidebar visible for an active team member with zero chats 
   await userEvent.click(screen.getByRole('tab',{name:'People'}));
   expect(await screen.findByRole('button',{name:/Lin Xia/})).toBeVisible();
 });
+
+it('treats an unconfirmed pending PA binding as setup recovery in Chat instead of opening a nonexistent conversation', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input);
+    if (url.endsWith('/im/v1/personal-agent')) {
+      return Response.json({
+        binding: {
+          binding_id: 'b-pending',
+          agent_id: 'pa_pending',
+          owner_id: 'o1',
+          owner_user_id: TEST_AUTH_USER.id,
+          node_id: 'n1',
+          node_epoch: 1,
+          conversation_id: 'c_missing_pa',
+          display_name: 'Kugou',
+          status: 'pending',
+        },
+        policy: { revision: 1, excluded_conversation_ids: [] },
+        creation: { request_key: 'rk-pending', collaboration_scope: 'team' },
+      });
+    }
+    if (url.includes('/im/v1/contacts')) return Response.json({ items: [], next_cursor: null });
+    if (url.endsWith('/im/v1/conversations')) return Response.json({ items: [] });
+    if (url.endsWith('/im/v1/nodes')) return Response.json([{ node_id: 'n1', node_name: 'Workstation', status: 'online' }]);
+    if (url.endsWith('/im/v1/agents')) return Response.json([]);
+    return new Response(null, { status: 404 });
+  });
+
+  renderRouter({
+    routes: appRoutes,
+    initialEntries: ['/chat'],
+    auth: { ...TEST_AUTH_USER, personal_space_enabled: true, membership_status: 'active', owned_node_ids: ['n1'] },
+  });
+
+  const pinned = await screen.findByRole('button', { name: /Kugou/ });
+  expect(pinned).toHaveTextContent('Continue assistant setup');
+  expect(screen.queryByRole('button', { name: /plan my study time/i })).not.toBeInTheDocument();
+
+  await userEvent.click(pinned);
+  expect(await screen.findByRole('dialog', { name: 'Personal assistant' })).toHaveTextContent('Your assistant is not ready; its setup is saved.');
+  expect(screen.queryByText('Conversation unavailable')).not.toBeInTheDocument();
+  const detailCalls = vi.mocked(fetch).mock.calls.map(([u]) => String(u)).filter(u => u.includes('/im/v1/conversations/c_missing_pa'));
+  expect(detailCalls).toEqual([]);
+});

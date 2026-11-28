@@ -364,7 +364,9 @@ export function ChatWorkspacePage() {
   const membershipStatus = useAuthStore((s) => s.user?.membership_status);
   const readingPositions = readingPositionStoreFor(selfUserId);
   const personalAgent = useQuery({queryKey:['personal-agent',selfUserId],queryFn:getPersonalAgent,enabled:!!selfUserId,retry:false,refetchInterval:()=>document.visibilityState==='visible'?5000:false});
-  const personalBinding = personalAgent.data?.binding;
+  const rawPersonalBinding = personalAgent.data?.binding ?? null;
+  const personalSetupPending = Boolean(personalAgent.data?.creation || rawPersonalBinding?.status === 'pending');
+  const personalBinding = personalSetupPending ? null : rawPersonalBinding;
   const isPersonalConversation = Boolean(personalBinding && conversationId===personalBinding.conversation_id);
   const personalSpace = useAuthStore((s) => s.user?.personal_space_enabled);
   useEffect(() => {
@@ -1428,7 +1430,7 @@ export function ChatWorkspacePage() {
 
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
-  const showFirstUseWelcome = !conversationId && membershipStatus !== "active" && personalSpace && personalAgent.isSuccess && !personalBinding
+  const showFirstUseWelcome = !conversationId && membershipStatus !== "active" && personalSpace && personalAgent.isSuccess && !personalBinding && !personalSetupPending
     && conversationsQuery.isSuccess && localConversations.length === 0;
   const visibleWorkspaceError = workspaceError?.conversationId === (conversationId ?? "")
     ? workspaceError
@@ -1507,10 +1509,15 @@ export function ChatWorkspacePage() {
           personalAgentEntry={personalAgent.isError
             ? <div className="pa-entry pa-notice"><button type="button" onClick={() => void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div>
             : personalAgent.isSuccess && <PersonalAgentEntry
-              name={personalBinding?.display_name} agentId={personalBinding?.agent_id}
-              conversation={localConversations.find(c => c.id === personalBinding?.conversation_id)}
+              name={personalBinding?.display_name ?? rawPersonalBinding?.display_name} agentId={personalBinding?.agent_id}
+              pending={personalSetupPending}
+              conversation={personalBinding ? localConversations.find(c => c.id === personalBinding.conversation_id) : undefined}
               active={isPersonalConversation}
-              onSelect={() => personalBinding ? navigate(`/chat/${personalBinding.conversation_id}`) : navigate('/onboarding')}
+              onSelect={() => personalBinding
+                ? navigate(`/chat/${personalBinding.conversation_id}`)
+                : personalSetupPending
+                  ? setShowPersonalAgentSetup(true)
+                  : navigate('/onboarding')}
             />}
           selfUserId={selfUserId}
           activeConversationId={conversationId ?? null}

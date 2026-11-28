@@ -70,12 +70,21 @@ it('offers source exclusions and ordinary configuration without retired observat
  await userEvent.click(screen.getByRole('checkbox',{name:'Private group'}));
  await waitFor(()=>expect(api.updatePersonalAgentPolicy).toHaveBeenLastCalledWith({expected_revision:4,excluded_conversation_ids:['private']}));
 });
-it('restores a pending creation from the server instead of creating a second identity',async()=>{
+it('restores a pending creation from the server, never navigates on an unconfirmed pending result, and opens chat once active',async()=>{
+ const done=vi.fn();
  const pending={...state,binding:{...state.binding!,status:'pending'},creation:{request_key:'original-key'}};
- vi.mocked(api.createPersonalAgent).mockResolvedValue(state);
- mount(<PersonalAgentDialog state={pending} nodes={[]} onClose={()=>{}} onCreated={()=>{}}/>);
+ vi.mocked(api.createPersonalAgent).mockResolvedValueOnce(pending);
+ const firstMount=mount(<PersonalAgentDialog state={{binding:null,policy:null}} nodes={[{node_id:'n1',node_name:'Computer',status:'online'}]} onClose={()=>{}} onCreated={done}/>);
+ await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));
+ await waitFor(()=>expect(api.createPersonalAgent).toHaveBeenCalledTimes(1));
+ expect(done).not.toHaveBeenCalled();
+ firstMount.unmount();
+
+ vi.mocked(api.createPersonalAgent).mockResolvedValueOnce(state);
+ mount(<PersonalAgentDialog state={pending} nodes={[]} onClose={()=>{}} onCreated={done}/>);
  await userEvent.click(screen.getByRole('button',{name:'Retry setup'}));
- await waitFor(()=>expect(api.createPersonalAgent).toHaveBeenCalledWith(expect.objectContaining({request_key:'original-key',node_id:'n1'})));
+ await waitFor(()=>expect(api.createPersonalAgent).toHaveBeenLastCalledWith(expect.objectContaining({request_key:'original-key',node_id:'n1'})));
+ await waitFor(()=>expect(done).toHaveBeenCalledWith('pa-chat'));
 });
 
 it('groups repeated privacy notices and acknowledges without changing policy',async()=>{

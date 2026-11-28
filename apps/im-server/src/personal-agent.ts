@@ -7,7 +7,7 @@ import {parseAvatarVariant} from './configuration-input.js';
 import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import { threadRelayMetadata } from './threads.js';
-import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
+import {activeConfigOperation, readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline, settingsConnection } from './agent-settings.js';
@@ -533,6 +533,18 @@ export class PersonalAgents {
 export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   const pa=ctx.personal!; const ops=configurationOperations(ctx);
   const user=(req:any)=>ctx.identity.authenticateRequest(req);
+  const discardUncommittedBinding=(binding:Row,ownerId:string):boolean=>{
+    if(binding.status==='active'||activeConfigOperation(ctx.db,binding.agent_id,ownerId)||readAgentProfile(ctx.db,binding.agent_id,ownerId))return false;
+    transaction(ctx.db,()=>{
+      ctx.db.prepare('DELETE FROM pa_runtime_status WHERE binding_id=?').run(binding.binding_id);
+      ctx.db.prepare('DELETE FROM pa_policies WHERE binding_id=?').run(binding.binding_id);
+      ctx.db.prepare('DELETE FROM pa_binding_scopes WHERE binding_id=?').run(binding.binding_id);
+      ctx.db.prepare("DELETE FROM personal_agent_bindings WHERE binding_id=? AND status!='active'").run(binding.binding_id);
+      ctx.db.prepare('DELETE FROM pa_node_residencies WHERE node_id=? AND owner_id=? AND NOT EXISTS (SELECT 1 FROM personal_agent_bindings WHERE node_id=? AND owner_id=?)')
+        .run(binding.node_id,ownerId,binding.node_id,ownerId);
+    });
+    return true;
+  };
   app.get('/im/v1/personal-agent',req=>pa.state(user(req).owner_id));
   app.post('/im/v1/personal-agent',async(req,reply)=>{
     const u=user(req),input=body(req);
@@ -543,14 +555,46 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
     if(!node) fail(404,'node_not_found');
     return ops.serialized(`personal:${u.owner_id}`,async()=>{
       let b=pa.binding(u.owner_id);
-      if(b && b.request_key!==input.request_key) return pa.state(u.owner_id);
-      if(b && input.collaboration_scope!==undefined && input.collaboration_scope!==(b.collaboration_scope ?? 'team')) {
-        fail(409,'collaboration_scope_conflict');
+      if(b?.status==='active') {
+        if(b.request_key===input.request_key && input.collaboration_scope!==undefined && input.collaboration_scope!==(b.collaboration_scope ?? 'team')) {
+          fail(409,'collaboration_scope_conflict');
+        }
+        return pa.state(u.owner_id);
       }
-      if(b?.status==='active') return pa.state(u.owner_id);
-      const recovered=b ? await ops.recover(b.agent_id,u.owner_id) : null;
+      let recovered: Awaited<ReturnType<typeof ops.recover>> = null;
+      if(b) {
+        const sameRequest=b.request_key===input.request_key;
+        if(sameRequest && input.collaboration_scope!==undefined && input.collaboration_scope!==(b.collaboration_scope ?? 'team')) {
+          fail(409,'collaboration_scope_conflict');
+        }
+        try {
+          recovered=await ops.recover(b.agent_id,u.owner_id);
+        } catch(error) {
+          discardUncommittedBinding(b,u.owner_id);
+          throw error;
+        }
+        const committed=Boolean(recovered||readAgentProfile(ctx.db,b.agent_id,u.owner_id));
+        if(!committed) {
+          if(!sameRequest) {
+            if(!discardUncommittedBinding(b,u.owner_id)) {
+              fail(409,{code:'personal_agent_creation_pending',message:'Personal assistant setup is still in progress. Retry the pending setup.'});
+            }
+            b=undefined;
+          } else {
+            const currentNode=one(ctx.db,'SELECT n.*,s.node_epoch FROM nodes n JOIN node_binding_state s ON s.node_id=n.node_id WHERE n.node_id=? AND n.owner_id=?',b.node_id,u.owner_id);
+            if(!currentNode) {
+              discardUncommittedBinding(b,u.owner_id);
+              b=undefined;
+            } else if(currentNode.node_epoch!==b.node_epoch) {
+              ctx.db.prepare('UPDATE personal_agent_bindings SET node_epoch=? WHERE binding_id=?').run(currentNode.node_epoch,b.binding_id);
+              b=pa.binding(u.owner_id)!;
+            }
+          }
+        }
+      }
+      const alreadyCommitted=Boolean(b&&(recovered||readAgentProfile(ctx.db,b.agent_id,u.owner_id)));
       let catalog: Awaited<ReturnType<typeof readNodeCapabilitiesRaw>> | undefined;
-      if(!recovered) {
+      if(!alreadyCommitted) {
         const targetNodeId=b ? b.node_id : node.node_id;
         try {
           catalog=await readNodeCapabilitiesRaw(ctx,targetNodeId,u.owner_id,{allowUnboundRequestFallback:true});
@@ -584,7 +628,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         });
         b=pa.binding(u.owner_id)!;
       }
-      if(!recovered) {
+      if(!alreadyCommitted) {
         const personal={bindingId:b.binding_id,ownerId:b.owner_id,conversationId:b.conversation_id,epoch:b.node_epoch};
         const workspaceTools=catalog!.tools!.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
         const tools=[...new Set([...catalog!.tools!.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
@@ -593,7 +637,12 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:bindingScope,default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of paFeatures) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         candidate.tool_allowlist=sanitizeStaticToolAllowlist(candidate.tool_allowlist,'global','personal',workspaceTools);
-        await ops.create(candidate,u.owner_id,b.node_id);
+        try {
+          await ops.create(candidate,u.owner_id,b.node_id);
+        } catch(error) {
+          discardUncommittedBinding(b,u.owner_id);
+          throw error;
+        }
       }
       transaction(ctx.db,()=>{
         const agentUser=ctx.messaging.agentUser(b!.agent_id);
@@ -608,7 +657,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   });
   app.patch('/im/v1/personal-agent',async req=>{
     const u=user(req),b=pa.binding(u.owner_id),name=body(req).display_name;
-    if(!b)fail(404,'personal_agent_not_found');if(typeof name!=='string'||!name.trim()||name.length>80)fail(422,'invalid_name');
+    if(!b||b.status!=='active')fail(404,'personal_agent_not_found');if(typeof name!=='string'||!name.trim()||name.length>80)fail(422,'invalid_name');
     return ops.serialized(b.agent_id,async()=>{
       const candidateFor = (profile: AgentProfileRecord) => ({...profileResponse(profile,true),display_name:name.trim()});
       if (await ops.recoverEdit(b.agent_id,u.owner_id,undefined,candidateFor)) return pa.state(u.owner_id);
@@ -630,7 +679,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
     return u.owner_id;
   };
   app.patch('/im/v1/personal-agent/policy',req=>pa.updatePolicy(settingsOwner(req),body(req)));
-  app.get('/im/v1/personal-agent/sources',req=>{const b=pa.binding(user(req).owner_id);return {policy:b?pa.policy(b.binding_id):null,items:b?pa.sourceConversations(b):[]};});
+  app.get('/im/v1/personal-agent/sources',req=>{const b=pa.binding(user(req).owner_id);return {policy:b?pa.policy(b.binding_id):null,items:b?.status==='active'?pa.sourceConversations(b):[]};});
   app.get('/im/v1/personal-agent/blocked-contacts',req=>pa.blockedContacts(user(req).owner_id));
   app.delete('/im/v1/personal-agent/blocked-contacts/:actorId',req=>pa.unblockContact(settingsOwner(req),params(req).actorId));
   app.get('/im/v1/personal-agent/incidents',req=>pa.incidents(user(req).owner_id));
