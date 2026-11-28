@@ -2,9 +2,10 @@ import { typedRuntimeRequest } from '@nano/product-contracts/runtime-rpc';
 import { appendFileSync, existsSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import { Socket } from 'node:net';
-import { mkdir, mkdtemp, readFile, writeFile, cp, lstat, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, writeFile, cp, lstat, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
+import { backup, DatabaseSync } from 'node:sqlite';
 import type { EvaluationLimits, EvaluationQuestion, RuntimePort, AgentConfiguration as ProductConfiguration } from '@nano/product-contracts';
 import { prepareProfile, RuntimeClient } from '../client.js';
 import { RpcPeer } from '../rpc.js';
@@ -67,6 +68,19 @@ interface SealedCheckpoint {
   chatSnapshot: string;
   identity: DolphinBenchIdentity;
   memoryDigest: string;
+}
+
+async function snapshotSqliteFile(sourcePath: string, checkpointPath: string): Promise<void> {
+  if (!existsSync(sourcePath)) return;
+  const tmpPath = `${checkpointPath}.${process.pid}.tmp`;
+  await rm(tmpPath, { force: true });
+  const db = new DatabaseSync(sourcePath, { readOnly: true });
+  try {
+    await backup(db, tmpPath);
+  } finally {
+    db.close();
+  }
+  await rename(tmpPath, checkpointPath);
 }
 
 async function copyMemoryTree(sourceWorkspace: string, targetWorkspace: string) {
@@ -190,14 +204,18 @@ export class NanoDolphinBenchController {
         sessionId: run.identity.rootSessionId,
         inputId: wakeInputId,
       }) as { terminal?: { kind: string } };
-      // Persist crash-safe chat checkpoint after every completed session.
-      const tmpChat = join(run.dir, 'chat-checkpoint.sqlite.tmp');
-      await rm(tmpChat, { force: true });
-      await run.product.snapshot(tmpChat);
-      await cp(tmpChat, join(run.dir, 'chat-checkpoint.sqlite'), { force: true });
-      await rm(tmpChat, { force: true });
+      const isCompleted = terminal.terminal?.kind === 'completed';
+      if (isCompleted) {
+        // Persist synchronized crash-safe SQLite checkpoints only after a completed turn.
+        const tmpChat = join(run.dir, `chat-checkpoint.sqlite.${process.pid}.tmp`);
+        await rm(tmpChat, { force: true });
+        await run.product.snapshot(tmpChat);
+        await rename(tmpChat, join(run.dir, 'chat-checkpoint.sqlite'));
+        await snapshotSqliteFile(join(run.dir, 'inbox.sqlite'), join(run.dir, 'inbox-checkpoint.sqlite'));
+        await snapshotSqliteFile(join(run.dir, 'node.sqlite'), join(run.dir, 'node-checkpoint.sqlite'));
+      }
       return {
-        status: terminal.terminal?.kind === 'completed' ? 'completed' : 'failed',
+        status: isCompleted ? 'completed' : 'failed',
         terminalKind: terminal.terminal?.kind ?? 'unknown',
         reply: run.deliveries.join('\n\n'),
         deliveries: [...run.deliveries],
@@ -462,8 +480,21 @@ export class NanoDolphinBenchController {
       ],
       knowledge: { ...this.options.knowledge, memoryMode: 'document' },
     };
-    for (const suffix of ['', '-wal', '-shm']) {
-      await rm(join(dir, `chat.sqlite${suffix}`), { force: true });
+    for (const stem of ['chat.sqlite', 'inbox.sqlite', 'node.sqlite']) {
+      for (const suffix of ['', '-wal', '-shm']) {
+        await rm(join(dir, `${stem}${suffix}`), { force: true });
+      }
+    }
+    if (params.stage === 'ingestion') {
+      for (const [ckptName, liveName] of [
+        ['inbox-checkpoint.sqlite', 'inbox.sqlite'],
+        ['node-checkpoint.sqlite', 'node.sqlite'],
+      ] as const) {
+        const ckptPath = join(dir, ckptName);
+        if (existsSync(ckptPath)) {
+          await cp(ckptPath, join(dir, liveName), { force: true });
+        }
+      }
     }
     const product = this.options.createProduct({
       configuration,

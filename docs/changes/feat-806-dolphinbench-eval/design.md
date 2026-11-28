@@ -20,6 +20,16 @@
   - `tests/unit/test_dolphinbench_runner.py`
 - 受影响模块：`@nano/dsh-integration/evaluation`、`evals/dolphinbench`
 
+## 五端对齐矩阵
+
+| 平台 | 处置方式 | 受影响范围与理由 | 下游验证投影 |
+| --- | --- | --- | --- |
+| `Web` | `platform-exempt` | 本单元仅新增离线评测套件（`evals/dolphinbench/`）与隔离评测运行时插件（`@nano/dsh-integration/evaluation`），不涉及任何 Web 客户端界面或接口 | `scripts/check_platform_parity.py` 与 `./scripts/docs-check` |
+| `Desktop (macOS)` | `platform-exempt` | 离线评测工具链变更，不涉及 Tauri 桌面壳层或桌面打包流程 | `scripts/check_platform_parity.py` 与 `./scripts/docs-check` |
+| `Desktop (Windows)` | `platform-exempt` | 离线评测工具链变更，不涉及 Windows 桌面端逻辑或构建脚本 | `scripts/check_platform_parity.py` 与 `./scripts/docs-check` |
+| `iOS` | `platform-exempt` | 离线评测工具链变更，不涉及 iOS 客户端视图、协议或构建产物 | `scripts/check_platform_parity.py` 与 `./scripts/docs-check` |
+| `Node (macOS / Windows / Linux)` | `platform-exempt` | 不修改 `apps/node` 正式节点服务或生产运行配置，评测桥在独立隔离目录中按需拉起临时运行时 | `packages/dsh-integration/tests/dolphinbench-evaluation.test.ts` 与 `tests/unit/test_dolphinbench_runner.py` |
+
 ## 最终结构
 
 ### 组件与职责

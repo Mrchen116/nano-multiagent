@@ -548,6 +548,7 @@ def main() -> None:
                     "limits": limits,
                 },
             )
+            last_completed_ts = resume_ts
 
             sessions_since_recycle = 0
             for idx, spec in enumerate(selected_sessions):
@@ -556,7 +557,6 @@ def main() -> None:
                 if rec_path.exists():
                     continue
                 if sessions_since_recycle >= 250:
-                    cur_ts = parse_iso_ms(spec["narrative_date"], tz_name)
                     sys.stderr.write(
                         f"[recycle:{args.persona}] recycling runtime process at session={sid}...\n"
                     )
@@ -568,13 +568,14 @@ def main() -> None:
                         "openIngestion",
                         {
                             "stateDir": str(state_dir),
-                            "startTimeMs": cur_ts,
+                            "startTimeMs": last_completed_ts,
                             "limits": limits,
                         },
                     )
                     sessions_since_recycle = 0
                 msg = spec["messages"][0].strip()
                 date_str = spec["narrative_date"]
+                session_ts = parse_iso_ms(date_str, tz_name)
                 dated_msg = f"[{date_str}] {msg}"
                 apps = build_apps_spec(
                     dolphin_root,
@@ -586,9 +587,11 @@ def main() -> None:
                     persona_release,
                 )
                 state_json_path = Path(apps["env"]["DOLPHINBENCH_STATE_PATH"])
-                state_backup = (
-                    state_json_path.read_bytes() if state_json_path.exists() else None
-                )
+                state_ckpt_path = state_json_path.with_name("state.json.ckpt")
+                if state_ckpt_path.exists():
+                    shutil.copy2(state_ckpt_path, state_json_path)
+                elif state_json_path.exists():
+                    shutil.copy2(state_json_path, state_ckpt_path)
 
                 last_err: Exception | None = None
                 record: dict[str, Any] | None = None
@@ -601,8 +604,8 @@ def main() -> None:
                         )
                         sys.stderr.flush()
                         time.sleep(delay)
-                        if state_backup is not None:
-                            state_json_path.write_bytes(state_backup)
+                        if state_ckpt_path.exists():
+                            shutil.copy2(state_ckpt_path, state_json_path)
                         Path(apps["env"]["DOLPHINBENCH_LOG_PATH"]).write_text(
                             "", encoding="utf-8"
                         )
@@ -613,7 +616,7 @@ def main() -> None:
                             "openIngestion",
                             {
                                 "stateDir": str(state_dir),
-                                "startTimeMs": parse_iso_ms(date_str, tz_name),
+                                "startTimeMs": last_completed_ts,
                                 "limits": limits,
                             },
                         )
@@ -631,7 +634,7 @@ def main() -> None:
                                 "sessionId": sid,
                                 "windowIndex": idx,
                                 "date": date_str,
-                                "timestampMs": parse_iso_ms(date_str, tz_name),
+                                "timestampMs": session_ts,
                                 "datedMessage": dated_msg,
                                 "apps": apps,
                                 "limits": limits,
@@ -670,6 +673,9 @@ def main() -> None:
                     ) from last_err
 
                 atomic_write_json(rec_path, record)
+                state_ckpt_path.unlink(missing_ok=True)
+                (records_dir / f"{sid}.failed.json").unlink(missing_ok=True)
+                last_completed_ts = max(last_completed_ts, session_ts)
                 sessions_since_recycle += 1
                 dream_n = len(record.get("dreamingRunsBeforeSession") or [])
                 sys.stderr.write(
@@ -699,10 +705,10 @@ def main() -> None:
                 f"[ingest:{args.persona}] reusing existing sealed checkpoint at {checkpoint_path}\n"
             )
 
-        # Aggregate ingestion summary
+        # Aggregate ingestion summary (completed 6-digit session records only)
         ingest_records = [
             json.loads(p.read_text(encoding="utf-8"))
-            for p in sorted(records_dir.glob("*.json"))
+            for p in sorted(records_dir.glob("[0-9][0-9][0-9][0-9][0-9][0-9].json"))
         ]
         freeze_receipt = json.loads(
             (sealed_dir / "freeze-receipt.json").read_text(encoding="utf-8")

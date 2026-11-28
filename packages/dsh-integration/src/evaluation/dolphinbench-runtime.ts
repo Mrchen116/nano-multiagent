@@ -1,6 +1,6 @@
 import { createServer } from 'node:net';
-import { appendFileSync, realpathSync } from 'node:fs';
-import { join, relative, resolve, isAbsolute } from 'node:path';
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import { SESSION_FORMAT_VERSION, Session, SessionId, SessionSeq, snapshotSessionEvent, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence';
@@ -62,6 +62,19 @@ function sanitizeJsonSchema(schema: unknown): Record<string, unknown> {
   return copy;
 }
 
+function resolveExistingOrChildRealpath(targetAbs: string): string {
+  const pendingSegments: string[] = [];
+  let cursor = targetAbs;
+  while (!existsSync(cursor)) {
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    pendingSegments.unshift(relative(parent, cursor));
+    cursor = parent;
+  }
+  const realBase = realpathSync(cursor);
+  return pendingSegments.length ? join(realBase, ...pendingSegments) : realBase;
+}
+
 /** Mount isolated DolphinBench controls: logical clock, window rollover, and per-turn MCP apps.
  *
  * Args:
@@ -69,8 +82,22 @@ function sanitizeJsonSchema(schema: unknown): Record<string, unknown> {
  *   config: Benchmark stage, sandbox roots, budget limits, and control socket path.
  */
 export function apply(ctx: Context, config: DolphinBenchRuntimeConfig) {
+  const clockStatePath = join(config.audit, 'clock-state.json');
+  let persistedConsolidationAt: number | undefined;
+  if (config.stage === 'ingestion' && existsSync(clockStatePath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(clockStatePath, 'utf8')) as { lastConsolidationAt?: number };
+      if (typeof parsed.lastConsolidationAt === 'number') persistedConsolidationAt = parsed.lastConsolidationAt;
+    } catch { /* Ignore corrupt state and fall back to startTime. */ }
+  }
   let logicalTime = config.startTime;
-  let lastConsolidationAt = config.startTime;
+  let lastConsolidationAt = persistedConsolidationAt ?? config.startTime;
+  const saveClockState = () => {
+    writeFileSync(clockStatePath, JSON.stringify({ lastConsolidationAt }, null, 2));
+  };
+  if (config.stage === 'ingestion' && persistedConsolidationAt === undefined) {
+    saveClockState();
+  }
   let inDreaming = false;
   const dreaming = ctx.nanoKnowledge.dreaming;
   if (config.stage === 'ingestion') dreaming.useClock(() => logicalTime);
@@ -178,7 +205,7 @@ export function apply(ctx: Context, config: DolphinBenchRuntimeConfig) {
         const nanoRoot = realpathSync(join(config.workspace, '.nanoassistant'));
         const requested = args.file_path ?? args.path ?? root;
         if (typeof requested !== 'string') throw new Error('Invalid path');
-        const resolved = realpathSync(resolve(config.workspace, requested));
+        const resolved = resolveExistingOrChildRealpath(resolve(config.workspace, requested));
         const inside = (base: string) => { const rel = relative(base, resolved); return !rel.startsWith('..') && !isAbsolute(rel); };
         const listingWorkspaceForMemory = (execution.name === 'glob' || execution.name === 'grep')
           && (resolved === workspaceRoot || resolved === nanoRoot);
@@ -262,6 +289,7 @@ export function apply(ctx: Context, config: DolphinBenchRuntimeConfig) {
             }
             await disposeLiveRoot();
             lastConsolidationAt = stepAt;
+            saveClockState();
             timeline({ event: 'dreaming_end', result: run, modelCalls: dreamCalls - beforeCalls });
             runs.push({
               at: stepAt, state: run?.state, reason: run?.reason,

@@ -158,7 +158,7 @@ def main() -> None:
         progress = {
             p: collect_persona_progress(suite_out / p, p, arms) for p in personas
         }
-        ssd_usage = shutil.disk_usage("/System/Volumes/Data")
+        state_usage = shutil.disk_usage(str(local_state_root))
         out_usage = shutil.disk_usage(str(suite_out))
         payload = {
             "updatedAt": datetime.now(timezone.utc).isoformat(),
@@ -171,7 +171,7 @@ def main() -> None:
             "personaErrors": errors_copy,
             "progress": progress,
             "diskFreeGiB": {
-                "internalSsd": round(ssd_usage.free / (1024**3), 2),
+                "stateVolume": round(state_usage.free / (1024**3), 2),
                 "outputVolume": round(out_usage.free / (1024**3), 2),
             },
         }

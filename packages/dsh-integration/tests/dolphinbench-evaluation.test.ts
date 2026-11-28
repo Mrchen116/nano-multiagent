@@ -241,10 +241,92 @@ it('ingests chronological sessions with MCP tools, rolls windows, dreams at 03:0
       });
       expect(testRes.status).toBe('completed');
       expect(testRes.reply).toBe('Ordered from Blue Bottle');
-      expect(testRes.usage.deniedTools).toBeGreaterThanOrEqual(1);
+      // outsideSecret is always denied (1); memory-only additionally blocks search_messages (2), while missing memory files in search-only are NOT denied (1).
+      expect(testRes.usage.deniedTools).toBe(arm === 'memory-only' ? 2 : 1);
       const loggedCalls = (await readFile(callsLogPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       expect(loggedCalls.some(c => c.name === 'place_coffee_order' && c.args.shop === 'Blue Bottle')).toBe(true);
     }
+  } finally {
+    await controller.closeIngestion();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 90_000);
+
+it('persists dreamMinIntervalDays watermark across runtime recycle/resume and batches multi-day Dreaming', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nano-dolphinbench-interval-'));
+  const outsideSecret = join(root, 'outside-secret.txt');
+  await writeFile(outsideSecret, 'DO_NOT_READ');
+  const { scriptPath, callsLogPath } = await createMockMcpServerScript(root);
+  const pluginPath = await createDeterministicFixturePlugin(root, outsideSecret);
+
+  const makeController = () => new NanoDolphinBenchController({
+    provider: 'fixture',
+    model: 'test',
+    builtinSkillsRoot,
+    timeZone: 'America/Los_Angeles',
+    mcpToolNames: ['list_coffee_shops', 'place_coffee_order'],
+    dreamMinIntervalDays: 3,
+    environment: { NANO_TEST_KEY: 'fixture' },
+    providerPatch: [
+      {
+        id: 'llm-pi-ai',
+        config: {
+          providers: {
+            fixture: {
+              api: 'openai-completions',
+              baseURL: 'http://127.0.0.1:9',
+              apiKeyEnv: 'NANO_TEST_KEY',
+              models: [{ id: 'test' }],
+            },
+          },
+        },
+      },
+      { insert: [{ id: 'dolphinbench-fixture', name: pluginPath }] },
+    ],
+    createProduct: createNanoProduct,
+  });
+
+  const stateDir = join(root, 'state');
+  const apps = { command: process.execPath, args: [scriptPath], env: { MOCK_MCP_LOG: callsLogPath } };
+  const day1Ms = Date.parse('2023-01-09T09:00:00-08:00');
+  const day2Ms = Date.parse('2023-01-10T09:00:00-08:00');
+  const day3Ms = Date.parse('2023-01-11T09:00:00-08:00');
+  const day4Ms = Date.parse('2023-01-12T09:00:00-08:00');
+
+  let controller = makeController();
+  try {
+    await controller.openIngestion(stateDir, day1Ms, testLimits);
+    const s1 = await controller.ingestSession({
+      sessionId: '000001', windowIndex: 0, date: '2023/01/09 09:00', timestampMs: day1Ms,
+      datedMessage: '[2023-01-09] RAW_HISTORY_BLUE_BOTTLE: Day 1.', apps, limits: testLimits,
+    });
+    expect(s1.dreamingRunsBeforeSession).toHaveLength(0);
+
+    const s2 = await controller.ingestSession({
+      sessionId: '000002', windowIndex: 1, date: '2023/01/10 09:00', timestampMs: day2Ms,
+      datedMessage: '[2023-01-10] Day 2.', apps, limits: testLimits,
+    });
+    // Day 2 (< 3 days) defers automatic Dreaming.
+    expect(s2.dreamingRunsBeforeSession).toHaveLength(0);
+
+    // Simulate a process recycle / restart after Day 2!
+    await controller.closeIngestion();
+    controller = makeController();
+    await controller.openIngestion(stateDir, day2Ms, testLimits);
+
+    const s3 = await controller.ingestSession({
+      sessionId: '000003', windowIndex: 2, date: '2023/01/11 09:00', timestampMs: day3Ms,
+      datedMessage: '[2023-01-11] Day 3.', apps, limits: testLimits,
+    });
+    // Day 3 (still < 3 days from Day 1 anchor) must still defer despite restart.
+    expect(s3.dreamingRunsBeforeSession).toHaveLength(0);
+
+    const s4 = await controller.ingestSession({
+      sessionId: '000004', windowIndex: 3, date: '2023/01/12 09:00', timestampMs: day4Ms,
+      datedMessage: '[2023-01-12] Day 4.', apps, limits: testLimits,
+    });
+    // Day 4 (>= 3 days from Day 1 anchor) triggers batched consolidation!
+    expect(s4.dreamingRunsBeforeSession.length).toBeGreaterThanOrEqual(1);
   } finally {
     await controller.closeIngestion();
     await rm(root, { recursive: true, force: true });
