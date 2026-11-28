@@ -163,7 +163,7 @@ export function apply(ctx) {
     const obs = await client.rpc.request('session.observe', { sessionId: 'root' }) as { events: { type: string; data: any }[] };
     const blockedSend = obs.events.find(e => e.type === 'tool/result' && e.data.message.toolCallId === 'send-wf-1');
     expect(blockedSend?.data.message.isError).toBe(true);
-    expect(JSON.stringify(blockedSend?.data.message.content)).toContain('Workflow step executions are managed by workflow');
+    expect(JSON.stringify(blockedSend?.data.message.content)).toContain('Invalid public message');
   } catch (error) {
     throw new Error(`${String(error)}\n${logs}`, { cause: error });
   } finally {

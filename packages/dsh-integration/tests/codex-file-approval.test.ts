@@ -167,7 +167,7 @@ it('uses current approval in both directions when the same child resumes after r
       { timeout:8000 }).toBe(1);
     const childId = (await children())[0]!.id;
     const resume = async (id: string, turns: number, action: Action) => {
-      await submit(client!, id, { name:'send_message', args:{ agent_id:childId, message:message(action) } });
+      await submit(client!, id, { name:'delegate_worker', args:{ action:'send', worker_id:childId, message:message(action) } });
       await expect.poll(async () => (await children()).find(child => child.id === childId)?.events.filter(event => event.type === 'turn/end').length,
         { timeout:8000 }).toBe(turns);
     };

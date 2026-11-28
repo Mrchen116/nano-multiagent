@@ -16,7 +16,7 @@ export const inject = ['nanoWorkers', 'nanoProduct', 'tools', 'systemPrompt', 'a
 /** Mount just the delegation schema so revocation does not replace other Global tools. */
 export const delegation = {name:'nano-global-delegation',inject:['tools','nanoWorkers'],apply(ctx:Context,config:{workerRuntime?:WorkerRuntime;computerUse:boolean}){
   ctx.tools.register({
-    name:'delegate_worker', description:'Delegate a complete matter to a background worker. Start returns its ID. Send a correction or stop the original worker by ID.',
+    name:'delegate_worker', description:'Delegate a complete matter to a background worker, send follow-up instructions/corrections, or stop it by worker_id. Start returns worker_id, runtime, and state. Use read_worker to list or inspect workers.',
     parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string',description:'Required on start. A short, user-visible task title in the user’s language. Name the action and its target.'},message:{type:'string',description:'The full assignment on start, or the follow-up instructions on send.'},worker_id:{type:'string'},...(config.computerUse ? {computer_request_ref:{type:'string',description:'On start or send, pass the owner Inbox/IM message ID (or current) to grant computer_use for this worker activation when the task may need Chrome browsing, desktop apps, or clipboard.'}} : {})},required:['action'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},
     execute:async(args,exec)=>{
@@ -43,7 +43,13 @@ export function apply(ctx: Context, config: { mode?: string; personal?: boolean;
     `You are the long-lived Agent defined above. Work toward your assigned responsibilities and goals, using relevant conversations, memory and execution results to decide what needs attention. Within your responsibilities and authority, initiate useful work and follow through on existing work without waiting for a new request. Collaborate with people and other Agents as peers, and remain responsible for your external communication and results.
 
 Internal coordination
-Handle everyday conversation and small direct actions yourself. Delegate each complete matter that requires investigation and produces an analysis, document or implementation to one background, continuable worker using delegate_worker(action="start", label, message). Send a correction to the same worker with action="send" and its worker_id. Use action="stop" when asked to stop that matter.
+Handle everyday conversation and small direct actions yourself. Delegate each complete matter that requires investigation and produces an analysis, document or implementation to one background, continuable worker using delegate_worker(action="start", label, message). Send a correction or follow-up to the same worker with delegate_worker(action="send", worker_id, message). Use delegate_worker(action="stop", worker_id) when asked to stop that matter. Never use send_message for internal workers; send_message is exclusively for public IM conversations.
+
+Use read_worker(action="list"|"summary"|"read") for read-only inspection of all first-level workers you dispatched (across DSH and external CLI runtimes) without interrupting or waking them.
+- After dispatching or sending follow-up instructions, continue other work or end the turn—never poll running workers with read_worker or send "continue". Workers wake you automatically on completion or actionable questions (and terminal wakeups include turn and token usage).
+- When a user asks for a progress update, call read_worker(action="summary", worker_id) (calling action="list" first only if you do not have the worker_id) at most once, reply concisely, and end the turn. Do not call read_worker(action="read", view="activity") for routine progress questions.
+- When a worker returns a clear, complete final report, deliver the result directly—do not re-read its trajectory.
+- Reserve read_worker(action="read") for diagnosing a failure or interruption, checking a concrete gap or missing command/tool error output in a vague or incomplete report (use view="activity" directly when you need the worker's actual tool/stderr output rather than guessing or spawning a duplicate worker), or recovering context after compaction or restart. Default to view="messages" unless tool output is needed, read only the bounded slice you need, and do not repeatedly re-read the same worker's activity.
 
 Ordinary subagents work in your workspace by default and receive its repository instructions. They do not inherit your conversations or memory and cannot query product chats, read your Inbox, or send public product messages. For user requests and follow-ups, quote the relevant original words verbatim and include the context and usable materials the executor needs. Identify the speaker in plain language when it matters. Keep IM conversation, user and message IDs in your own routing records. Omit the default workspace, repository instructions and tool restrictions from the handoff. Make clear the worker itself is executing the delegated matter, and do not pre-restrict user-requested actions to default sandbox paths or forbid runtime permission requests—the host handles worker tool approvals (including owner approval cards for external workers) while you cannot grant tool permissions yourself. State the goal, task-specific constraints and expected deliverable.
 
@@ -105,29 +111,81 @@ Respect denials; do not repeat the rejected action through another tool, channel
     { name: 'download_attachment', description: 'Download an authorized Nano IM file or image attachment by its short attachment_id (<= 8 chars, e.g. a_xxxxxx) from inbox, read_messages, search_messages, or an inbound message into your managed local download directory; returns local_path, file_name, content_type, byte_size, and sha256. Root main Agent only.', parameters: {
       type: 'object', properties: { attachment_id: { type: 'string', minLength: 1, description: 'Short attachment_id (e.g. a_xxxxxx) from inbox, read_messages, search_messages, or an inbound message.' } }, required: ['attachment_id'], additionalProperties: false,
     } },
-    { name: 'send_message', description: 'Send a public message as yourself to a writable chat (<chat_id>), thread (<chat_id>:<root_id>), user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. To send local images to Nano IM, pass local_images; to send general local files (<= 25 MiB), pass local_files; to embed live synchronized task cards in Nano IM, pass task_cards=[{graph_id, node_id}]. If the result is unknown, check receipt_of using the returned operation_id. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent/message fields to continue a subagent in your subagent tree or report to your parent; that returns native input acceptance, not public delivery.', parameters: {
-      type: 'object', properties: { ...screenshotMessageProperties, agent: { type: 'string', description: 'The name or id of another agent in your subagent tree, as shown by list_agents.' }, agent_id: { type: 'string', description: 'Legacy alias for agent; pass agent instead and never combine both.' }, message: { type: 'string' } }, oneOf: [
-        { required: ['target'], anyOf: screenshotMessageParameters.anyOf },
-        { required: ['agent', 'message'], not: { anyOf: [{required:['target']}, {required:['agent_id']}, {required:['interactive']}, {required:['task_cards']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } },
-        { required: ['agent_id', 'message'], not: { anyOf: [{required:['target']}, {required:['agent']}, {required:['interactive']}, {required:['task_cards']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } },
-      ], additionalProperties: false,
+    { name: 'read_worker', description: 'Read-only inspection of first-level background workers you dispatched across all runtimes (DSH, Codex, Claude, Antigravity) without interrupting or waking them. Use action="list" to find worker IDs, action="summary" (preferred for progress questions) for lightweight status, usage, recent milestones, and latest report/error, and action="read" ONLY when diagnosing a failure or vague/incomplete report (view="messages" default; use view="activity" when you need the worker\'s actual tool/command output instead of guessing or re-running) or recovering after restart/compaction. Never use read_worker to poll running workers after dispatch or to re-read full activity after a clear final report.', parameters: {
+      type: 'object', properties: {
+        action: { type: 'string', enum: ['list', 'summary', 'read'], description: 'list: list your first-level workers across all runtimes; summary: lightweight status, turn/token usage, recent milestones, and latest report/error for one worker; read: bounded messages or tool activity for targeted diagnosis or recovery.' },
+        worker_id: { type: 'string', description: 'Required for summary and read. Stable worker_id returned by delegate_worker(start) or read_worker(list).' },
+        status: { type: 'string', enum: ['all', 'active', 'terminal'], description: 'Optional filter for list: all (default), active (starting/running), or terminal (completed/failed/interrupted).' },
+        view: { type: 'string', enum: ['messages', 'activity'], description: 'For read page mode only: messages (default — parent prompts, worker replies/reports, system notices) or activity (adds compact tool call/result entries). Prefer messages before activity.' },
+        item_id: { type: 'string', description: 'For read continuation mode only: fetch the next slice of one truncated item_id; pair with text_offset. Cannot be combined with cursor or limit.' },
+        text_offset: { type: 'integer', minimum: 0, description: 'Character offset for continuing a single truncated item_id in read.' },
+        cursor: { type: 'string', description: 'Opaque pagination cursor (next_cursor from a previous list or read response) to continue reading older items.' },
+        limit: { type: 'integer', minimum: 1, maximum: 30, description: 'Optional page size (list: default 10, max 30; read: default 10 for messages, 12 for activity, max 30; also capped by byte budget).' },
+      }, required: ['action'], additionalProperties: false,
     } },
+    config.mode === 'global'
+      ? { name: 'send_message', description: 'Send a public message as yourself to a writable chat (<chat_id>), thread (<chat_id>:<root_id>), user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. To send local images to Nano IM, pass local_images; to send general local files (<= 25 MiB), pass local_files; to embed live synchronized task cards in Nano IM, pass task_cards=[{graph_id, node_id}]. If the result is unknown, check receipt_of using the returned operation_id. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Never use send_message for background workers; use delegate_worker(action="send", worker_id, message) instead.', parameters: screenshotMessageParameters }
+      : { name: 'send_message', description: 'Send a public message as yourself to a writable chat (<chat_id>), thread (<chat_id>:<root_id>), user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. To send local images to Nano IM, pass local_images; to send general local files (<= 25 MiB), pass local_files; to embed live synchronized task cards in Nano IM, pass task_cards=[{graph_id, node_id}]. If the result is unknown, check receipt_of using the returned operation_id. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent/message fields to continue a subagent in your subagent tree or report to your parent; that returns native input acceptance, not public delivery.', parameters: {
+        type: 'object', properties: { ...screenshotMessageProperties, agent: { type: 'string', description: 'The name or id of another agent in your subagent tree, as shown by list_agents.' }, agent_id: { type: 'string', description: 'Legacy alias for agent; pass agent instead and never combine both.' }, message: { type: 'string' } }, oneOf: [
+          { required: ['target'], anyOf: screenshotMessageParameters.anyOf },
+          { required: ['agent', 'message'], not: { anyOf: [{required:['target']}, {required:['agent_id']}, {required:['interactive']}, {required:['task_cards']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } },
+          { required: ['agent_id', 'message'], not: { anyOf: [{required:['target']}, {required:['agent']}, {required:['interactive']}, {required:['task_cards']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } },
+        ], additionalProperties: false,
+      } },
   ];
-  for (const tool of tools.filter(tool => config.mode === 'global' || tool.name !== 'inbox')) ctx.tools.register({ ...tool,
+  for (const tool of tools.filter(tool => config.mode === 'global' || (tool.name !== 'inbox' && tool.name !== 'read_worker'))) ctx.tools.register({ ...tool,
     output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => tool.name === 'inbox'
       ? (value as unknown as { content: ContentBlock[] }).content : [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async (args, exec) => {
-      const internalAgent = (args as { agent?: unknown; agent_id?: unknown }).agent ?? (args as { agent_id?: unknown }).agent_id;
-      if (tool.name === 'send_message' && typeof internalAgent === 'string') {
-        if ((args as { interactive?: unknown }).interactive !== undefined || (args as { task_cards?: unknown }).task_cards !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined || (args as {local_images?:unknown}).local_images !== undefined || (args as {local_files?:unknown}).local_files !== undefined || (args as {receipt_of?:unknown}).receipt_of !== undefined) throw new Error('Interactive, task_cards, quoted replies, and local attachments require a public target');
-        const message = (args as { message: string }).message;
-        if(config.mode==='global' && exec.agent && await ctx.nanoWorkers.isWorker(internalAgent))
-          return ctx.nanoWorkers.control(exec.agent,internalAgent,'send',message,exec.signal,exec.callId);
-        const wf = ctx.get('workflowEngine') as { isWorkChild?: (parentId: string, target: string, parent?: unknown) => Promise<boolean> } | undefined;
-        if (exec.agent && await wf?.isWorkChild?.(exec.agent.id, internalAgent, exec.agent))
-          throw new Error('Workflow step executions are managed by workflow(action="resume"), not send_message');
-        if (!nativeSend) throw new Error('Native child communication is unavailable');
-        return nativeSend.execute({ agent: internalAgent, message }, exec);
+      if (tool.name === 'read_worker') {
+        const input = args as {
+          action: 'list' | 'summary' | 'read';
+          worker_id?: string;
+          status?: 'all' | 'active' | 'terminal';
+          view?: 'messages' | 'activity';
+          item_id?: string;
+          text_offset?: number;
+          cursor?: string;
+          limit?: number;
+        };
+        if (input.action === 'list') {
+          if (input.worker_id !== undefined || input.view !== undefined || input.item_id !== undefined || input.text_offset !== undefined) {
+            throw new Error('list accepts only status, cursor, and limit');
+          }
+          return ctx.nanoWorkers.inspector.list(exec.agent, { status: input.status, cursor: input.cursor, limit: input.limit });
+        }
+        if (input.action === 'summary') {
+          if (!input.worker_id?.trim()) throw new Error('summary requires worker_id');
+          if (input.status !== undefined || input.view !== undefined || input.item_id !== undefined || input.text_offset !== undefined || input.cursor !== undefined || input.limit !== undefined) {
+            throw new Error('summary accepts only worker_id');
+          }
+          return ctx.nanoWorkers.inspector.summary(exec.agent, input.worker_id);
+        }
+        if (input.action === 'read') {
+          if (!input.worker_id?.trim()) throw new Error('read requires worker_id');
+          if (input.status !== undefined) throw new Error('status is only valid for list');
+          return ctx.nanoWorkers.inspector.read(exec.agent, {
+            workerId: input.worker_id,
+            view: input.view,
+            itemId: input.item_id,
+            textOffset: input.text_offset,
+            cursor: input.cursor,
+            limit: input.limit,
+          });
+        }
+        throw new Error('action must be list, summary, or read');
+      }
+      if (tool.name === 'send_message' && config.mode !== 'global') {
+        const internalAgent = (args as { agent?: unknown; agent_id?: unknown }).agent ?? (args as { agent_id?: unknown }).agent_id;
+        if (typeof internalAgent === 'string') {
+          if ((args as { interactive?: unknown }).interactive !== undefined || (args as { task_cards?: unknown }).task_cards !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined || (args as {local_images?:unknown}).local_images !== undefined || (args as {local_files?:unknown}).local_files !== undefined || (args as {receipt_of?:unknown}).receipt_of !== undefined) throw new Error('Interactive, task_cards, quoted replies, and local attachments require a public target');
+          const message = (args as { message: string }).message;
+          const wf = ctx.get('workflowEngine') as { isWorkChild?: (parentId: string, target: string, parent?: unknown) => Promise<boolean> } | undefined;
+          if (exec.agent && await wf?.isWorkChild?.(exec.agent.id, internalAgent, exec.agent))
+            throw new Error('Workflow step executions are managed by workflow(action="resume"), not send_message');
+          if (!nativeSend) throw new Error('Native child communication is unavailable');
+          return nativeSend.execute({ agent: internalAgent, message }, exec);
+        }
       }
       const result = await ctx.nanoProduct.call(tool.name, tool.name === 'send_message' ? normalizeMessageArguments(args, true) : args, exec);
       if (tool.name !== 'inbox') return result;
